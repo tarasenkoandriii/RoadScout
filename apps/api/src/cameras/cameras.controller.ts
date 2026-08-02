@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, Redirect, UseGuards } from '@nestjs/common';
 import { CamerasService } from './cameras.service';
 import { CreateCameraDto } from './dto/create-camera.dto';
 import { CalibrateCameraDto, UpdateCameraDto } from './dto/update-camera.dto';
@@ -9,6 +9,15 @@ import { CronSecretGuard } from '../scraper/guards/cron-secret.guard';
 @Controller()
 export class CamerasController {
   constructor(private readonly camerasService: CamerasService) {}
+
+  // За прямим запитом користувача — раніше GET / повертав дефолтний Express/NestJS 404
+  // ("Cannot GET /"), бо в API взагалі не було жодного маршруту на корінь (це нормально для
+  // чистого API-бекенду, але незручно, якщо хтось відкриває сам API-домен у браузері).
+  // Редирект саме на GET-ендпоінт списку камер (JSON, не HTML-сторінку адмінки — та
+  // лежить в окремому Next.js-застосунку apps/admin, іншому Vercel-деплої).
+  @Get()
+  @Redirect('/admin/cameras', 302)
+  redirectToCamerasList() {}
 
   // Ембед-віджет для сторонніх сайтів/блогерів (див. doc/README.md, "Ембед-віджет") —
   // навмисно БЕЗ TelegramAuthGuard: сторінка вбудовується на чужому сайті, у відвідувача
