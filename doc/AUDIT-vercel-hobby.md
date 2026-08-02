@@ -14,15 +14,20 @@ Vercel поддерживает NestJS zero-config: приложение обо�
 
 Текущий официальный лимит Hobby — **300 секунд (5 минут)** на функцию (это не старые 10с из более ранних версий документации Vercel, которые до сих пор гуляют по гайдам в интернете). Этого с запасом хватает на один проход парсера по одному источнику.
 
-**Важно:** по умолчанию лимит может быть ниже, если явно не указать `maxDuration`. Уже прописано в `apps/api/vercel.json`:
+**⚠️ ИСПРАВЛЕНО (реальная ошибка, найденная на живом деплое пользователя) —**
+раньше здесь было написано, что `maxDuration` задаётся через `apps/api/vercel.json`
+(`{"functions": {"src/main.ts": {"maxDuration": 300}}}`). Это оказалось НЕВЕРНО: реальный
+деплой упал с ошибкой `The pattern "src/main.ts" defined in \`functions\` doesn't match any
+Serverless Functions inside the \`api\` directory`. Причина — при zero-config деплое NestJS
+Vercel оборачивает всё приложение в ОДНУ функцию, но реальный путь этой функции ПОСЛЕ сборки
+не совпадает с исходным файлом `src/main.ts` (подтверждено официальной документацией Vercel:
+"With Fluid compute enabled, set memory in the Functions section of your project dashboard,
+not in vercel.json" — тот же принцип применим и к длительности для zero-config бэкендов).
 
-```json
-{
-  "functions": {
-    "src/main.ts": { "maxDuration": 300 }
-  }
-}
-```
+**Правильный способ** — `apps/api/vercel.json` теперь пустой (только `$schema`), а
+`maxDuration` задаётся через **Project Settings → Functions** в дашборде Vercel (поле Default
+Function Duration/аналог) — 300 секунд, тот же лимит Hobby, что и раньше, просто через
+правильный интерфейс.
 
 **Что может не влезть в 300с:** `processItem()` в `scraper.service.ts` обрабатывает камеры последовательно (discover → geocode → Overpass-эвристика на каждую), без параллелизма. Если один каталог отдаёт много новых камер за один проход — суммарное время может приблизиться к лимиту. Пока в MVP это не проблема (ожидаемые объёмы небольшие), но при росте реестра стоит либо ограничить число обрабатываемых айтемов за один вызов (пагинация discover + несколько последовательных cron-хитов), либо распараллелить geocode/Overpass-запросы с `Promise.all` батчами.
 
@@ -52,7 +57,7 @@ Vercel поддерживает NestJS zero-config: приложение обо�
 | Проверка | Статус |
 |---|---|
 | NestJS entrypoint (`src/main.ts`) распознаётся Vercel | ✅ |
-| `maxDuration: 300` достаточно для одного прохода парсера | ✅ (с оговоркой п.2 при росте объёма) |
+| `maxDuration: 300` (через Project Settings → Functions, не через `vercel.json` — см. исправление в п.2) достаточно для одного прохода парсера | ✅ (с оговоркой п.2 при росте объёма) |
 | Cron не завязан на лимиты Vercel Cron | ✅ (используется Supabase pg_cron) |
 | Prisma настроен на пулер + directUrl для миграций | ✅ (уже в `.env.example`/`schema.prisma`) |
 | Размер бандла в пределах лимита | ✅ пока адаптеры на cheerio; Playwright — риск, см. п.5 |
