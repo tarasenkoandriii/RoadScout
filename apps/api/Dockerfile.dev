@@ -1,0 +1,37 @@
+# node:20-alpine -> node:20-slim (Debian, glibc): Prisma's musl-target engines on Alpine are
+# second-tier-supported and regularly break with newer OpenSSL/Alpine combos — the classic
+# symptom is exactly "prisma:warn Prisma failed to detect the libssl/openssl version... /
+# Error: Could not parse schema engine response: SyntaxError: Unexpected token 'E', 'Error
+# load'... is not valid JSON" (the schema-engine binary itself fails to start — a missing shared
+# library error gets printed to stdout instead of JSON, and Prisma's JSON parser chokes on it).
+# Debian + the explicit `binaryTargets` in schema.prisma (native + debian-openssl-3.0.x) is the
+# combination Prisma documents as reliable; openssl is still installed explicitly below as
+# belt-and-suspenders (Debian slim images don't always ship it by default).
+FROM node:20-slim
+
+# ca-certificates: Prisma's engine downloader and the app's own outbound HTTPS calls
+# (geocoding, Open-Meteo, xAI, Telegram, etc.) need a valid CA bundle on a "slim" base image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN npx prisma generate
+
+# Автоматический прогон схемы/сидов при каждом старте контейнера — см.
+# scripts/docker-entrypoint.sh и doc/README.md, "Локальная разработка".
+EXPOSE 3000
+
+# ENTRYPOINT вызывает скрипт через `sh` явно (не полагаясь на его собственный исполняемый бит):
+# бит "x" на файле легко теряется при архивировании в zip/распаковке на другой ОС (особенно
+# Windows) или из-за docker-compose bind-mount'а (./apps/api:/app перекрывает то, что было
+# проставлено RUN chmod +x на этапе сборки образа, правами хоста). `sh scripts/...` работает
+# независимо от того, исполняемый файл или нет — нужно, чтобы был исполняемым только сам `sh`,
+# а он есть в любом Linux-образе всегда.
+ENTRYPOINT ["sh", "scripts/docker-entrypoint.sh"]
+CMD ["npm", "run", "start:dev"]

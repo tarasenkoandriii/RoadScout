@@ -1,0 +1,755 @@
+// binaryTargets: явно перечисляем движки вместо того, чтобы полагаться на автоопределение
+// Prisma (см. doc/README.md, "Известные упрощения" — auto-detect регулярно ломается в Docker,
+// особенно на Alpine/musl с новыми версиями OpenSSL, и падает с "Could not parse schema engine
+// response" вместо понятной ошибки). "native" — для локальной разработки вне контейнера
+// (macOS/Windows/обычный Linux хост); "debian-openssl-3.0.x" — под контейнер apps/api
+// (Dockerfile.dev теперь на node:20-slim/Debian, не Alpine — см. комментарий там же).
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // required for migrations when DATABASE_URL goes through a pooler (Supabase PgBouncer)
+}
+
+model TelegramUser {
+  id          String   @id @default(cuid())
+  telegramId  String   @unique
+  firstName   String
+  lastName    String?
+  username    String?
+  photoUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Поддержка всех городов Украины (не только Киев) — см. doc/README.md, раздел "Города Украины".
+// Плюс приграничные регионы соседних стран (см. раздел "Соседние страны") — countryCode
+// отличает украинские города (UA, дефолт — обратная совместимость со старыми записями) от
+// приграничных городов Польши/Словакии/Венгрии/Румынии/Молдовы.
+// Один City = один город-справочник: центр для гео-подсказки/дефолтного центра карты + погоды,
+// и (опционально) сегмент пути на webcam.guru.ua для WebcamGuruAdapter (только для UA — этот
+// источник камер украинский, для соседних стран адаптер камер пока не подключён, см. README).
+model City {
+  id             String           @id @default(cuid())
+  name           String // "Київ" — отображается в выпадающем списке
+  slug           String           @unique // "kyiv" — используется в запросах фронтенда/URL
+  lat            Float
+  lng            Float
+  region         String? // область/воєводство/жупа и т.п., например "Львівська область" — для отображения/погоды
+  // ISO 3166-1 alpha-2, например "UA"/"PL"/"SK"/"HU"/"RO"/"MD". Дефолт "UA" — все существующие
+  // до этого поля города считались украинскими (не нужна миграция данных).
+  countryCode    String           @default("UA")
+  // Название страны на украинском для гео-подсказки геокодинга и отображения в UI, например
+  // "Польща". Null для UA (там страна не добавляется отдельным словом — см. GeocodingService).
+  countryName    String?
+  // Сегмент пути города на webcam.guru.ua (см. WebcamGuruAdapter), например "lvov" для
+  // https://webcam.guru.ua/city/lvov/. Null, если у города нет источника через этот адаптер
+  // (в т.ч. всегда null для не-UA городов — см. комментарий класса выше).
+  // NOTE: сверить реальные слаги на сайте перед включением города в проде — placeholder-ы
+  // ниже (см. sql-сид/README) могут не совпадать 1:1 с текущей структурой сайта.
+  webcamGuruSlug String?
+  providers      CameraProvider[]
+  cameras        Camera[]
+  aggregatorSiteCandidates AggregatorSiteCandidate[]
+  createdAt      DateTime         @default(now())
+
+  @@index([slug])
+  @@index([countryCode])
+}
+
+// Кандидати сайти-агрегатори камер (див. запит користувача: "для результатов поиска сайтов
+// агрегаторов создать новую вкладку в админке") — НЕ камери для імпорту, а знайдені через
+// пошук (Grok web_search) сайти-каталоги, які самі перелічують багато камер одного міста
+// (типу webcam.guru.ua) — кандидати на майбутню розробку окремого парсера під кожен, за тим
+// самим принципом П0-дослідження, що вже описаний у doc/TZ-official-open-data-cameras.md.
+model AggregatorSiteCandidate {
+  id                   String    @id @default(cuid())
+  url                  String    @unique
+  title                String?
+  cityId               String?
+  city                 City?     @relation(fields: [cityId], references: [id])
+  // Оцінка кількості камер на сайті — з тексту сніпета пошуку (Grok) або з реального відвідування
+  // сторінки (AggregatorDiscoveryService.refineEstimate(), через VPN — наш сервер сам ходить на
+  // сайт, на відміну від самого пошуку, який виконується на серверах xAI).
+  estimatedCameraCount Int?
+  estimationMethod     String?   // 'search_snippet' | 'page_visit' | null (ще не оцінено)
+  status               String    @default("NEW") // NEW | REVIEWED | ADAPTER_BUILT | REJECTED
+  discoveredAt         DateTime  @default(now())
+  lastCheckedAt        DateTime?
+
+  @@index([cityId])
+  @@index([status])
+}
+
+model CameraProvider {
+  id         String            @id @default(cuid())
+  name       String
+  baseUrl    String
+  adapterKey String            @unique // maps to key in ScraperService.adapters, e.g. "webcam-guru"
+  // Город, к которому привязан этот конкретный экземпляр провайдера (для мульти-city
+  // адаптеров вроде WebcamGuruAdapter — один CameraProvider на город, см. ScraperService).
+  // Null для провайдеров, не привязанных к конкретному городу.
+  city       City?             @relation(fields: [cityId], references: [id])
+  cityId     String?
+  cameras    Camera[]
+  rawItems   CameraSourceRaw[]
+  runLogs    ParserRunLog[]
+  importLogEntries ImportLogEntry[]
+  // Для надійного сортування списку провайдерів в адмінці (наприклад, "NYC TMC першим у
+  // списку парсерів" — див. запит користувача) — без явного createdAt порядок неупорядкованого
+  // findMany() у Postgres хоч і зазвичай збігається з порядком вставки рядків для простого
+  // сканування, але це не гарантія, а побічний ефект плану виконання запиту.
+  createdAt  DateTime          @default(now())
+}
+
+model Camera {
+  id            String           @id @default(cuid())
+  name          String
+  provider      CameraProvider   @relation(fields: [providerId], references: [id])
+  providerId    String
+  streamUrl     String
+  streamType    StreamType
+  // Камери всередині приміщень (див. doc/README.md, "Камери всередині приміщень") — камера
+  // Введенського храму послугувала першим реальним прикладом: показує інтер'єр, а не вулицю,
+  // тому azimuth/fovAngle/rangeMeters для неї не мають фізичного сенсу (немає "напрямку
+  // огляду вулиці", який можна перетнути з адресою). INDOOR-камери виключаються з пошуку за
+  // сектором (CamerasService.searchByAddress/findAtPoint), але видно окремо — див.
+  // findIndoorNearby() (проста перевірка відстані, не сектор).
+  locationType  CameraLocationType @default(OUTDOOR)
+  // For STATIONARY cameras these are the real, fixed position/heading.
+  // For FIXED_ROUTE cameras these are a *static fallback* only (initial/depot position) —
+  // the real-time position is computed on every request by FixedRoutePositionService
+  // from routeGeometry/routeMode (see глава 16–18 ТЗ). fovAngle/rangeMeters stay static
+  // even for FIXED_ROUTE — they describe the physical camera mount, not its position.
+  lat           Float
+  lng           Float
+  azimuth       Float
+  // Откуда взято значение azimuth (см. doc/TZ-parser-import-improvements.md, П2.1) —
+  // "heuristic" (реальная эвристика по ближайшей дороге через Overpass API), "fallback"
+  // (эвристика не сработала/дорога не найдена — использован дефолт azimuth:0), "manual"
+  // (админ задал вручную — через очередь ревью или инструмент калибровки). Nullable для
+  // обратной совместимости со старыми записями до введения этого поля — не значит, что
+  // источник неизвестен, значит "запись создана до того, как это стало отслеживаться".
+  azimuthSource String?
+  fovAngle      Float
+  rangeMeters   Int
+  heightMeters  Float?
+  confidence    CameraConfidence @default(ESTIMATED)
+  status        CameraStatus     @default(UNKNOWN)
+  delaySeconds  Int?
+  lastCheckedAt DateTime?
+  lastSnapshotHash String?       // sha1 of the last MJPEG snapshot, used to detect frozen feeds
+  district      String?
+  notes         String?
+
+  // Soft delete (див. запит користувача — по всьому проєкту камери видаляються НЕ фізично, а
+  // позначаються видаленими): null = активна камера, timestamp = коли позначена видаленою.
+  // Усі списки/пошук/моніторинг/статистика мають фільтрувати deletedAt: null — див.
+  // doc/AUDIT-camera-soft-delete.md за повним списком місць, де це застосовано.
+  deletedAt     DateTime?
+
+  // Город камеры (см. модель City) — проставляется при импорте из providerId.cityId
+  // (ScraperService.processItem) либо вручную при создании через админку. Nullable для
+  // обратной совместимости со старыми записями до введения мульти-city (все они — Киев,
+  // см. sql-сид миграции в doc/README.md).
+  city   City?   @relation(fields: [cityId], references: [id])
+  cityId String?
+
+  // --- Глава 16–18: FIXED_ROUTE — камеры на транспорте с известным маршрутом ---
+  mobilityType        MobilityType @default(STATIONARY)
+  routeGeometry       Json?        // LineString as [{lat,lng}, ...] in travel order, required if mobilityType=FIXED_ROUTE
+  routeLengthMeters   Float?       // cached length of routeGeometry (avoids recomputing haversine sum every request)
+  routeMode           RouteMode?   // LOOP | TIMETABLE | LIVE_GPS — required if mobilityType=FIXED_ROUTE
+  routeSchedule       Json?        // TIMETABLE only: { "departures": ["06:20","06:50",...] } — daily, local server time
+  averageSpeed        Float?       // m/s — used by LOOP (phase calc) and TIMETABLE (position-since-departure calc)
+  routeStartedAt      DateTime?    // LOOP only: phase reference point ("t=0" of the loop), arbitrary but fixed
+  currentOffsetMeters Float?       // last computed offset along route — debug/admin display only, not authoritative
+  currentAzimuth      Float?       // last computed azimuth — debug/admin display only, not authoritative
+  // LIVE_GPS ingestion (pushed by carrier feed via /internal/fixed-route/:id/live-position)
+  liveGpsLat          Float?
+  liveGpsLng          Float?
+  liveGpsSpeed        Float?
+  liveGpsUpdatedAt    DateTime?
+
+  // Колонки PostGIS geometry, которыми управляет ИСКЛЮЧИТЕЛЬНО сырой SQL
+  // (sql/geo-migration.sql, sql/route-migration.sql) — Prisma не имеет нативного типа
+  // geometry, поэтому чтение/запись всегда идёт через $queryRaw/$executeRawUnsafe (см.
+  // syncCameraPolygon/syncCameraRoutePolygon в common/geometry.util.ts и
+  // findCandidatesNearPoint в CamerasService), а не через обычный Prisma Client API.
+  //
+  // ВАЖНО: Unsupported(...) здесь — не декоративный комментарий, а обязательное объявление.
+  // Без него `prisma db push` не знает об этих колонках вообще (они не описаны в схеме) и при
+  // каждом запуске пытается их УДАЛИТЬ как "лишние" — что молча ломает весь геопоиск, как
+  // только колонка содержит реальные данные (см. doc/AUDIT-postgis-unsupported-fields.md —
+  // реальный инцидент: `db push` отказался удалять fov_polygon с 16 непустыми значениями и
+  // упал в бесконечный рестарт-цикл, `--accept-data-loss` был бы НЕПРАВИЛЬНЫМ фиксом — тихо
+  // снёс бы саму колонку геопоиска).
+  fov_polygon           Unsupported("geometry(Polygon, 4326)")?
+  route_buffer_polygon  Unsupported("geometry(Polygon, 4326)")?
+  route_line            Unsupported("geometry(LineString, 4326)")?
+
+  createdAt     DateTime         @default(now())
+  // Автокалібрування пачками по 10 (див. запит користувача: "выбирать по 10 камер и
+  // пытаться калибровать через ии") — коли останній раз для цієї камери намагались викликати
+  // AI-автокалібрування, незалежно від результату (навіть якщо AI не був упевнений). Дозволяє
+  // черзі "наступні 10 для спроби" рухатись вперед по всьому реєстру замість того, щоб
+  // нескінченно повторювати спробу на тих самих кількох камерах, де AI щоразу невпевнений.
+  lastAutoCalibrationAttemptAt DateTime?
+  // За прямим запитом користувача — лічильник спроб автокалібрування (незалежно від того, чи
+  // AI зрештою дав достатню впевненість для VERIFIED). Використовується як ГОЛОВНИЙ пріоритет
+  // вибору камер для наступної пачки (менше спроб — раніше в черзі) — забезпечує рівномірний
+  // розподіл AI-спроб по ВСЬОМУ реєстру, а не лише по часу останньої спроби (дві камери, чиї
+  // timestamp'и оновились в одній і тій самій пачці одночасно, і далі коректно розрізняються
+  // за кількістю реальних спроб при подальших вибірках).
+  autoCalibrationAttemptCount  Int              @default(0)
+  // За прямим запитом користувача — зберігаємо ПОВНИЙ результат останньої спроби AI-
+  // калібрування (не лише застосовані значення) для подальшого навчання ревьюверів/операторів
+  // і дебагу — включно з reasoning-текстом, навіть коли AI не був упевнений достатньо, щоб
+  // застосувати результат автоматично. JSON, а не окремі поля — гнучкіше додавати нові
+  // діагностичні поля пізніше без нової міграції щоразу.
+  // Форма: { suggestedAzimuth, suggestedFovAngle, suggestedRangeMeters, confidence, reasoning,
+  //          checkedAt, source: 'manual' | 'auto-batch-sync' | 'auto-batch-async' }
+  lastAiCalibrationSuggestion  Json?
+  updatedAt     DateTime         @updatedAt
+
+  @@index([cityId])
+  @@index([deletedAt])
+}
+
+model CameraSourceRaw {
+  id                String         @id @default(cuid())
+  providerId        String
+  provider          CameraProvider @relation(fields: [providerId], references: [id])
+  externalId        String
+  sourcePageUrl     String
+  rawTitle          String
+  rawLocationText   String?
+  rawStreamUrl      String?
+  guessedLat        Float?
+  guessedLng        Float?
+  geocodeConfidence Float?
+  importStatus      ImportStatus   @default(PENDING)
+  cameraId          String?
+  scrapedAt         DateTime       @default(now())
+  // Ручное ревью (см. doc/TZ-parser-import-improvements.md, П1.1) — заполняются при
+  // POST /admin/parser/source-raw/:id/resolve|reject, тот же паттерн, что у остальных очередей
+  // модерации проекта (HomeAddressVerification/CameraSubmission).
+  reviewedByTelegramId String?
+  reviewedAt           DateTime?
+  rejectionReason      String?
+
+  @@unique([providerId, externalId])
+  @@index([importStatus, scrapedAt])
+}
+
+// One row per parser pass (cron or manual) — the "лог крона с результатами"
+model ParserRunLog {
+  id                String            @id @default(cuid())
+  providerId        String
+  provider          CameraProvider    @relation(fields: [providerId], references: [id])
+  status            RunStatus         @default(RUNNING)
+  triggeredBy       String            // 'cron' | 'manual'
+  startedAt         DateTime          @default(now())
+  finishedAt        DateTime?
+  durationMs        Int?
+  discoveredCount   Int               @default(0)
+  newCount          Int               @default(0)
+  updatedCount      Int               @default(0)
+  geocodedCount     Int               @default(0)
+  autoImportedCount Int               @default(0)
+  needsReviewCount  Int               @default(0)
+  rejectedCount     Int               @default(0)
+  errorCount        Int               @default(0)
+  errorMessage      String?
+  // Health-сигнал (см. doc/TZ-parser-import-improvements.md, П2.3) — true, если discoveredCount
+  // этого прохода заметно отличается (в любую сторону) от скользящего среднего последних
+  // успешных проходов этого же источника. Резкое падение обычно значит "у источника изменилась
+  // вёрстка, селекторы больше не совпадают"; резкий рост — тоже подозрительно (возможен баг
+  // парсинга/дублирование). false по умолчанию и для самых первых проходов источника (когда
+  // ещё не с чем сравнивать).
+  anomalyFlag       Boolean           @default(false)
+  // Пошаговый журнал этого прохода (см. doc/TZ-parser-import-improvements.md, П1.2) — что
+  // произошло с каждым отдельным элементом на каждом шаге, в отличие от агрегированных чисел
+  // выше. Retention — см. ImportLogService, не хранится вечно.
+  logEntries        ImportLogEntry[]
+
+  @@index([providerId, startedAt])
+}
+
+enum ImportLogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum ImportLogStage {
+  FETCH_PAGE // запрос страницы источника — одна запись на весь проход, не на элемент
+  PARSE_ITEM // элемент найден на странице и распознан парсером
+  AI_ASSIST // Grok-подсказка адреса/типа камеры (см. GrokCameraAssistService)
+  GEOCODE
+  AZIMUTH_HEURISTIC
+  CAMERA_CREATED
+  NEEDS_REVIEW
+  SKIPPED_ALREADY_RESOLVED // элемент уже был IMPORTED/REJECTED раньше — авто-импорт его не трогает повторно
+  ERROR
+}
+
+// Детальный журнал импорта (см. doc/TZ-parser-import-improvements.md, П1.2) — одна запись = одно
+// событие пайплайна. Это НЕ замена ParserRunLog (тот остаётся агрегированной сводкой по
+// проходу для быстрого обзора), а дополнение для разбора "что именно случилось с конкретной
+// камерой на конкретном шаге". Пишется из ScraperService на каждом реальном шаге текущей логики,
+// без изменения самой логики принятия решений — это только наблюдаемость.
+model ImportLogEntry {
+  id                String         @id @default(cuid())
+  run               ParserRunLog   @relation(fields: [runId], references: [id])
+  runId             String
+  // Дублирует run.providerId — чтобы фильтровать по источнику за всё время без джойна на
+  // список записей одного города за много проходов, не только за один runId.
+  provider          CameraProvider @relation(fields: [providerId], references: [id])
+  providerId        String
+  timestamp         DateTime       @default(now())
+  level             ImportLogLevel
+  stage             ImportLogStage
+  // Id элемента у источника (webcam.guru.ua "href"-хвост и т.п.) — когда событие относится к
+  // конкретной камере, а не к проходу в целом (например, FETCH_PAGE — общий для всего прохода).
+  externalId        String?
+  cameraSourceRawId String?
+  // Краткое человекочитаемое описание ("Геокодинг: уверенность 0.42, ниже порога 0.6") —
+  // структурированные детали для отладки без раздувания текста самого сообщения см. metadata.
+  message           String
+  metadata          Json?
+
+  @@index([runId, timestamp])
+  @@index([providerId, timestamp])
+  @@index([level, timestamp])
+}
+
+enum StreamType {
+  IFRAME
+  HLS
+  MJPEG_SNAPSHOT
+  YOUTUBE_LIVE
+}
+
+enum CameraConfidence {
+  VERIFIED
+  ESTIMATED
+}
+
+// Камери всередині приміщень (див. коментар на полі Camera.locationType) — OUTDOOR лишається
+// дефолтом для сумісності зі старими записами (усі камери до цього поля вважались вуличними).
+enum CameraLocationType {
+  OUTDOOR
+  INDOOR
+  // Камери, що дивляться на море/пляж/природу (не на вулицю/будівлю) — див. запит користувача:
+  // "пометить камеры которые смотрят в море пляж на природу как отдельный класс и исключить из
+  // поиска". Той самий принцип, що INDOOR: немає осмисленого "напрямку огляду вулиці", тому
+  // не бере участі в пошуку за сектором (fov_polygon не будується) — але, на відміну від
+  // INDOOR, це не приміщення, а мальовничий краєвид просто неба, тому окремий, не той самий
+  // клас (різна семантика для UI/фільтрів надалі).
+  NATURE
+}
+
+enum CameraStatus {
+  ONLINE
+  DELAYED
+  OFFLINE
+  DISABLED_SECURITY
+  UNKNOWN
+}
+
+enum ImportStatus {
+  PENDING
+  GEOCODED
+  NEEDS_REVIEW
+  IMPORTED
+  REJECTED
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum MobilityType {
+  STATIONARY
+  FIXED_ROUTE
+}
+
+enum RouteMode {
+  LOOP
+  TIMETABLE
+  LIVE_GPS
+}
+
+// --- Ситуационная осведомленность: ДТП и внештатные ситуации на дорогах (карта-вкладка в админке) ---
+
+enum IncidentType {
+  ACCIDENT // ДТП
+  ROAD_CLOSURE // перекрытие дороги
+  FLOODING // подтопление
+  ICE // гололёд
+  FOG // туман (сильно ограничивающий видимость в конкретной точке, помимо общей погодной сводки)
+  CONSTRUCTION // ремонтные работы
+  OTHER
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum IncidentStatus {
+  ACTIVE
+  RESOLVED
+}
+
+// Пока только ручной ввод админом ("source" зарезервировано под будущий внешний фид —
+// см. doc/AUDIT-situational-awareness.md). Простые lat/lng без PostGIS-геометрии: тут не нужен
+// sector-test, только точки на карте и простая фильтрация по статусу/времени.
+model RoadIncident {
+  id          String           @id @default(cuid())
+  type        IncidentType
+  severity    IncidentSeverity @default(MEDIUM)
+  status      IncidentStatus   @default(ACTIVE)
+  lat         Float
+  lng         Float
+  title       String
+  description String?
+  source      String           @default("manual")
+  reportedByTelegramId String?
+  reportedAt  DateTime         @default(now())
+  resolvedAt  DateTime?
+  // Необязательный авто-скрыв с активной карты по истечении срока (например, ремонт "до 15:00"),
+  // даже если админ забыл нажать "решено". Не удаляет запись — только не попадает в listActive().
+  expiresAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([status, reportedAt])
+}
+
+// --- "Мой дом": верификация адреса проживания по квитанции (авто-аппрув через AI-вижн + ---
+// --- ручной фоллбэк админом). См. doc/AUDIT-home-verification.md. ---
+
+enum HomeVerificationStatus {
+  PENDING // отправлено, ещё не проверено (не должно долго висеть — verify() вызывается синхронно сразу после аплоада)
+  APPROVED
+  NEEDS_REVIEW // AI не уверен(а) — нужен ручной аппрув админом; НИКОГДА не решается в REJECTED автоматически
+  REJECTED // только вручную админом
+}
+
+model HomeAddressVerification {
+  id             String                 @id @default(cuid())
+  telegramId     String
+  // IP на момент подачи заявки — только для rate-limiting (см. HomeVerificationService), не
+  // отображается пользователю. Может быть null для очень старых записей до введения лимита.
+  ipAddress      String?
+  claimedAddress String
+  lat            Float?
+  lng            Float?
+  status         HomeVerificationStatus @default(PENDING)
+
+  // Публичный URL фото квитанции в object storage (Vercel Blob, см. ReceiptStorageService).
+  // "Публичный" означает "доступен по прямой ссылке без авторизации", НЕ "проиндексирован/
+  // виден в списке" — путь случайный и не публикуется нигде, кроме админ-эндпоинтов под
+  // AdminGuard. Известное упрощение: если BLOB_READ_WRITE_TOKEN не задан (например, локально
+  // без привязки к Vercel-проекту), сервис откатывается на data:-URL прямо в этом же поле —
+  // формат значения тот же (просто ссылка/URI), потребители поля этого не замечают.
+  // Nullable — для adminExempt-заявок (см. ниже) квитанции нет вообще, не только "не загрузилась".
+  receiptImageUrl String?
+
+  // Админам квитанция не нужна (см. HomeVerificationService.submit()) — Telegram-аккаунт уже в
+  // ADMIN_TELEGRAM_IDS/DEV_MOCK_ACCOUNTS, это и есть подтверждение личности. true только для
+  // таких заявок; обычные (в т.ч. отклонённые/на ревью) — всегда false.
+  adminExempt Boolean @default(false)
+
+  // Результат AI-проверки (см. ReceiptVerificationService) — для аудита, ручного ревью и
+  // калибровки порога уверенности (см. HOME_VERIFICATION_MIN_CONFIDENCE).
+  extractedAddress       String?
+  addressMatchConfidence Float?
+  handwrittenDateText    String?
+  handwrittenDateIsRecent Boolean?
+  looksGenuine           Boolean?
+  aiNotes                String?
+  aiRawResponse          Json?
+
+  submittedAt          DateTime  @default(now())
+  reviewedAt           DateTime?
+  reviewedByTelegramId String? // кто из админов принял ручное решение (для NEEDS_REVIEW/REJECTED)
+  rejectionReason      String?
+
+  @@index([telegramId, submittedAt])
+  @@index([status])
+  @@index([ipAddress, submittedAt])
+}
+
+// --- Час очікування на кордоні (краудсорс-звіти) ---
+
+// Прикордонні переходи — засіяно вручну (див. sql/border-crossings-seed.sql), прив'язки до
+// City немає навмисно: перехід може лежати між двома містами з різних країн одночасно
+// (наприклад Krakovets/UA <-> Korczowa/PL), а City — це "місто", а не "точка на кордоні".
+model BorderCrossing {
+  id             String              @id @default(cuid())
+  name           String // "Краковець — Корчова"
+  slug           String              @unique
+  lat            Float
+  lng            Float
+  countryFrom    String // ISO-код країни з боку виїзду з України, завжди "UA"
+  countryTo      String // ISO-код країни в'їзду, наприклад "PL"
+  reports        BorderWaitReport[]
+  createdAt      DateTime            @default(now())
+
+  @@index([slug])
+}
+
+enum BorderDirection {
+  UA_OUT // з України (черга на виїзд)
+  UA_IN // в Україну (черга на в'їзд)
+}
+
+// Один звіт = одне свідчення "я стояв N хвилин". Оцінка часу очікування (BorderCrossingsService.
+// getWaitEstimate) — просте усереднення звітів за останні кілька годин, не окрема модель.
+model BorderWaitReport {
+  id                String          @id @default(cuid())
+  crossing          BorderCrossing  @relation(fields: [crossingId], references: [id])
+  crossingId        String
+  direction         BorderDirection
+  waitMinutes       Int
+  reportedByTelegramId String
+  ipAddress         String? // rate-limiting, тот же паттерн, что в HomeAddressVerification
+  reportedAt        DateTime        @default(now())
+
+  @@index([crossingId, direction, reportedAt])
+  @@index([ipAddress, reportedAt])
+}
+
+// --- Підписки-алерти ---
+
+enum AlertType {
+  CAMERA_STATUS // сповістити, коли конкретна камера змінює статус (ONLINE<->OFFLINE)
+  AREA_INCIDENT // сповістити про нові ДТП/інциденти біля точки (див. RoadIncident)
+}
+
+// Доставка — через Telegram Bot API (sendMessage), той самий TELEGRAM_BOT_TOKEN, що й для
+// логіна. Перевірка умов — окремий internal-ендпоінт під cron (див. AlertsService), а не
+// live-тригер у момент події: простіше й дешевше для MVP, ціна — затримка до наступного тіку
+// крону (див. known simplification у doc/README.md).
+model AlertSubscription {
+  id             String    @id @default(cuid())
+  telegramId     String
+  type           AlertType
+  cameraId       String? // для CAMERA_STATUS
+  lat            Float? // для AREA_INCIDENT
+  lng            Float? // для AREA_INCIDENT
+  radiusMeters   Int? // для AREA_INCIDENT, дефолт см. AlertsService
+  label          String // человекочитаемое описание для списка "мои подписки"
+  active         Boolean   @default(true)
+  lastCameraStatus String? // последний известный статус камеры — с чем сравнивать при след. тике
+  lastNotifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([telegramId])
+  @@index([type, active])
+}
+
+// --- Поділитися локацією через посилання ---
+
+// Короткий редирект-слаг -> координати/адреса. Публічний GET (без AuthGate) — сам редирект не
+// віддає жодних чутливих даних, лише координати точки, які й так вводив сам користувач у
+// пошуку; далі відкривається звичайна `/`, де вже діє AuthGate як завжди.
+model ShareLink {
+  id                   String   @id @default(cuid())
+  slug                 String   @unique
+  lat                  Float
+  lng                  Float
+  address              String?
+  cityId               String?
+  createdByTelegramId  String
+  createdAt            DateTime @default(now())
+  // Публична страница делает +1 при каждом открытии — метрика "сколько раз посмотрели",
+  // не для контроля доступа (ссылка не одноразовая и не имеет TTL в этой версии).
+  viewCount            Int      @default(0)
+
+  @@index([slug])
+}
+
+// --- Краудсорс: "Додати камеру" ---
+
+enum CameraSubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Заявка від будь-кого (клієнт/блогер) на нову камеру — окрема черга модерації в адмінці,
+// не одразу створює Camera. При approve() адмін вручну виставляє azimuth/fovAngle/range (той
+// самий калібрувальний інструмент, що й для camer, доданих парсером) — заявка лише фіксує
+// джерело (streamUrl) і приблизну локацію, не претендує на точну геометрію сектора.
+model CameraSubmission {
+  id                  String                 @id @default(cuid())
+  streamUrl           String
+  suggestedName       String?
+  cityId              String?
+  lat                 Float? // геокодировано из address, если он был указан
+  lng                 Float?
+  address             String?
+  description         String?
+  submittedByTelegramId String
+  ipAddress           String?
+  status              CameraSubmissionStatus @default(PENDING)
+  createdCameraId     String? // проставляется при approve() — какая Camera была из этого создана
+  reviewedByTelegramId String?
+  reviewedAt          DateTime?
+  rejectionReason     String?
+  submittedAt         DateTime               @default(now())
+
+  @@index([status, submittedAt])
+  @@index([ipAddress, submittedAt])
+}
+
+// Batch API xAI (глибша переробка — за прямим запитом користувача, для фонових Grok-викликів
+// у парсері, НЕ для авто-калібрування камер, яке залишається real-time через несумісність
+// з інтерактивністю — див. doc/AUDIT-grok-batch-api.md). Один рядок = один batch, поданий до
+// xAI, з мапою "який запит у пачці — до якого міста/сутності", щоб коректно розкласти
+// результати назад, коли вони стануть готові (типово до 24 годин, best-effort, за
+// документацією xAI).
+model GrokBatchJob {
+  id          String    @id @default(cuid())
+  xaiBatchId  String    @unique
+  // Тип роботи, яку виконує ця пачка — наразі тільки 'aggregator-discovery' (перший, найбільш
+  // самодостатній кандидат для батчування — не залежить від подальшого пайплайну створення
+  // камер, на відміну від GoogleWebCameraSearchAdapter/isLikelyCityCamera, які лишились
+  // real-time у цьому кроці, див. doc/AUDIT-grok-batch-api.md).
+  jobType     String
+  // pending (щойно подано) -> completed (результати забрані й оброблені) -> failed
+  status      String    @default("pending")
+  // Мапа "batch_request_id -> контекст запиту" (наприклад, {cityId, cityName, countryName})
+  // для кожного окремого запиту в пачці — потрібна, щоб зіставити результати назад із
+  // конкретним містом після отримання відповіді від xAI.
+  requestMap  Json
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status])
+}
+
+// =====================================================================================
+// Beyond the Wall (BTW) — за запитом користувача, повний ТЗ у doc/BTW-tz.md (копія
+// завантаженого документа) та doc/AUDIT-btw.md (що саме реалізовано і що свідомо
+// відкладено). "Ядро: liveahead-core (общий реестр камер с RoadScout)" — за прямою вказівкою
+// самого ТЗ, BTW НЕ має власної таблиці камер: використовує ту саму модель Camera вище
+// (WHERE confidence = 'VERIFIED' AND locationType = 'OUTDOOR' — §11.1 ТЗ). Таблиці
+// building/tile_build/camera_viewshed із ТЗ свідомо НЕ створені — реальна перевірка видимості
+// (LOS) виконується через уже наявний OcclusionService (живі запити до Overpass), а не через
+// офлайн-пайплайн PMTiles (§4.7 ТЗ) — див. AUDIT-btw.md, розділ "Що відкладено".
+// =====================================================================================
+
+// §11.2 ТЗ — зони, заборонені як ціль. Перетин цільової точки з такою зоною -> кадр НЕ
+// видається, без пояснення причини (щоб не "зливати" карту заборон).
+model NoTargetZone {
+  id        String   @id @default(cuid())
+  geom      Json     // GeoJSON Polygon [{lat,lng}, ...] — той самий формат, що routeGeometry вище
+  kind      String   // MILITARY | CRITICAL | SCHOOL | MEDICAL | PRIVACY | LEGAL
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([kind])
+}
+
+// §11.4 ТЗ — антисталкінг + аналітика, короткий TTL. ВАЖЛИВО: позиція наблюдателя ніколи не
+// зберігається (і взагалі не надсилається на сервер — §4.7.6 ТЗ) — лише цільова точка
+// (округлена до комірки — див. AUDIT-btw.md щодо спрощення замість повної бібліотеки H3).
+model BtwLockEvent {
+  id          String   @id @default(cuid())
+  telegramId  String
+  targetCell  String   // огрублена цільова точка (сітка ~65м, аналог H3 r10 — див. AUDIT-btw.md)
+  cameraId    String
+  granted     Boolean  // false = відмова через зону/ліміт
+  createdAt   DateTime @default(now())
+
+  @@index([telegramId, targetCell, createdAt])
+}
+
+// ВИПРАВЛЕННЯ РЕАЛЬНОГО БАГА, знайденого під час аудиту на Vercel Hobby-сумісність (за
+// прямим запитом користувача, doc/AUDIT-vercel-hobby.md) — rate-limit для У5 vision-
+// уточнення раніше жив у in-process `Map` всередині BtwService, що НЕНАДІЙНО на serverless:
+// кожен виклик функції може потрапити на інший/холодний інстанс із власною порожньою Map,
+// через що rate-limit міг мовчки не спрацьовувати. Той самий принцип, що вже застосований
+// для антисталкінгу в BtwLockEvent вище — перевірка через БД, не через пам'ять процесу.
+model BtwRefineEvent {
+  id         String   @id @default(cuid())
+  telegramId String
+  createdAt  DateTime @default(now())
+
+  @@index([telegramId, createdAt])
+}
+
+// §3.4 ТЗ — збережена точка спостереження ("Мой выход из дома"). Шифрування на клієнті
+// (§11.4 ТЗ) свідомо НЕ реалізовано в цьому кроці — потребує клієнтської криптографії; сервер
+// зараз зберігає як є, з чесним застереженням у AUDIT-btw.md.
+model BtwViewpoint {
+  id         String   @id @default(cuid())
+  telegramId String
+  label      String
+  lat        Float
+  lng        Float
+  heading    Float
+  createdAt  DateTime @default(now())
+
+  @@index([telegramId])
+}
+
+// За прямим запитом користувача — програмний (не апаратний) спуфінг GPS-координат для
+// дебагу BTW: конкретний telegram-юзер отримує підміну на обрану в адмінці точку замість
+// реальної геолокації. Азимут (компас) свідомо НЕ підмінюється — реальне обертання
+// телефоном лишається потрібним, підміняється лише позиція (той самий принцип, що вже
+// застосований до DEV_AUTO_LOGIN — прибирає найдорожчу частину тестування, не всю).
+// Гейт — той самий DEV_AUTO_LOGIN, що вже вимикає auth.service.ts::devLogin() у продакшені.
+model BtwDevLocationOverride {
+  telegramId String   @id
+  lat        Float
+  lng        Float
+  label      String? // необов'язкова людська підпис ("Хрещатик, 1"), лише для зручності в адмінці
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model BtwReport {
+  id         String   @id @default(cuid())
+  telegramId String
+  cameraId   String?
+  reason     String
+  createdAt  DateTime @default(now())
+}
+
+// За прямим запитом користувача — реальне збереження телеметрії сесії (раніше лише логувалось
+// у консоль сервера й пропадало) — потрібно, щоб ПІСЛЯ польового тесту (М0-спайк) можна було
+// подивитись агреговані цифри через адмінку, а не покладатись на пам'ять "здається, спрацювало".
+// §6 ТЗ — "агрегаты сессии, без координат" — саме тому тут НЕМАЄ жодного поля з позицією
+// наблюдателя, лише агреговані лічильники.
+model BtwTelemetryEvent {
+  id             String   @id @default(cuid())
+  telegramId     String
+  scans          Int
+  withCandidates Int
+  locks          Int
+  snapUsed       Boolean
+  // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — метрики резервного рівня (side/reverse-
+  // view): fallbackOffered — скільки сканів мали порожній direct, але непорожній fallback
+  // (наскільки часто ситуація взагалі актуальна); fallbackUsed — скільки разів користувач
+  // РЕАЛЬНО тапнув кнопку розкриття (conversion rate = fallbackUsed/fallbackOffered).
+  fallbackOffered Int     @default(0)
+  fallbackUsed    Int     @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([telegramId])
+  @@index([createdAt])
+}

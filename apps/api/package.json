@@ -1,0 +1,45 @@
+{
+  "name": "roadscout-api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "vercel-build": "prisma generate && nest build"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/mapped-types": "^2.0.6",
+    "@nestjs/platform-express": "^10.4.0",
+    "@prisma/client": "^5.20.0",
+    "@turf/turf": "^7.1.0",
+    "@vercel/blob": "^0.27.1",
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.6",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.5",
+    "iconv-lite": "^0.6.3",
+    "multer": "1.4.5-lts.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.5",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/node": "^20.14.0",
+    "prisma": "^5.20.0",
+    "typescript": "^5.5.4",
+    "@types/multer": "^1.4.11"
+  }
+}

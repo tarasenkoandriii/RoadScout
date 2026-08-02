@@ -1,0 +1,162 @@
+version: "3.9"
+
+# ВАЖЛИВО (перейменування за прямим запитом користувача, "все упоминания предыдущих
+# названий на RoadScout, включая ТЗ"): POSTGRES_USER/PASSWORD/DB нижче перейменовані з
+# "liveahead" на "roadscout" — це РЕАЛЬНА зміна креденшалів локальної БД, не косметика. Якщо
+# у вас уже є локальний том `postgres_data` зі старими креденшалами, `docker compose up`
+# просто НЕ зможе підʼєднатись (новий DATABASE_URL шукає користувача/БД "roadscout", якого в
+# старому томі немає) — виконайте `docker compose down -v` (видалить локальні дані БД) перед
+# першим запуском після цього перейменування.
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: roadscout
+      POSTGRES_PASSWORD: roadscout
+      POSTGRES_DB: roadscout
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roadscout"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Web UI for browsing the local Postgres DB — http://localhost:8081
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://roadscout:roadscout@postgres:5432/roadscout?schema=public
+      DIRECT_URL: postgresql://roadscout:roadscout@postgres:5432/roadscout?schema=public
+      GOOGLE_GEOCODING_API_KEY: ${GOOGLE_GEOCODING_API_KEY:-}
+      # Прокси ("VPN") для сканирования внешних реестров камер — опционально, см. .env.example.
+      # Пусто по умолчанию: парсер сканирует напрямую, поведение не меняется, пока не задано.
+      REGISTRY_SCAN_PROXY_URL: ${REGISTRY_SCAN_PROXY_URL:-}
+      WEBSHARE_PROXY_USERNAME: ${WEBSHARE_PROXY_USERNAME:-}
+      WEBSHARE_PROXY_PASSWORD: ${WEBSHARE_PROXY_PASSWORD:-}
+      WEBSHARE_PROXY_HOST: ${WEBSHARE_PROXY_HOST:-}
+      WEBSHARE_PROXY_PORT: ${WEBSHARE_PROXY_PORT:-}
+      WEBSHARE_PROXY_COUNTRY: ${WEBSHARE_PROXY_COUNTRY:-}
+      WEBSHARE_PROXY_ROTATE: ${WEBSHARE_PROXY_ROTATE:-}
+      # "Мой дом": авто-верификация адреса по квитанции — опционально, без ключа заявки уходят
+      # на ручное ревью админом (см. .env.example).
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      GROK_VISION_MODEL: ${GROK_VISION_MODEL:-grok-4}
+      GROK_TEXT_MODEL: ${GROK_TEXT_MODEL:-grok-4}
+      YOUTUBE_DATA_API_KEY: ${YOUTUBE_DATA_API_KEY:-}
+      YOUTUBE_SEARCH_RADIUS_KM: ${YOUTUBE_SEARCH_RADIUS_KM:-25}
+      YOUTUBE_SEARCH_MAX_RESULTS: ${YOUTUBE_SEARCH_MAX_RESULTS:-50}
+      GROK_WEB_SEARCH_MODEL: ${GROK_WEB_SEARCH_MODEL:-grok-4}
+      WEB_SEARCH_PAGE_FETCH_MAX_BYTES: ${WEB_SEARCH_PAGE_FETCH_MAX_BYTES:-500000}
+      WINDY_WEBCAMS_API_KEY: ${WINDY_WEBCAMS_API_KEY:-}
+      WINDY_SEARCH_RADIUS_KM: ${WINDY_SEARCH_RADIUS_KM:-25}
+      WINDY_MAX_RESULTS: ${WINDY_MAX_RESULTS:-50}
+      INDOOR_CAMERA_NEARBY_RADIUS_METERS: ${INDOOR_CAMERA_NEARBY_RADIUS_METERS:-500}
+      HOME_VERIFICATION_MIN_CONFIDENCE: ${HOME_VERIFICATION_MIN_CONFIDENCE:-0.7}
+      HOME_VERIFICATION_RATE_LIMIT_MAX: ${HOME_VERIFICATION_RATE_LIMIT_MAX:-3}
+      HOME_VERIFICATION_RATE_LIMIT_WINDOW_HOURS: ${HOME_VERIFICATION_RATE_LIMIT_WINDOW_HOURS:-24}
+      BORDER_WAIT_ESTIMATE_WINDOW_HOURS: ${BORDER_WAIT_ESTIMATE_WINDOW_HOURS:-3}
+      BORDER_REPORT_RATE_LIMIT_MAX: ${BORDER_REPORT_RATE_LIMIT_MAX:-10}
+      BORDER_REPORT_RATE_LIMIT_WINDOW_HOURS: ${BORDER_REPORT_RATE_LIMIT_WINDOW_HOURS:-1}
+      ALERTS_INCIDENT_LOOKBACK_MINUTES: ${ALERTS_INCIDENT_LOOKBACK_MINUTES:-60}
+      CAMERA_SUBMISSION_RATE_LIMIT_MAX: ${CAMERA_SUBMISSION_RATE_LIMIT_MAX:-5}
+      CAMERA_SUBMISSION_RATE_LIMIT_WINDOW_HOURS: ${CAMERA_SUBMISSION_RATE_LIMIT_WINDOW_HOURS:-24}
+      IMPORT_LOG_RETENTION_DAYS: ${IMPORT_LOG_RETENTION_DAYS:-30}
+      AZIMUTH_HEURISTIC_CACHE_TTL_HOURS: ${AZIMUTH_HEURISTIC_CACHE_TTL_HOURS:-24}
+      AZIMUTH_HEURISTIC_TIMEOUT_MS: ${AZIMUTH_HEURISTIC_TIMEOUT_MS:-8000}
+      PARSER_ANOMALY_HISTORY_SIZE: ${PARSER_ANOMALY_HISTORY_SIZE:-5}
+      PARSER_ANOMALY_MIN_HISTORY: ${PARSER_ANOMALY_MIN_HISTORY:-3}
+      PARSER_ANOMALY_THRESHOLD: ${PARSER_ANOMALY_THRESHOLD:-0.5}
+      PARSER_RUN_ALL_DELAY_MS: ${PARSER_RUN_ALL_DELAY_MS:-2000}
+      PARSER_RUN_TIME_BUDGET_MS: ${PARSER_RUN_TIME_BUDGET_MS:-25000}
+      CONTENT_CHECK_TIME_BUDGET_MS: ${CONTENT_CHECK_TIME_BUDGET_MS:-25000}
+      CONTENT_CHECK_DELAY_MS: ${CONTENT_CHECK_DELAY_MS:-500}
+      PARSER_DETAIL_FETCH_DELAY_MS: ${PARSER_DETAIL_FETCH_DELAY_MS:-300}
+      PARSER_ITEM_CONCURRENCY: ${PARSER_ITEM_CONCURRENCY:-8}
+      OVERPASS_BATCH_SIZE: ${OVERPASS_BATCH_SIZE:-20}
+      AI_CALIBRATION_CONFIDENCE_THRESHOLD: ${AI_CALIBRATION_CONFIDENCE_THRESHOLD:-0.7}
+      # Object storage для фото квитанций — без токена локально откатывается на data:-URL в БД.
+      BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
+      BLOGGER_TELEGRAM_IDS: ${BLOGGER_TELEGRAM_IDS:-}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret}
+      PARSER_CRON_SECRET: ${PARSER_CRON_SECRET:-local-dev-secret}
+      LIVE_GPS_SECRET: ${LIVE_GPS_SECRET:-local-dev-live-gps-secret}
+      ADMIN_ORIGIN: http://localhost:3001
+      PORT: 3000
+      # Локальная отладка: авто-вход во все рабочие места (admin/blogger/client) без реального
+      # Telegram Login Widget — см. src/auth/dev-accounts.util.ts. Включено по умолчанию только
+      # здесь, в docker-compose (локальная разработка); НИКОГДА не задавайте DEV_AUTO_LOGIN=true
+      # в проде (vercel.json это не делает — переменная там просто не определена).
+      # Переопределить/выключить можно через .env в корне проекта (DEV_AUTO_LOGIN=false).
+      DEV_AUTO_LOGIN: ${DEV_AUTO_LOGIN:-true}
+      DEV_MOCK_ACCOUNTS: "${DEV_MOCK_ACCOUNTS:-admin:900000001:Админ:Тестовый:admin_dev:;blogger:900000002:Блогер:Тестовый:blogger_dev:;client:900000003:Клиент:Тестовый:client_dev:}"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/api:/app
+      - api_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Схема БД + все SQL-сиды/миграции + перегенерация Prisma Client теперь прогоняются
+    # автоматически на каждый старт контейнера через ENTRYPOINT в Dockerfile.dev
+    # (scripts/docker-entrypoint.sh) — не через command: здесь. См. doc/README.md,
+    # "Локальная разработка", и doc/AUDIT-parser-no-providers-incident.md за тем, почему это
+    # вынесено в отдельный читаемый скрипт (раньше — одна огромная строка "&&", в которую было
+    # неудобно добавлять новый сид). command: намеренно не переопределён — используется CMD
+    # из Dockerfile.dev ("npm run start:dev"), передаваемый в ENTRYPOINT как есть.
+
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      NEST_API_URL: http://api:3000
+      NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./apps/admin:/app
+      - admin_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+  # Beyond the Wall (BTW) — doc/BTW-tz.md / doc/AUDIT-btw.md, окремий Telegram Mini App,
+  # той самий шаблон, що admin вище (rewrite-проксі /api/* -> NestJS API).
+  btw:
+    build:
+      context: ./apps/btw
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      NEST_API_URL: http://api:3000
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./apps/btw:/app
+      - btw_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  api_node_modules:
+  admin_node_modules:
+  btw_node_modules:
