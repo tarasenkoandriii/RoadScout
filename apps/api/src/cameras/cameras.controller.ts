@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, Redirect, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, Redirect, Res, UseGuards } from '@nestjs/common';
 import { CamerasService } from './cameras.service';
 import { CreateCameraDto } from './dto/create-camera.dto';
 import { CalibrateCameraDto, UpdateCameraDto } from './dto/update-camera.dto';
 import { TelegramAuthGuard } from '../auth/telegram-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { CronSecretGuard } from '../scraper/guards/cron-secret.guard';
+import { resolveAdminOrigin } from '../common/admin-origin.util';
 
 @Controller()
 export class CamerasController {
@@ -17,10 +18,17 @@ export class CamerasController {
   // фактична "сторінка логіну": окремого /login-маршруту в apps/admin немає, AuthGate сам
   // показує форму входу через Telegram Login Widget прямо на кореневій сторінці, якщо
   // користувач не авторизований.
+  //
+  // ВИПРАВЛЕНО (реальний знайдений інцидент — ADMIN_ORIGIN не був заданий на Vercel, і
+  // фолбек на 'http://localhost:3001' відправляв РЕАЛЬНИХ відвідувачів на їхній власний
+  // localhost): тепер fallback на localhost допустимий ЛИШЕ поза Vercel (resolveAdminOrigin());
+  // якщо на Vercel ADMIN_ORIGIN не задано — коректно повертаємо просте повідомлення замість
+  // редиректу в нікуди.
   @Get()
-  @Redirect()
-  redirectToCamerasList() {
-    return { url: process.env.ADMIN_ORIGIN ?? 'http://localhost:3001', statusCode: 302 };
+  redirectToCamerasList(@Res() res: any) {
+    const target = resolveAdminOrigin();
+    if (target) return res.redirect(302, target);
+    return res.status(200).json({ message: 'RoadScout API', note: 'ADMIN_ORIGIN не настроен на этом деплое — редирект недоступен.' });
   }
 
   // Ембед-віджет для сторонніх сайтів/блогерів (див. doc/README.md, "Ембед-віджет") —

@@ -1,4 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { resolveAdminOrigin } from './admin-origin.util';
 
 // За прямим запитом користувача — будь-який GET-запит на неіснуючий маршрут API тепер
 // редиректить на адмін-застосунок (той самий ADMIN_ORIGIN, що вже використовується для CORS
@@ -22,9 +23,14 @@ export class NotFoundRedirectFilter implements ExceptionFilter {
     const status = exception.getStatus();
 
     if (status === HttpStatus.NOT_FOUND && request.method === 'GET') {
-      const adminOrigin = process.env.ADMIN_ORIGIN ?? 'http://localhost:3001';
-      response.redirect(302, adminOrigin);
-      return;
+      // ВИПРАВЛЕНО (той самий реальний інцидент, що й у CamerasController) — fallback на
+      // localhost допустимий лише поза Vercel; на Vercel без ADMIN_ORIGIN просто лишаємо
+      // звичайну JSON-відповідь 404, а не редиректимо в нікуди.
+      const adminOrigin = resolveAdminOrigin();
+      if (adminOrigin) {
+        response.redirect(302, adminOrigin);
+        return;
+      }
     }
 
     // Стандартна поведінка NestJS для решти випадків — та сама форма відповіді
