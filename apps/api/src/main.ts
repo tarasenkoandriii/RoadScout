@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NotFoundRedirectFilter } from './common/not-found-redirect.filter';
 // Реальный сбой в проде: `import cookieParser from 'cookie-parser'` + `app.use(cookieParser())`
 // падал в рантайме с `TypeError: (0, cookie_parser_1.default) is not a function`, хотя
 // компиляция проходила без ошибок — см. doc/AUDIT-cookie-parser-fix.md. `@types/cookie-parser`
@@ -25,6 +26,9 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // За прямим запитом користувача — будь-який GET 404 редиректить на адмін-логін, не голий
+  // JSON (див. коментар у самому фільтрі щодо точних меж застосування).
+  app.useGlobalFilters(new NotFoundRedirectFilter());
   await app.listen(process.env.PORT ?? 3000);
 }
 

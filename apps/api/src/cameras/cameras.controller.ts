@@ -10,14 +10,18 @@ import { CronSecretGuard } from '../scraper/guards/cron-secret.guard';
 export class CamerasController {
   constructor(private readonly camerasService: CamerasService) {}
 
-  // За прямим запитом користувача — раніше GET / повертав дефолтний Express/NestJS 404
-  // ("Cannot GET /"), бо в API взагалі не було жодного маршруту на корінь (це нормально для
-  // чистого API-бекенду, але незручно, якщо хтось відкриває сам API-домен у браузері).
-  // Редирект саме на GET-ендпоінт списку камер (JSON, не HTML-сторінку адмінки — та
-  // лежить в окремому Next.js-застосунку apps/admin, іншому Vercel-деплої).
+  // За прямим запитом користувача — раніше редирект вів на /admin/cameras, який без
+  // авторизації повертає голий JSON 401 (не зручно для людини, що відкрила API-домен у
+  // браузері напряму). Тепер веде на сам адмін-застосунок (окремий Vercel-деплой,
+  // ADMIN_ORIGIN — та сама змінна, що вже використовується для CORS у main.ts) — це і є
+  // фактична "сторінка логіну": окремого /login-маршруту в apps/admin немає, AuthGate сам
+  // показує форму входу через Telegram Login Widget прямо на кореневій сторінці, якщо
+  // користувач не авторизований.
   @Get()
-  @Redirect('/admin/cameras', 302)
-  redirectToCamerasList() {}
+  @Redirect()
+  redirectToCamerasList() {
+    return { url: process.env.ADMIN_ORIGIN ?? 'http://localhost:3001', statusCode: 302 };
+  }
 
   // Ембед-віджет для сторонніх сайтів/блогерів (див. doc/README.md, "Ембед-віджет") —
   // навмисно БЕЗ TelegramAuthGuard: сторінка вбудовується на чужому сайті, у відвідувача
