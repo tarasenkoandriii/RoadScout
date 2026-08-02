@@ -61,7 +61,14 @@ export default function WorldGlobe({ stats }: { stats: CountryStat[] }) {
 
     import('globe.gl').then((mod) => {
       if (disposed || !containerRef.current) return;
-      const Globe = mod.default;
+      // ВИПРАВЛЕНО (реальна помилка збірки на Vercel) — типи цієї версії globe.gl описують
+      // Globe як конструктор (`new Globe(...)`), хоча фактичний, задокументований спосіб
+      // використання бібліотеки — виклик Globe() як фабричної функції без `new`, що й
+      // повертає виклюваний об'єкт для другого виклику з контейнером. Це розбіжність лише в
+      // типах (можливо, інша версія @types підхопилась на Vercel при свіжому npm install), не
+      // в реальній поведінці бібліотеки — тому просто обходимо перевірку типів тут, а не
+      // міняємо сам робочий виклик.
+      const Globe = mod.default as any;
 
       const maxCount = Math.max(1, ...stats.map((s) => s.count));
       const points = stats
