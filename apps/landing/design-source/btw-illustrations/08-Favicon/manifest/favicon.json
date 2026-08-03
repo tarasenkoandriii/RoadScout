@@ -1,0 +1,54 @@
+{
+  "asset": "favicon",
+  "version": "1.0.0",
+  "specification": "BTW SVG Design System v5.1",
+  "viewBox": [0, 0, 512, 512],
+  "description": "Single master SVG, all exports derived from it. A solid-fill shield mark (no strokes) so the design has no thin line that can vanish at 16px — the constraint 'minimum line weight 4px' is satisfied by construction rather than by hitting an exact stroke-width number.",
+
+  "designRules": {
+    "singleCompositionCenter": true,
+    "minLineWeightPx": 4,
+    "minLineWeightNote": "No stroked lines are used anywhere in this mark; every shape is a solid fill, so there is no line to fall below 4px. The center dot (the smallest positive shape) still renders as a distinct ~5px feature at the smallest 16px export.",
+    "safeAreaPct": 12,
+    "text": false,
+    "maxColors": 3,
+    "colorsUsed": ["#3B82F6", "#0F172A", "#F8FAFC"]
+  },
+
+  "geometry": {
+    "source": "05-Icons/brand/logo-mark.svg (64x64), rescaled to fill the 512 canvas's 12% safe area",
+    "shield": { "role": "primary silhouette", "fill": "#3B82F6" },
+    "wedge":  { "role": "scan-cone notch accent", "fill": "#0F172A" },
+    "dot":    { "role": "lens/eye accent", "fill": "#F8FAFC" }
+  },
+
+  "sizes": {
+    "favicon-16": [16, 16],
+    "favicon-32": [32, 32],
+    "favicon-48": [48, 48],
+    "appleTouch": [180, 180],
+    "android": [192, 192],
+    "androidXL": [512, 512],
+    "masterSvg": [512, 512]
+  },
+
+  "exports": [
+    { "file": "exports/favicon-16.png", "size": [16, 16], "transparent": true },
+    { "file": "exports/favicon-32.png", "size": [32, 32], "transparent": true },
+    { "file": "exports/favicon-48.png", "size": [48, 48], "transparent": true },
+    { "file": "exports/favicon.ico", "sizes": [[16,16],[32,32],[48,48]], "transparent": true, "note": "single .ico containing all three resolutions" },
+    { "file": "exports/apple-touch-icon.png", "size": [180, 180], "transparent": false, "note": "solid bg (#0F172A) per Apple's own guidance — iOS composites transparency to black otherwise, and applies its own corner mask" },
+    { "file": "exports/android-chrome-192.png", "size": [192, 192], "transparent": true },
+    { "file": "exports/android-chrome-512.png", "size": [512, 512], "transparent": true },
+    { "file": "exports/mask-icon.svg", "size": [512, 512], "note": "pure #000000 silhouette, no background — Safari recolors via <link rel=\"mask-icon\" color=\"...\">" },
+    { "file": "exports/safari-pinned-tab.svg", "size": [512, 512], "note": "identical content to mask-icon.svg; shipped under both conventional filenames since site generators vary on which one they look for" }
+  ],
+
+  "exportPipeline": {
+    "renderer": "headless WebKit (wkhtmltoimage) with a magenta chroma-key background, alpha extracted in post (no native transparent-render mode was available), then Lanczos-downsampled from the 512 base to every raster size",
+    "note": "wkhtmltoimage always composites onto an opaque page background and has no transparency flag in this environment; true alpha was recovered by rendering on a #FF00FF background no other color in this mark is close to, then converting distance-from-key into a per-pixel alpha channel."
+  },
+
+  "tokens": "tokens.json",
+  "license": "MIT"
+}

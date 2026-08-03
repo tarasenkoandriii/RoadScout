@@ -1,0 +1,18 @@
+{
+  "id": "privacy",
+  "version": "1.0.0",
+  "viewBox": [0, 0, 800, 400],
+  "components": ["Camera", "Phone", "Cloud", "NoUpload", "Shield", "Route", "GPS", "Compass", "FOV"],
+  "exports": [
+    "06-Privacy-Illustration/privacy.svg",
+    "06-Privacy-Illustration/privacy-mobile.svg",
+    "06-Privacy-Illustration/privacy-square.svg",
+    "06-Privacy-Illustration/privacy-dark.svg",
+    "06-Privacy-Illustration/previews/privacy-dark.png",
+    "06-Privacy-Illustration/previews/privacy-light.png"
+  ],
+  "tokens": "tokens.json",
+  "license": "MIT",
+  "detailedManifest": "06-Privacy-Illustration/manifest/privacy.json",
+  "note": "Normalized entry point. The detailed manifest documents the known discrepancy between the brief's 'Warning' component and the 'FOV' component actually shipped in components/ — see that file's componentListNote."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "favicon",
+  "version": "1.0.0",
+  "viewBox": [0, 0, 512, 512],
+  "components": ["shield", "wedge", "dot"],
+  "exports": [
+    "08-Favicon/exports/favicon-16.png",
+    "08-Favicon/exports/favicon-32.png",
+    "08-Favicon/exports/favicon-48.png",
+    "08-Favicon/exports/favicon.ico",
+    "08-Favicon/exports/apple-touch-icon.png",
+    "08-Favicon/exports/android-chrome-192.png",
+    "08-Favicon/exports/android-chrome-512.png",
+    "08-Favicon/exports/mask-icon.svg",
+    "08-Favicon/exports/safari-pinned-tab.svg"
+  ],
+  "tokens": "tokens.json",
+  "license": "MIT",
+  "detailedManifest": "08-Favicon/manifest/favicon.json",
+  "note": "Detailed manifest documents the design rule (solid fills instead of stroked lines, so the 4px-minimum-line-weight rule is satisfied by construction) and the chroma-key transparency extraction pipeline used since the available renderer had no native transparent-output mode."
+}

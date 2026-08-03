@@ -1,0 +1,51 @@
+{
+  "grid": 8,
+  "stroke": 4,
+  "hero": {
+    "viewBox": [
+      0,
+      0,
+      1200,
+      900
+    ],
+    "phoneCenter": [
+      360,
+      580
+    ],
+    "scanOrigin": [
+      360,
+      420
+    ],
+    "scanCone": {
+      "angle": 80,
+      "radius": 520
+    },
+    "safeArea": 64
+  },
+  "icons": {
+    "viewBox": [
+      0,
+      0,
+      120,
+      120
+    ],
+    "safeArea": 12
+  },
+  "privacy": {
+    "viewBox": [
+      0,
+      0,
+      800,
+      400
+    ]
+  },
+  "og": {
+    "viewBox": [
+      0,
+      0,
+      1200,
+      630
+    ],
+    "leftTextZone": "45%"
+  }
+}

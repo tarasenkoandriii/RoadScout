@@ -1,0 +1,20 @@
+{
+  "id": "og-image",
+  "version": "1.0.0",
+  "viewBox": [0, 0, 1200, 630],
+  "components": ["Logo", "Phone", "ScanCone", "CameraMarker", "CameraFOV", "Route", "Warning", "Compass"],
+  "exports": [
+    "07-OpenGraph/master/og-image.svg",
+    "07-OpenGraph/master/og-image-dark.svg",
+    "07-OpenGraph/master/og-image-light.svg",
+    "07-OpenGraph/master/og-image-no-text.svg",
+    "07-OpenGraph/master/og-image-minimal.svg",
+    "07-OpenGraph/exports/png/og-image.png",
+    "07-OpenGraph/exports/webp/og-image.webp",
+    "07-OpenGraph/exports/jpg/og-image.jpg"
+  ],
+  "tokens": "tokens.json",
+  "license": "MIT",
+  "detailedManifest": "07-OpenGraph/manifest/og.json",
+  "note": "Detailed manifest documents which component geometry each of the 8 traces back to (Phone/ScanCone/CameraMarker/CameraFOV from 04-Hero-Illustration, Route/Compass from 06-Privacy-Illustration, Logo from 05-Icons/brand) and flags that Warning has no standalone file anywhere in the project yet — drawn inline here, same as in 04 and 06."
+}

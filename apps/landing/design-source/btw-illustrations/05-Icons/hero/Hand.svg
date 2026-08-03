@@ -1,0 +1,12 @@
+<!-- Hand
+     params: gripWidth=224, gripHeight=288 (sized to wrap a 160x320 Phone at origin 32,148 offset)
+     tokens: stroke=neutral(#F8FAFC) stroke-width=4, linecap/linejoin=round -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 288" width="224" height="288" role="img" aria-hidden="true">
+  <g fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="8" y="128" width="208" height="160" rx="32"/>
+    <rect x="0" y="32" width="72" height="48" rx="24"/>
+    <rect x="176" y="0" width="48" height="32" rx="16"/>
+    <rect x="176" y="56" width="48" height="32" rx="16"/>
+    <rect x="176" y="112" width="48" height="32" rx="16"/>
+  </g>
+</svg>

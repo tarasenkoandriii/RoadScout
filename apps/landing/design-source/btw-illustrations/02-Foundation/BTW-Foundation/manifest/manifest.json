@@ -1,0 +1,23 @@
+{
+  "project": "BTW",
+  "assets": [
+    "hero",
+    "privacy",
+    "og-image",
+    "favicon",
+    "icon-open",
+    "icon-point",
+    "icon-detect",
+    "icon-warning"
+  ],
+  "components": [
+    "Phone",
+    "Hand",
+    "ScanCone",
+    "CameraMarker",
+    "CameraFOV",
+    "Cloud",
+    "Arrow",
+    "CompassArc"
+  ]
+}

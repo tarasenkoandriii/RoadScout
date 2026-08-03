@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beyondthewall.app/schemas/tokens.schema.json",
+  "title": "BTW Design Tokens",
+  "description": "Schema for the consolidated manifest/tokens.json.",
+  "type": "object",
+  "required": ["id", "version", "colors", "license"],
+  "properties": {
+    "id": { "type": "string", "const": "tokens" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "description": { "type": "string" },
+    "colors": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-zA-Z0-9]*$": {
+          "type": "object",
+          "required": ["hex", "role"],
+          "properties": {
+            "hex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "role": { "type": "string" }
+          }
+        }
+      },
+      "minProperties": 1
+    },
+    "usedBy": {
+      "type": "object",
+      "patternProperties": {
+        "^[0-9A-Za-z-]+$": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "grid": { "type": "object" },
+    "stroke": { "type": "object" },
+    "radius": { "type": "object" },
+    "license": { "type": "string" }
+  },
+  "additionalProperties": true
+}

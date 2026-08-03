@@ -1,0 +1,8 @@
+<!-- Compass
+     params: size=48
+     tokens: stroke=neutral(#F8FAFC) stroke-width=2.5, needle=neutral fill -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-hidden="true">
+  <circle cx="24" cy="24" r="19" fill="none" stroke="#F8FAFC" stroke-width="2.5"/>
+  <path d="M24 9 L28 24 L24 39 L20 24 Z" fill="#F8FAFC"/>
+  <circle cx="24" cy="24" r="2.2" fill="#0F172A" stroke="#F8FAFC" stroke-width="1.5"/>
+</svg>

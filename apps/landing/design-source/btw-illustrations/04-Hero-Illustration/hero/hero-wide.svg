@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2160 900" width="2160" height="900" role="img" aria-hidden="true">
+  <rect id="background" x="0" y="0" width="2160" height="900" fill="#0F172A"/>
+  <g id="skyline" fill="#F8FAFC" opacity="0.06">
+    <rect x="0" y="780" width="120" height="120"/>
+    <rect x="136" y="816" width="104" height="84"/>
+    <rect x="256" y="750" width="112" height="150"/>
+    <rect x="384" y="800" width="80" height="100"/>
+    <rect x="480" y="772" width="128" height="128"/>
+    <rect x="632" y="780" width="120" height="120"/>
+    <rect x="776" y="820" width="112" height="80"/>
+    <rect x="896" y="820" width="80" height="80"/>
+    <rect x="1008" y="852" width="120" height="48"/>
+    <rect x="1144" y="836" width="112" height="64"/>
+    <rect x="1280" y="796" width="64" height="104"/>
+    <rect x="1368" y="812" width="80" height="88"/>
+    <rect x="1464" y="820" width="104" height="80"/>
+    <rect x="1600" y="788" width="88" height="112"/>
+    <rect x="1688" y="760" width="96" height="140"/>
+    <rect x="1800" y="810" width="110" height="90"/>
+    <rect x="1926" y="740" width="120" height="160"/>
+    <rect x="2062" y="790" width="96" height="110"/>
+  </g>
+  <g id="scan-cone">
+    <path d="M840 420 L630 56.3 A420 420 0 0 1 1050 56.3 Z" fill="#3B82F6" opacity="0.15"/>
+    <path d="M840 420 L505.8 21.7 A520 520 0 0 1 1174.2 21.7 Z" fill="#3B82F6" opacity="0.30"/>
+  </g>
+  <g id="hand" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="736" y="696" width="208" height="160" rx="32"/>
+    <rect x="728" y="600" width="72" height="48" rx="24"/>
+    <rect x="904" y="568" width="48" height="32" rx="16"/>
+    <rect x="904" y="624" width="48" height="32" rx="16"/>
+    <rect x="904" y="680" width="48" height="32" rx="16"/>
+  </g>
+  <g id="phone">
+    <rect x="760" y="420" width="160" height="320" rx="24" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect id="screen" x="772" y="432" width="136" height="296" rx="12" fill="none" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <g stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" opacity="0.35">
+      <line x1="788" y1="480" x2="888" y2="480"/>
+      <line x1="788" y1="512" x2="868" y2="512"/>
+      <line x1="788" y1="544" x2="848" y2="544"/>
+    </g>
+    <circle cx="884" cy="456" r="6" fill="#22C55E"/>
+  </g>
+  <g id="camera-3">
+    <circle cx="1020" cy="170" r="25" fill="#22C55E" opacity="0.15"/>
+    <circle cx="1020" cy="170" r="14" fill="#22C55E"/>
+  </g>
+  <g id="camera-fov-3" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="1020" y1="170" x2="975.7" y2="270.7"/>
+    <line x1="1020" y1="170" x2="938.6" y2="244"/>
+  </g>
+  <g id="camera-1">
+    <circle cx="1090" cy="280" r="25" fill="#22C55E" opacity="0.15"/>
+    <circle cx="1090" cy="280" r="14" fill="#22C55E"/>
+  </g>
+  <g id="camera-fov-1" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="1090" y1="280" x2="1007.3" y2="352.5"/>
+    <line x1="1090" y1="280" x2="984.9" y2="312.6"/>
+  </g>
+  <g id="camera-2">
+    <circle cx="1240" cy="360" r="25" fill="#EAB308" opacity="0.15"/>
+    <circle cx="1240" cy="360" r="14" fill="#EAB308"/>
+  </g>
+  <g id="camera-fov-2" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="1240" y1="360" x2="1137" y2="398.6"/>
+    <line x1="1240" y1="360" x2="1130.2" y2="353.3"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+{
+  "id": "hero",
+  "version": "2.1.0",
+  "viewBox": [0, 0, 1200, 900],
+  "components": ["Phone", "Hand", "ScanCone", "CameraMarker", "CameraFOV"],
+  "exports": [
+    "04-Hero-Illustration/hero/hero.svg",
+    "04-Hero-Illustration/hero/hero-mobile.svg",
+    "04-Hero-Illustration/hero/hero-desktop.svg",
+    "04-Hero-Illustration/hero/hero-wide.svg",
+    "04-Hero-Illustration/hero/hero-square.svg",
+    "04-Hero-Illustration/preview/hero-dark.png",
+    "04-Hero-Illustration/preview/hero-light.png"
+  ],
+  "tokens": "tokens.json",
+  "license": "MIT",
+  "detailedManifest": "04-Hero-Illustration/manifest/hero.json",
+  "note": "This is the normalized, common-schema entry point. 04-Hero-Illustration/manifest/hero.json is the detailed source of truth (full canonical geometry, per-variant sizes, stable IDs) and remains authoritative for anything not covered by the common schema's fields. Its own 'version' field reads '2.1' (not full SemVer) — that predates this v5.1 manifest system's SemVer requirement; the '2.1.0' here is the same version number, reformatted to comply."
+}

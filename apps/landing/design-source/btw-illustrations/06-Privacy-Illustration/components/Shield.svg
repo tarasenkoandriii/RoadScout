@@ -1,0 +1,10 @@
+<!-- Shield
+     params: size=44
+     tokens: outline=success(#22C55E) stroke-width=3, check=success
+     used as the "local processing" verified-badge (shield + checkmark combined) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44" role="img" aria-hidden="true">
+  <path d="M22 3 L38 8.5 V20.5 C38 30 31.5 36.5 22 40.5 C12.5 36.5 6 30 6 20.5 V8.5 Z"
+        fill="none" stroke="#22C55E" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M14.5 21.5 L19.5 26.5 L29.5 15.5" fill="none" stroke="#22C55E" stroke-width="3"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

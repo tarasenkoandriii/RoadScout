@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 1000" width="750" height="1000" role="img" aria-hidden="true">
+  <rect id="background" x="0" y="0" width="750" height="1000" fill="#0F172A"/>
+  <g id="skyline" fill="#F8FAFC" opacity="0.06">
+    <rect x="0" y="872" width="128" height="128"/>
+    <rect x="152" y="880" width="120" height="120"/>
+    <rect x="296" y="920" width="112" height="80"/>
+    <rect x="416" y="920" width="80" height="80"/>
+    <rect x="528" y="952" width="120" height="48"/>
+    <rect x="664" y="936" width="86" height="64"/>
+  </g>
+  <g id="scan-cone">
+    <path d="M376 540 L166 176.3 A420 420 0 0 1 586 176.3 Z" fill="#3B82F6" opacity="0.15"/>
+    <path d="M376 540 L41.8 141.7 A520 520 0 0 1 710.2 141.7 Z" fill="#3B82F6" opacity="0.30"/>
+  </g>
+  <g id="hand" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="272" y="816" width="208" height="160" rx="32"/>
+    <rect x="264" y="720" width="72" height="48" rx="24"/>
+    <rect x="440" y="688" width="48" height="32" rx="16"/>
+    <rect x="440" y="744" width="48" height="32" rx="16"/>
+    <rect x="440" y="800" width="48" height="32" rx="16"/>
+  </g>
+  <g id="phone">
+    <rect x="296" y="540" width="160" height="320" rx="24" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect id="screen" x="308" y="552" width="136" height="296" rx="12" fill="none" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <g stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" opacity="0.35">
+      <line x1="324" y1="600" x2="424" y2="600"/>
+      <line x1="324" y1="632" x2="404" y2="632"/>
+      <line x1="324" y1="664" x2="384" y2="664"/>
+    </g>
+    <circle cx="420" cy="576" r="6" fill="#22C55E"/>
+  </g>
+  <g id="camera-3">
+    <circle cx="472" cy="344" r="25" fill="#22C55E" opacity="0.15"/>
+    <circle cx="472" cy="344" r="14" fill="#22C55E"/>
+  </g>
+  <g id="camera-fov-3" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="472" y1="344" x2="452.5" y2="421.6"/>
+    <line x1="472" y1="344" x2="422.6" y2="407"/>
+  </g>
+  <g id="camera-1">
+    <circle cx="512" cy="432" r="25" fill="#22C55E" opacity="0.15"/>
+    <circle cx="512" cy="432" r="14" fill="#22C55E"/>
+  </g>
+  <g id="camera-fov-1" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="512" y1="432" x2="461.1" y2="493.7"/>
+    <line x1="512" y1="432" x2="440.4" y2="467.6"/>
+  </g>
+  <g id="camera-2">
+    <circle cx="592" cy="488" r="25" fill="#EAB308" opacity="0.15"/>
+    <circle cx="592" cy="488" r="14" fill="#EAB308"/>
+  </g>
+  <g id="camera-fov-2" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round">
+    <line x1="592" y1="488" x2="519.8" y2="522.5"/>
+    <line x1="592" y1="488" x2="512" y2="490.1"/>
+  </g>
+</svg>

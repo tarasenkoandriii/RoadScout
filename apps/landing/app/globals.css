@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Accessibility — поважати prefers-reduced-motion (frontend-design skill: "reduced motion
+   respected" — базова якість, не опція). Вимикає САМЕ рух/анімацію, лишає стан кінцевим. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ВИПРАВЛЕНО (знайдено під час аудиту) — Tailwind-утиліта marker:content-none в page.tsx
+   ховає стандартний ::marker (Chrome/Firefox), але старіший Safari використовує ОКРЕМИЙ
+   псевдоелемент ::-webkit-details-marker для трикутника розкриття <summary> — без цього
+   правила той трикутник лишався б видимим саме в Safari, всупереч заявленій підтримці
+   браузерів (doc/AUDIT-landing-v2-scope.md, "Browser Support"). */
+summary::-webkit-details-marker {
+  display: none;
+}

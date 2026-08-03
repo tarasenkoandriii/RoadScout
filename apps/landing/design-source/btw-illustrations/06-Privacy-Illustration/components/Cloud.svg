@@ -1,0 +1,7 @@
+<!-- Cloud
+     params: width=96, height=64
+     tokens: stroke=neutral(#F8FAFC) stroke-width=4, opacity=0.55 (external/distant surface) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" width="96" height="64" role="img" aria-hidden="true">
+  <path d="M24 48h44a12 12 0 0 0 0-24 17.6 17.6 0 0 0-33.6-6.4A14.4 14.4 0 0 0 24 48z"
+        fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linejoin="round" opacity="0.55"/>
+</svg>

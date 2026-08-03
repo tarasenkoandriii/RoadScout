@@ -1,0 +1,1 @@
+Component library skeleton with reusable SVG primitives.

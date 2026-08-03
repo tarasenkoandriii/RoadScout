@@ -1,0 +1,8 @@
+<!-- CameraMarker
+     params: x=14, y=14 (center, local), color=success|warning, type=circle|drop
+     size: 28x28. Default instance below renders type="circle".
+     For type="drop", replace the <circle> with:
+     <path d="M14 2C7.4 2 2 7.4 2 14c0 9 12 20.6 12 20.6S26 23 26 14C26 7.4 20.6 2 14 2Z"/> -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" role="img" aria-hidden="true">
+  <circle cx="14" cy="14" r="14" fill="#22C55E"/>
+</svg>

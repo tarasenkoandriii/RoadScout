@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "categories": [
+    {
+      "id": "core",
+      "label": "Core Icons",
+      "required": true,
+      "description": "Foundational glyphs used across the whole product: visibility, points of interest, detection, and hazard states.",
+      "path": "core/",
+      "count": 4
+    },
+    {
+      "id": "camera",
+      "label": "Camera Icons",
+      "required": false,
+      "description": "Camera types and live status used on the map and in camera detail views.",
+      "path": "camera/",
+      "count": 10
+    },
+    {
+      "id": "detection",
+      "label": "Detection Icons",
+      "required": false,
+      "description": "Objects the system can detect or flag: vehicles, people, and incidents.",
+      "path": "detection/",
+      "count": 10
+    },
+    {
+      "id": "navigation",
+      "label": "Navigation Icons",
+      "required": false,
+      "description": "Routing, positioning and orientation controls.",
+      "path": "navigation/",
+      "count": 9
+    },
+    {
+      "id": "privacy",
+      "label": "Privacy Icons",
+      "required": false,
+      "description": "Data-handling and protection states: what is hidden, encrypted, processed locally, or removable.",
+      "path": "privacy/",
+      "count": 7
+    },
+    {
+      "id": "status",
+      "label": "Status Icons",
+      "required": false,
+      "description": "Generic system/UI state indicators, reusable outside the map context.",
+      "path": "status/",
+      "count": 8
+    },
+    {
+      "id": "ui",
+      "label": "UI Icons",
+      "required": false,
+      "description": "Chrome and controls: navigation, view options, and generic actions.",
+      "path": "ui/",
+      "count": 12
+    },
+    {
+      "id": "hero",
+      "label": "Hero Assets",
+      "required": false,
+      "description": "Larger reusable illustration components (not flat icons) used to compose 04-Hero-Illustration and future scenes.",
+      "path": "hero/",
+      "count": 10
+    },
+    {
+      "id": "brand",
+      "label": "Brand Assets",
+      "required": false,
+      "description": "Logo lockups and platform icon exports (favicon, app icon, Safari mask icon).",
+      "path": "brand/",
+      "count": 6
+    }
+  ]
+}

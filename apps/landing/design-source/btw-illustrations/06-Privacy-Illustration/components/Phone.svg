@@ -1,0 +1,12 @@
+<!-- Phone
+     params: width=180, height=340, radius=24, screenPadding=14
+     tokens: stroke=neutral(#F8FAFC) stroke-width=4 (screen: 2) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 340" width="180" height="340" role="img" aria-hidden="true">
+  <rect x="2" y="2" width="176" height="336" rx="24" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect id="screen" x="16" y="16" width="148" height="308" rx="12" fill="none" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="90" cy="46" r="4" fill="#22C55E"/>
+  <g stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" opacity="0.3">
+    <line x1="32" y1="70" x2="148" y2="70"/>
+    <line x1="32" y1="94" x2="120" y2="94"/>
+  </g>
+</svg>

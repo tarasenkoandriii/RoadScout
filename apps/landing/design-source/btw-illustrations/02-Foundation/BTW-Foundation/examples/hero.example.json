@@ -1,0 +1,9 @@
+{
+  "asset": "hero",
+  "components": [
+    "Phone",
+    "Hand",
+    "ScanCone",
+    "CameraMarker"
+  ]
+}

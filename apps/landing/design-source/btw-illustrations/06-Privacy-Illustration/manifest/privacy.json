@@ -1,0 +1,118 @@
+{
+  "asset": "privacy",
+  "version": "1.0",
+  "specification": "BTW Privacy Illustration Brief (v5 proposal)",
+  "description": "Three-message privacy explainer: cameras stay with their owners, video never leaves the camera or uploads to the cloud, and BTW only uses geometry/location computed locally on-device.",
+
+  "messages": [
+    "Cameras remain with their owners.",
+    "Video never leaves the camera and is never uploaded to the cloud.",
+    "BTW uses only geometry, the user's location, and local computation to generate warnings."
+  ],
+
+  "tokens": {
+    "colors": {
+      "bg": "#0F172A",
+      "neutral": "#F8FAFC",
+      "primary": "#3B82F6",
+      "success": "#22C55E",
+      "danger": "#EF4444"
+    },
+    "note": "Same token names as 04-Hero-Illustration and 05-Icons; 'danger' (#EF4444) is the same addition introduced for 05-Icons. No 'warning' (yellow) token is used in this asset family — the brief's color list for Privacy doesn't include it, so it was deliberately left out rather than reused out of habit."
+  },
+
+  "canonicalGeometry": {
+    "referenceFrame": "privacy.svg (800x400)",
+    "zones": { "cameras": [0, 260], "device": [260, 540], "internet": [540, 800] },
+    "cameras": {
+      "count": 3,
+      "positions": [[60, 90], [60, 200], [60, 310]],
+      "size": 32,
+      "fov": { "radius": 210, "halfAngle": 18 }
+    },
+    "phone": { "x": 310, "y": 30, "width": 180, "height": 340, "rx": 24 },
+    "badges": {
+      "gps":     { "pos": [275, 90],  "size": 40 },
+      "route":   { "pos": [275, 250], "size": [64, 26] },
+      "warning": { "pos": [275, 345], "size": [26, 23] },
+      "compass": { "pos": [525, 90],  "size": 48 },
+      "shield":  { "pos": [525, 250], "size": 44 }
+    },
+    "cloud": { "pos": [680, 150], "size": [96, 64] },
+    "noUpload": { "pos": [561, 150], "size": 64 }
+  },
+
+  "components": [
+    { "name": "Camera",   "file": "components/Camera.svg",   "size": [32, 32] },
+    { "name": "Phone",    "file": "components/Phone.svg",    "size": [180, 340] },
+    { "name": "Cloud",    "file": "components/Cloud.svg",    "size": [96, 64] },
+    { "name": "NoUpload", "file": "components/NoUpload.svg", "size": [64, 64] },
+    { "name": "Shield",   "file": "components/Shield.svg",   "size": [44, 44] },
+    { "name": "Route",    "file": "components/Route.svg",    "size": [100, 40] },
+    { "name": "GPS",      "file": "components/GPS.svg",      "size": [40, 40] },
+    { "name": "Compass",  "file": "components/Compass.svg",  "size": [48, 48] },
+    { "name": "FOV",      "file": "components/FOV.svg",      "size": [136, 130] }
+  ],
+
+  "componentListNote": "The brief's narrative section lists 9 components as 'Camera, Phone, GPS Pin, Compass, Route, Cloud, No Upload, Warning, Shield' (Warning included, FOV not mentioned), but the folder structure it proposes lists components/FOV.svg and no components/Warning.svg. This manifest follows the folder structure literally: FOV shipped as a reusable component (it's genuinely reused 3x per composition), Warning drawn inline in each composition file instead (it's used once per layout and is simple enough not to need its own file). Flag this to the brief's author if a standalone Warning.svg is actually wanted.",
+
+  "variants": [
+    {
+      "file": "privacy.svg",
+      "viewBox": "0 0 800 400",
+      "layout": "horizontal-3-zone (cameras | phone | cloud)",
+      "usage": "Primary/default composition, matches the brief's zone diagram exactly.",
+      "sizeBytes": 5823
+    },
+    {
+      "file": "privacy-mobile.svg",
+      "viewBox": "0 0 750 1000",
+      "layout": "vertical-stack (cameras on top facing down | phone | cloud at bottom)",
+      "usage": "Portrait mobile viewports. Re-composed, not cropped — the horizontal 3-zone layout doesn't fit a portrait frame, so cameras rotate to face downward toward the phone instead of rightward.",
+      "sizeBytes": 5868
+    },
+    {
+      "file": "privacy-square.svg",
+      "viewBox": "0 0 700 700",
+      "layout": "vertical-stack, same as mobile at a squarer aspect",
+      "usage": "Social sharing / 1:1 placements.",
+      "sizeBytes": 5864
+    },
+    {
+      "file": "privacy-dark.svg",
+      "viewBox": "0 0 800 400",
+      "layout": "identical to privacy.svg",
+      "usage": "Explicit dark-suffixed asset for pipelines that select by filename convention. Content is intentionally identical to privacy.svg — see the comment at the top of the file and docs/README.md for why no separate light-mode recolor exists.",
+      "sizeBytes": 6155
+    }
+  ],
+
+  "previews": [
+    { "file": "previews/privacy-dark.png", "width": 800, "height": 400, "description": "Direct raster render of privacy.svg on its own native dark canvas." },
+    { "file": "previews/privacy-light.png", "width": 880, "height": 480, "description": "privacy.svg framed on a white surrounding page, for reviewing the asset against a light-theme layout." }
+  ],
+
+  "animation": {
+    "engine": "CSS only (no JS), embedded via an inline <style> block in each composition file",
+    "rules": [
+      "Each camera's FOV ray pulses opacity 0.14 <-> 0.30 on a 4s loop, staggered 0.6s apart per camera so the three don't move in lockstep.",
+      "The phone group pulses scale 1.0 <-> 1.015 on a 3s loop (transform-box: fill-box so the origin is the phone's own center, not the SVG viewport's).",
+      "The red 'no video upload' slash has no animation class and never moves — the one static, certain element in the scene, on purpose."
+    ]
+  },
+
+  "stableIds": [
+    "background", "fov-rays", "cameras", "flow-arrows",
+    "gps", "route", "warning", "compass", "shield", "phone", "screen", "cloud", "no-upload"
+  ],
+
+  "svgApi": {
+    "requiredAttributes": ["viewBox", "width", "height", "role=\"img\"", "aria-hidden=\"true\""],
+    "forbidden": ["filter", "image", "script"],
+    "maxGroupNesting": 2
+  },
+
+  "performanceBudgetKB": {
+    "privacy": 8
+  }
+}

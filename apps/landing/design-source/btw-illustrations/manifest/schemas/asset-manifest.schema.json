@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beyondthewall.app/schemas/asset-manifest.schema.json",
+  "title": "BTW Asset Manifest",
+  "description": "Common schema every normalized manifest in manifest/ (hero.json, privacy.json, icons.json, favicon.json, og.json) conforms to. Detailed per-folder manifests (e.g. 04-Hero-Illustration/manifest/hero.json) may carry additional fields beyond this schema — those extra fields are not validated here, only the fields this schema declares are.",
+  "type": "object",
+  "required": ["id", "version", "viewBox", "components", "exports", "tokens", "license"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "lowercase-kebab identifier, e.g. 'hero', 'og-image'"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "strict SemVer MAJOR.MINOR.PATCH"
+    },
+    "viewBox": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": "number" },
+      "description": "[minX, minY, width, height]"
+    },
+    "components": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "exports": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tokens": {
+      "type": "string",
+      "description": "relative path to the tokens file this manifest's palette comes from"
+    },
+    "license": {
+      "type": "string"
+    },
+    "detailedManifest": {
+      "type": "string",
+      "description": "optional: relative path to the richer, asset-specific manifest this normalized entry summarizes"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-hidden="true">
+
+  <style>
+    .fov-ray { animation: og-fov-pulse 5s ease-in-out infinite; }
+    @keyframes og-fov-pulse { 0%,100% { opacity: .16; } 50% { opacity: .30; } }
+  </style>
+  <rect id="background" x="0" y="0" width="1200" height="630" fill="#0F172A"/>
+  <g id="logo-mark" transform="translate(64,94) scale(0.75)">
+    <path d="M32 4 L54 12 V29 C54 45 44 55 32 60 C20 55 10 45 10 29 V12 Z" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M32 24 L20 40 A16 16 0 0 1 44 40 Z" fill="#3B82F6" opacity="0.28"/>
+    <circle cx="32" cy="20" r="4.6" fill="#3B82F6"/>
+  </g>
+  <text x="126" y="132" fill="#F8FAFC" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="44">BTW</text>
+  <text x="64" y="204" fill="#F8FAFC" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="52">Beyond the Wall</text>
+  <text x="64" y="250" fill="#F8FAFC" opacity="0.82" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="26">AI Camera Awareness</text>
+  <text x="64" y="286" fill="#3B82F6" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="20">Privacy-first Navigation</text>
+  <path id="scan-cone" d="M838 195 L711.81 14.79 A220 220 0 0 1 964.19 14.79 Z" fill="#3B82F6" opacity="0.30"/>
+  <g id="phone">
+    <rect x="763" y="195" width="150" height="290" rx="22" fill="none" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect id="screen" x="776" y="208" width="124" height="264" rx="11" fill="none" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="838" cy="223" r="4" fill="#22C55E"/>
+  </g>
+</svg>

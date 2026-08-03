@@ -155,8 +155,24 @@ services:
     depends_on:
       - api
 
+  # За прямим запитом користувача — маркетинговий лендинг (окремий Vercel-деплой, apps/landing).
+  # На відміну від admin/btw, СВІДОМО без `depends_on: api` — лендинг статичний, жодних
+  # звернень до бекенду немає взагалі (єдина "дія" сторінки — deep-посилання в Telegram,
+  # не API-виклик).
+  landing:
+    build:
+      context: ./apps/landing
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./apps/landing:/app
+      - landing_node_modules:/app/node_modules
+
 volumes:
   postgres_data:
   api_node_modules:
   admin_node_modules:
   btw_node_modules:
+  landing_node_modules:

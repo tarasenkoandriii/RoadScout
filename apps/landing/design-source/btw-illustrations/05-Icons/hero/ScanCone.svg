@@ -1,0 +1,7 @@
+<!-- ScanCone
+     params: originX=520, originY=520, radius=520, startAngle=-40, endAngle=40, color=primary, opacity=0.30
+     angle is measured from "up" (0deg = straight up), clockwise positive
+     formula: start = centerAngle - angle/2, end = centerAngle + angle/2 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 520" width="1040" height="520" role="img" aria-hidden="true">
+  <path id="scan-cone" d="M520 520 L185.8 121.7 A520 520 0 0 1 854.2 121.7 Z" fill="#3B82F6" opacity="0.30"/>
+</svg>

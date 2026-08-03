@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beyondthewall.app/schemas/project.schema.json",
+  "title": "BTW Project Manifest",
+  "description": "Schema for the top-level manifest/project.json.",
+  "type": "object",
+  "required": ["id", "version", "license", "tokens", "assets"],
+  "properties": {
+    "id": { "type": "string" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "specification": { "type": "string" },
+    "license": { "type": "string" },
+    "tokens": { "type": "string" },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "path"],
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "manifest": { "type": "string" }
+        }
+      }
+    },
+    "schemas": { "type": "object" },
+    "versioningNote": { "type": "string" },
+    "acceptanceCriteriaStatus": { "type": "object" }
+  },
+  "additionalProperties": true
+}

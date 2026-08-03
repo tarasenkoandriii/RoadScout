@@ -1,0 +1,104 @@
+{
+  "asset": "og-image",
+  "version": "1.0",
+  "specification": "BTW Open Graph Brief (v5 proposal)",
+  "viewBox": [0, 0, 1200, 630],
+  "purpose": "Answer three questions in 1-2 seconds when the link is shared: What is this? How does it work? Why is it safe?",
+
+  "layout": {
+    "leftPanel": 0.45,
+    "rightPanel": 0.55,
+    "padding": 64,
+    "note": "45/55 split is computed against the full 1200 width (540 / 660 boundary); the 64px safe-area padding applies to the canvas's own edges, not per-panel."
+  },
+
+  "leftPanel": {
+    "content": ["BTW (logo mark + wordmark)", "Beyond the Wall", "AI Camera Awareness", "Privacy-first Navigation"],
+    "maxTextLines": 4,
+    "typography": {
+      "logo": 44,
+      "title": 52,
+      "subtitle": 26,
+      "tagline": 20,
+      "maxFontWeights": 2
+    }
+  },
+
+  "rightPanel": {
+    "content": ["Phone", "ScanCone (extends beyond phone)", "3 cameras in different directions", "Intersecting camera FOVs", "Route (passes under phone)", "Warning (before the route)", "Compass (small accent)"],
+    "excludes": ["Hand", "decorative elements"],
+    "note": "The brief says 'same Hero as the landing, no redrawing,' but also describes a scene 04-Hero-Illustration/hero.svg doesn't have (no Hand, cameras placed in multiple directions with intersecting FOVs, Route + Warning + Compass which hero.svg never contained). Interpreted as: reuse the same COMPONENT GEOMETRY (Phone/ScanCone/CameraMarker/CameraFOV from 04-Hero-Illustration, Route/Compass from 06-Privacy-Illustration), composed fresh for this format. Documented in docs/README.md."
+  },
+
+  "tokens": {
+    "colors": {
+      "bg": "#0F172A",
+      "primary": "#3B82F6",
+      "success": "#22C55E",
+      "warning": "#EAB308",
+      "neutral": "#F8FAFC"
+    },
+    "note": "Same 5 tokens as 04-Hero-Illustration exactly (this is the one asset family in the project that actually uses the yellow 'warning' token, since the brief's own palette section lists it explicitly). Red is reserved for prohibition/error per the brief and isn't used anywhere in this composition."
+  },
+
+  "reuseComponents": [
+    { "name": "Logo",         "source": "05-Icons/brand/logo-mark.svg", "status": "reused as-is" },
+    { "name": "Phone",        "source": "04-Hero-Illustration/components/Phone.svg", "status": "reused geometry, rescaled" },
+    { "name": "ScanCone",     "source": "04-Hero-Illustration/components/ScanCone.svg", "status": "reused geometry (up-facing cone formula)" },
+    { "name": "CameraMarker", "source": "04-Hero-Illustration/components/CameraMarker.svg", "status": "reused geometry" },
+    { "name": "CameraFOV",    "source": "04-Hero-Illustration/components/CameraFOV.svg", "status": "reused aiming formula, generalized to aim at an arbitrary target instead of a fixed 'up' direction" },
+    { "name": "Route",        "source": "06-Privacy-Illustration/components/Route.svg", "status": "reused geometry, rescaled" },
+    { "name": "Compass",      "source": "06-Privacy-Illustration/components/Compass.svg", "status": "reused geometry" },
+    { "name": "Warning",      "source": "drawn inline — no standalone Warning.svg exists yet anywhere in the project", "status": "new, not yet promoted to a shared component file" }
+  ],
+  "reuseComponentsNote": "8 components requested by the brief; 7 have a real, traceable source elsewhere in the repo. Warning does not yet exist as its own file in any folder (04 and 06 both draw it inline too) — flagging this rather than inventing a new components/ folder here, since no such folder was requested for 07-OpenGraph.",
+
+  "variants": [
+    { "file": "master/og-image.svg",         "description": "Default/canonical, dark bg, full composition.", "sizeBytes": 3488 },
+    { "file": "master/og-image-dark.svg",    "description": "Intentionally identical to og-image.svg — see comment in the file and docs/README.md.", "sizeBytes": 3987 },
+    { "file": "master/og-image-light.svg",   "description": "Genuine light-background recolor: bg and ink swap roles within the same 5-token palette (no new colors introduced).", "sizeBytes": 3488 },
+    { "file": "master/og-image-no-text.svg", "description": "Same dark composition with the left-panel text block omitted.", "sizeBytes": 2582 },
+    { "file": "master/og-image-minimal.svg", "description": "Logo + Phone + ScanCone only — cameras, FOV, route, warning, and compass removed.", "sizeBytes": 1789 }
+  ],
+
+  "exports": {
+    "source": "master/og-image.svg",
+    "formats": ["png", "webp", "jpg"],
+    "dimensions": [1200, 630],
+    "files": {
+      "png": "exports/png/og-image.png",
+      "webp": "exports/webp/og-image.webp",
+      "jpg": "exports/jpg/og-image.jpg"
+    }
+  },
+
+  "socialPreviews": [
+    { "platform": "Telegram", "file": "social-previews/telegram-preview.png" },
+    { "platform": "LinkedIn", "file": "social-previews/linkedin-preview.png" },
+    { "platform": "Facebook", "file": "social-previews/facebook-preview.png" },
+    { "platform": "X",        "file": "social-previews/x-preview.png" },
+    { "platform": "Discord",  "file": "social-previews/discord-preview.png" }
+  ],
+  "socialPreviewsNote": "These are approximate layout mockups built for internal QA (does the crop/contrast/text read at roughly the right proportions per platform), not live captures of the real platform UI.",
+
+  "animation": {
+    "engine": "CSS only, in master/og-image.svg and og-image-light.svg (not in -no-text/-minimal, kept static)",
+    "rule": "Camera FOV cones pulse opacity 0.16-0.30 on a 5s loop. No motion in exported raster formats (PNG/WebP/JPG capture a single static frame) or in the no-text/minimal variants."
+  },
+
+  "svgApi": {
+    "requiredAttributes": ["viewBox", "width", "height", "role=\"img\"", "aria-hidden=\"true\""],
+    "forbidden": ["filter", "image", "script"],
+    "maxGroupNesting": 2
+  },
+
+  "acceptanceCriteria": {
+    "scalesWithoutQualityLoss": true,
+    "exportsCorrectly": ["png", "webp", "jpg"],
+    "readableInPreviews": ["Telegram", "LinkedIn", "Facebook", "X"],
+    "usesOnlySharedLibraryComponents": "partial — see reuseComponentsNote",
+    "unifiedPaletteAndTokens": true,
+    "sourceSizeBudgetKB": 30,
+    "actualSourceSizeKB": 3.4
+  }
+}

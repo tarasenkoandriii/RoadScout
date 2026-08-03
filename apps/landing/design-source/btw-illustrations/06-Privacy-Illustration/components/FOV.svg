@@ -1,0 +1,6 @@
+<!-- FOV
+     params: originX=6, originY=65, radius=130, halfAngle=18, color=primary, opacity=0.22
+     angle measured from "right" (0deg = pointing right/+x), clockwise positive -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 136 130" width="136" height="130" role="img" aria-hidden="true">
+  <path id="fov" d="M6 65 L129.64 24.83 A130 130 0 0 1 129.64 105.17 Z" fill="#3B82F6" opacity="0.22"/>
+</svg>

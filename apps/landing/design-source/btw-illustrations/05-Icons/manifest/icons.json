@@ -1,0 +1,1555 @@
+{
+  "version": "1.0",
+  "system": "BTW Icon Design System",
+  "totalIcons": 60,
+  "totalHeroAssets": 10,
+  "totalBrandAssets": 6,
+  "grandTotal": 76,
+  "grid": 24,
+  "defaultStrokeWidth": 2,
+  "sizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    96,
+    128
+  ],
+  "sizingModel": "single-source-viewbox — every icon ships as one 24x24 (or component-native) viewBox with no baked-in width/height beyond a default; consumers render any of the sizes above losslessly via width/height, CSS, or the sprite's <use width height>.",
+  "colorModel": {
+    "default": "currentColor (stroke) — inherits color from CSS, no fill baked in",
+    "semantic": "a few status/badge icons (success, warning, error, camera-online, camera-record, etc.) bake in a fixed token color because the color itself carries meaning"
+  },
+  "icons": [
+    {
+      "id": "detect",
+      "name": "detect",
+      "category": "core",
+      "file": "core/detect.svg",
+      "spriteSymbol": "icon-detect",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "radar",
+        "scan",
+        "signal"
+      ]
+    },
+    {
+      "id": "open",
+      "name": "open",
+      "category": "core",
+      "file": "core/open.svg",
+      "spriteSymbol": "icon-open",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "visibility",
+        "eye",
+        "public"
+      ]
+    },
+    {
+      "id": "point",
+      "name": "point",
+      "category": "core",
+      "file": "core/point.svg",
+      "spriteSymbol": "icon-point",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "marker",
+        "poi",
+        "location"
+      ]
+    },
+    {
+      "id": "warning",
+      "name": "warning",
+      "category": "core",
+      "file": "core/warning.svg",
+      "spriteSymbol": "icon-warning",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "alert",
+        "hazard",
+        "caution"
+      ]
+    },
+    {
+      "id": "camera-ai",
+      "name": "camera-ai",
+      "category": "camera",
+      "file": "camera/camera-ai.svg",
+      "spriteSymbol": "icon-camera-ai",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "ai",
+        "smart",
+        "recognition"
+      ]
+    },
+    {
+      "id": "camera-fixed",
+      "name": "camera-fixed",
+      "category": "camera",
+      "file": "camera/camera-fixed.svg",
+      "spriteSymbol": "icon-camera-fixed",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "cctv",
+        "static"
+      ]
+    },
+    {
+      "id": "camera-fov",
+      "name": "camera-fov",
+      "category": "camera",
+      "file": "camera/camera-fov.svg",
+      "spriteSymbol": "icon-camera-fov",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "field-of-view",
+        "cone"
+      ]
+    },
+    {
+      "id": "camera-offline",
+      "name": "camera-offline",
+      "category": "camera",
+      "file": "camera/camera-offline.svg",
+      "spriteSymbol": "icon-camera-offline",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "disabled",
+        "no-signal"
+      ]
+    },
+    {
+      "id": "camera-online",
+      "name": "camera-online",
+      "category": "camera",
+      "file": "camera/camera-online.svg",
+      "spriteSymbol": "icon-camera-online",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "active",
+        "live"
+      ]
+    },
+    {
+      "id": "camera-private",
+      "name": "camera-private",
+      "category": "camera",
+      "file": "camera/camera-private.svg",
+      "spriteSymbol": "icon-camera-private",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "restricted",
+        "locked"
+      ]
+    },
+    {
+      "id": "camera-ptz",
+      "name": "camera-ptz",
+      "category": "camera",
+      "file": "camera/camera-ptz.svg",
+      "spriteSymbol": "icon-camera-ptz",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "rotate",
+        "pan",
+        "tilt",
+        "zoom"
+      ]
+    },
+    {
+      "id": "camera-public",
+      "name": "camera-public",
+      "category": "camera",
+      "file": "camera/camera-public.svg",
+      "spriteSymbol": "icon-camera-public",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "open-data",
+        "shared"
+      ]
+    },
+    {
+      "id": "camera-radar",
+      "name": "camera-radar",
+      "category": "camera",
+      "file": "camera/camera-radar.svg",
+      "spriteSymbol": "icon-camera-radar",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "radar",
+        "waves"
+      ]
+    },
+    {
+      "id": "camera-record",
+      "name": "camera-record",
+      "category": "camera",
+      "file": "camera/camera-record.svg",
+      "spriteSymbol": "icon-camera-record",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "recording",
+        "rec"
+      ]
+    },
+    {
+      "id": "detection-bicycle",
+      "name": "bicycle",
+      "category": "detection",
+      "file": "detection/bicycle.svg",
+      "spriteSymbol": "icon-detection-bicycle",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "vehicle",
+        "bike"
+      ]
+    },
+    {
+      "id": "detection-bus",
+      "name": "bus",
+      "category": "detection",
+      "file": "detection/bus.svg",
+      "spriteSymbol": "icon-detection-bus",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "vehicle",
+        "transit"
+      ]
+    },
+    {
+      "id": "detection-car",
+      "name": "car",
+      "category": "detection",
+      "file": "detection/car.svg",
+      "spriteSymbol": "icon-detection-car",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "vehicle",
+        "traffic"
+      ]
+    },
+    {
+      "id": "detection-checkpoint",
+      "name": "checkpoint",
+      "category": "detection",
+      "file": "detection/checkpoint.svg",
+      "spriteSymbol": "icon-detection-checkpoint",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "barrier",
+        "control-point"
+      ]
+    },
+    {
+      "id": "detection-incident",
+      "name": "incident",
+      "category": "detection",
+      "file": "detection/incident.svg",
+      "spriteSymbol": "icon-detection-incident",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "accident",
+        "alert"
+      ]
+    },
+    {
+      "id": "detection-motorcycle",
+      "name": "motorcycle",
+      "category": "detection",
+      "file": "detection/motorcycle.svg",
+      "spriteSymbol": "icon-detection-motorcycle",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "vehicle",
+        "moto"
+      ]
+    },
+    {
+      "id": "detection-pedestrian",
+      "name": "pedestrian",
+      "category": "detection",
+      "file": "detection/pedestrian.svg",
+      "spriteSymbol": "icon-detection-pedestrian",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "person",
+        "walking"
+      ]
+    },
+    {
+      "id": "detection-police",
+      "name": "police",
+      "category": "detection",
+      "file": "detection/police.svg",
+      "spriteSymbol": "icon-detection-police",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "law-enforcement",
+        "badge"
+      ]
+    },
+    {
+      "id": "detection-speed-camera",
+      "name": "speed-camera",
+      "category": "detection",
+      "file": "detection/speed-camera.svg",
+      "spriteSymbol": "icon-detection-speed-camera",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "radar",
+        "enforcement"
+      ]
+    },
+    {
+      "id": "detection-truck",
+      "name": "truck",
+      "category": "detection",
+      "file": "detection/truck.svg",
+      "spriteSymbol": "icon-detection-truck",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "vehicle",
+        "cargo"
+      ]
+    },
+    {
+      "id": "navigation-compass",
+      "name": "compass",
+      "category": "navigation",
+      "file": "navigation/compass.svg",
+      "spriteSymbol": "icon-navigation-compass",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "orientation",
+        "heading"
+      ]
+    },
+    {
+      "id": "navigation-current-position",
+      "name": "current-position",
+      "category": "navigation",
+      "file": "navigation/current-position.svg",
+      "spriteSymbol": "icon-navigation-current-position",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "gps-dot",
+        "you-are-here"
+      ]
+    },
+    {
+      "id": "navigation-destination",
+      "name": "destination",
+      "category": "navigation",
+      "file": "navigation/destination.svg",
+      "spriteSymbol": "icon-navigation-destination",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "flag",
+        "endpoint"
+      ]
+    },
+    {
+      "id": "navigation-direction",
+      "name": "direction",
+      "category": "navigation",
+      "file": "navigation/direction.svg",
+      "spriteSymbol": "icon-navigation-direction",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "heading",
+        "arrow"
+      ]
+    },
+    {
+      "id": "navigation-gps",
+      "name": "gps",
+      "category": "navigation",
+      "file": "navigation/gps.svg",
+      "spriteSymbol": "icon-navigation-gps",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "satellite",
+        "coordinates"
+      ]
+    },
+    {
+      "id": "navigation-location",
+      "name": "location",
+      "category": "navigation",
+      "file": "navigation/location.svg",
+      "spriteSymbol": "icon-navigation-location",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "pin",
+        "map-marker"
+      ]
+    },
+    {
+      "id": "navigation-route-ai",
+      "name": "route-ai",
+      "category": "navigation",
+      "file": "navigation/route-ai.svg",
+      "spriteSymbol": "icon-navigation-route-ai",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "path",
+        "ai-suggested"
+      ]
+    },
+    {
+      "id": "navigation-route-fixed",
+      "name": "route-fixed",
+      "category": "navigation",
+      "file": "navigation/route-fixed.svg",
+      "spriteSymbol": "icon-navigation-route-fixed",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "path",
+        "saved"
+      ]
+    },
+    {
+      "id": "navigation-route",
+      "name": "route",
+      "category": "navigation",
+      "file": "navigation/route.svg",
+      "spriteSymbol": "icon-navigation-route",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "path",
+        "suggested"
+      ]
+    },
+    {
+      "id": "privacy-anonymous",
+      "name": "anonymous",
+      "category": "privacy",
+      "file": "privacy/anonymous.svg",
+      "spriteSymbol": "icon-privacy-anonymous",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "incognito",
+        "mask"
+      ]
+    },
+    {
+      "id": "privacy-cloud-off",
+      "name": "cloud-off",
+      "category": "privacy",
+      "file": "privacy/cloud-off.svg",
+      "spriteSymbol": "icon-privacy-cloud-off",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "no-upload",
+        "offline-storage"
+      ]
+    },
+    {
+      "id": "privacy-delete",
+      "name": "delete",
+      "category": "privacy",
+      "file": "privacy/delete.svg",
+      "spriteSymbol": "icon-privacy-delete",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "trash",
+        "remove"
+      ]
+    },
+    {
+      "id": "privacy-encrypted",
+      "name": "encrypted",
+      "category": "privacy",
+      "file": "privacy/encrypted.svg",
+      "spriteSymbol": "icon-privacy-encrypted",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "padlock",
+        "secure"
+      ]
+    },
+    {
+      "id": "privacy-local-processing",
+      "name": "local-processing",
+      "category": "privacy",
+      "file": "privacy/local-processing.svg",
+      "spriteSymbol": "icon-privacy-local-processing",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "on-device",
+        "chip"
+      ]
+    },
+    {
+      "id": "privacy-privacy",
+      "name": "privacy",
+      "category": "privacy",
+      "file": "privacy/privacy.svg",
+      "spriteSymbol": "icon-privacy-privacy",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "hidden",
+        "eye-off"
+      ]
+    },
+    {
+      "id": "privacy-shield",
+      "name": "shield",
+      "category": "privacy",
+      "file": "privacy/shield.svg",
+      "spriteSymbol": "icon-privacy-shield",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "protection",
+        "verified"
+      ]
+    },
+    {
+      "id": "status-error",
+      "name": "error",
+      "category": "status",
+      "file": "status/error.svg",
+      "spriteSymbol": "icon-status-error",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "failed",
+        "danger"
+      ]
+    },
+    {
+      "id": "status-loading",
+      "name": "loading",
+      "category": "status",
+      "file": "status/loading.svg",
+      "spriteSymbol": "icon-status-loading",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "spinner",
+        "progress"
+      ]
+    },
+    {
+      "id": "status-offline",
+      "name": "offline",
+      "category": "status",
+      "file": "status/offline.svg",
+      "spriteSymbol": "icon-status-offline",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "disconnected"
+      ]
+    },
+    {
+      "id": "status-online",
+      "name": "online",
+      "category": "status",
+      "file": "status/online.svg",
+      "spriteSymbol": "icon-status-online",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "connected"
+      ]
+    },
+    {
+      "id": "status-search",
+      "name": "search",
+      "category": "status",
+      "file": "status/search.svg",
+      "spriteSymbol": "icon-status-search",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "find",
+        "magnifier"
+      ]
+    },
+    {
+      "id": "status-success",
+      "name": "success",
+      "category": "status",
+      "file": "status/success.svg",
+      "spriteSymbol": "icon-status-success",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "ok",
+        "done"
+      ]
+    },
+    {
+      "id": "status-sync",
+      "name": "sync",
+      "category": "status",
+      "file": "status/sync.svg",
+      "spriteSymbol": "icon-status-sync",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "refresh",
+        "update"
+      ]
+    },
+    {
+      "id": "status-warning",
+      "name": "warning",
+      "category": "status",
+      "file": "status/warning.svg",
+      "spriteSymbol": "icon-status-warning",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "semantic",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "alert",
+        "hazard",
+        "caution"
+      ]
+    },
+    {
+      "id": "ui-download",
+      "name": "download",
+      "category": "ui",
+      "file": "ui/download.svg",
+      "spriteSymbol": "icon-ui-download",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "save",
+        "export"
+      ]
+    },
+    {
+      "id": "ui-filter",
+      "name": "filter",
+      "category": "ui",
+      "file": "ui/filter.svg",
+      "spriteSymbol": "icon-ui-filter",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "funnel",
+        "refine"
+      ]
+    },
+    {
+      "id": "ui-fullscreen",
+      "name": "fullscreen",
+      "category": "ui",
+      "file": "ui/fullscreen.svg",
+      "spriteSymbol": "icon-ui-fullscreen",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "expand"
+      ]
+    },
+    {
+      "id": "ui-help",
+      "name": "help",
+      "category": "ui",
+      "file": "ui/help.svg",
+      "spriteSymbol": "icon-ui-help",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "question",
+        "support"
+      ]
+    },
+    {
+      "id": "ui-info",
+      "name": "info",
+      "category": "ui",
+      "file": "ui/info.svg",
+      "spriteSymbol": "icon-ui-info",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "information"
+      ]
+    },
+    {
+      "id": "ui-layers",
+      "name": "layers",
+      "category": "ui",
+      "file": "ui/layers.svg",
+      "spriteSymbol": "icon-ui-layers",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "stack",
+        "map-layers"
+      ]
+    },
+    {
+      "id": "ui-map",
+      "name": "map",
+      "category": "ui",
+      "file": "ui/map.svg",
+      "spriteSymbol": "icon-ui-map",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "atlas",
+        "view"
+      ]
+    },
+    {
+      "id": "ui-menu",
+      "name": "menu",
+      "category": "ui",
+      "file": "ui/menu.svg",
+      "spriteSymbol": "icon-ui-menu",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "hamburger",
+        "nav"
+      ]
+    },
+    {
+      "id": "ui-settings",
+      "name": "settings",
+      "category": "ui",
+      "file": "ui/settings.svg",
+      "spriteSymbol": "icon-ui-settings",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "gear",
+        "preferences"
+      ]
+    },
+    {
+      "id": "ui-share",
+      "name": "share",
+      "category": "ui",
+      "file": "ui/share.svg",
+      "spriteSymbol": "icon-ui-share",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "send",
+        "export"
+      ]
+    },
+    {
+      "id": "ui-zoom-in",
+      "name": "zoom-in",
+      "category": "ui",
+      "file": "ui/zoom-in.svg",
+      "spriteSymbol": "icon-ui-zoom-in",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "magnify",
+        "plus"
+      ]
+    },
+    {
+      "id": "ui-zoom-out",
+      "name": "zoom-out",
+      "category": "ui",
+      "file": "ui/zoom-out.svg",
+      "spriteSymbol": "icon-ui-zoom-out",
+      "viewBox": "0 0 24 24",
+      "grid": 24,
+      "colorModel": "currentColor",
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "tags": [
+        "magnify",
+        "minus"
+      ]
+    }
+  ],
+  "heroAssets": [
+    {
+      "id": "Arrow",
+      "category": "hero",
+      "file": "hero/Arrow.svg"
+    },
+    {
+      "id": "CameraFOV",
+      "category": "hero",
+      "file": "hero/CameraFOV.svg"
+    },
+    {
+      "id": "CameraMarker",
+      "category": "hero",
+      "file": "hero/CameraMarker.svg"
+    },
+    {
+      "id": "Cloud",
+      "category": "hero",
+      "file": "hero/Cloud.svg"
+    },
+    {
+      "id": "CompassRing",
+      "category": "hero",
+      "file": "hero/CompassRing.svg"
+    },
+    {
+      "id": "Hand",
+      "category": "hero",
+      "file": "hero/Hand.svg"
+    },
+    {
+      "id": "Phone",
+      "category": "hero",
+      "file": "hero/Phone.svg"
+    },
+    {
+      "id": "Pin",
+      "category": "hero",
+      "file": "hero/Pin.svg"
+    },
+    {
+      "id": "RadarArc",
+      "category": "hero",
+      "file": "hero/RadarArc.svg"
+    },
+    {
+      "id": "ScanCone",
+      "category": "hero",
+      "file": "hero/ScanCone.svg"
+    }
+  ],
+  "brandAssets": [
+    {
+      "id": "app-icon",
+      "category": "brand",
+      "file": "brand/app-icon.svg"
+    },
+    {
+      "id": "apple-touch-icon",
+      "category": "brand",
+      "file": "brand/apple-touch-icon.svg"
+    },
+    {
+      "id": "favicon",
+      "category": "brand",
+      "file": "brand/favicon.svg"
+    },
+    {
+      "id": "logo-mark",
+      "category": "brand",
+      "file": "brand/logo-mark.svg"
+    },
+    {
+      "id": "logo",
+      "category": "brand",
+      "file": "brand/logo.svg"
+    },
+    {
+      "id": "mask-icon",
+      "category": "brand",
+      "file": "brand/mask-icon.svg"
+    }
+  ]
+}

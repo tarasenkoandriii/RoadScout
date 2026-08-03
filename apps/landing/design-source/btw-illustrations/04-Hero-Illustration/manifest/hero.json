@@ -1,0 +1,239 @@
+{
+  "asset": "hero",
+  "version": "2.1",
+  "specification": "BTW SVG Engineering Specification v4.0",
+  "description": "Beyond the Wall hero illustration: a hand holding a phone that is scanning the environment, detecting nearby cameras. Responsive variants share one canonical coordinate system and component set.",
+  "tokens": {
+    "grid": 8,
+    "stroke": {
+      "default": 4,
+      "fov": 2,
+      "screen": 2
+    },
+    "radius": {
+      "sm": 8,
+      "md": 16,
+      "lg": 24
+    },
+    "colors": {
+      "bg": "#0F172A",
+      "primary": "#3B82F6",
+      "success": "#22C55E",
+      "warning": "#EAB308",
+      "neutral": "#F8FAFC"
+    },
+    "opacity": {
+      "scanConeOuter": 0.3,
+      "scanConeInner": 0.15,
+      "cameraPulse": 0.15,
+      "screenLines": 0.35,
+      "skyline": 0.06
+    }
+  },
+  "canonicalGeometry": {
+    "referenceFrame": "hero.svg (1200x900)",
+    "phone": {
+      "x": 280,
+      "y": 420,
+      "width": 160,
+      "height": 320,
+      "rx": 24,
+      "screenPadding": 12
+    },
+    "scanOrigin": [
+      360,
+      420
+    ],
+    "scanCone": {
+      "angle": 80,
+      "radius": 520,
+      "startAngle": -40,
+      "endAngle": 40
+    },
+    "cameras": {
+      "camera-1": {
+        "pos": [
+          610,
+          280
+        ],
+        "color": "success",
+        "markerSize": 28
+      },
+      "camera-2": {
+        "pos": [
+          760,
+          360
+        ],
+        "color": "warning",
+        "markerSize": 28
+      },
+      "camera-3": {
+        "pos": [
+          540,
+          170
+        ],
+        "color": "success",
+        "markerSize": 28
+      }
+    },
+    "cameraFov": {
+      "angle": 24,
+      "length": 110,
+      "strokeWidth": 2
+    },
+    "minCameraSpacing": 96
+  },
+  "components": [
+    {
+      "name": "Phone",
+      "file": "components/Phone.svg",
+      "params": [
+        "width",
+        "height",
+        "radius",
+        "screenPadding"
+      ]
+    },
+    {
+      "name": "Hand",
+      "file": "components/Hand.svg",
+      "params": [
+        "gripWidth",
+        "gripHeight"
+      ]
+    },
+    {
+      "name": "ScanCone",
+      "file": "components/ScanCone.svg",
+      "params": [
+        "originX",
+        "originY",
+        "radius",
+        "startAngle",
+        "endAngle",
+        "color",
+        "opacity"
+      ]
+    },
+    {
+      "name": "CameraMarker",
+      "file": "components/CameraMarker.svg",
+      "params": [
+        "x",
+        "y",
+        "color",
+        "type"
+      ]
+    },
+    {
+      "name": "CameraFOV",
+      "file": "components/CameraFOV.svg",
+      "params": [
+        "origin",
+        "angle",
+        "length"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "file": "hero/hero.svg",
+      "label": "master",
+      "viewBox": "0 0 1200 900",
+      "width": 1200,
+      "height": 900,
+      "aspectRatio": "4:3",
+      "usage": "Primary/default hero illustration; source of truth for all other variants.",
+      "sizeBytes": 3064
+    },
+    {
+      "file": "hero/hero-desktop.svg",
+      "label": "desktop",
+      "viewBox": "0 0 1600 900",
+      "width": 1600,
+      "height": 900,
+      "aspectRatio": "16:9",
+      "usage": "Wide desktop viewports; master composition centered with extended skyline.",
+      "sizeBytes": 3225
+    },
+    {
+      "file": "hero/hero-wide.svg",
+      "label": "wide",
+      "viewBox": "0 0 2160 900",
+      "width": 2160,
+      "height": 900,
+      "aspectRatio": "2.4:1",
+      "usage": "Ultra-wide banners / large monitors; same composition, generous side background.",
+      "sizeBytes": 3510
+    },
+    {
+      "file": "hero/hero-square.svg",
+      "label": "square",
+      "viewBox": "150 0 900 900",
+      "width": 900,
+      "height": 900,
+      "aspectRatio": "1:1",
+      "usage": "Social sharing / avatar-style placements; center crop of the master canvas.",
+      "sizeBytes": 3064
+    },
+    {
+      "file": "hero/hero-mobile.svg",
+      "label": "mobile",
+      "viewBox": "0 0 750 1000",
+      "width": 750,
+      "height": 1000,
+      "aspectRatio": "3:4",
+      "usage": "Portrait mobile viewports; re-composed layout (compressed camera cluster, shorter scan radius) using the same components and tokens.",
+      "sizeBytes": 2859
+    }
+  ],
+  "stableIds": [
+    "background",
+    "skyline",
+    "scan-cone",
+    "hand",
+    "phone",
+    "screen",
+    "camera-1",
+    "camera-2",
+    "camera-3",
+    "camera-fov-1",
+    "camera-fov-2",
+    "camera-fov-3"
+  ],
+  "svgApi": {
+    "requiredAttributes": [
+      "viewBox",
+      "width",
+      "height",
+      "role=\"img\"",
+      "aria-hidden=\"true\""
+    ],
+    "forbidden": [
+      "filter",
+      "image",
+      "script"
+    ],
+    "maxGroupNesting": 2
+  },
+  "performanceBudgetKB": {
+    "hero": 20,
+    "privacy": 8,
+    "icons": 2,
+    "favicon": 1
+  },
+  "previews": [
+    {
+      "file": "preview/hero-dark.png",
+      "width": 1200,
+      "height": 900,
+      "description": "Direct raster render of hero.svg on its own native dark canvas (bg token, #0F172A)."
+    },
+    {
+      "file": "preview/hero-light.png",
+      "width": 1296,
+      "height": 996,
+      "description": "hero.svg rendered in-context on a white surrounding page/section, for reviewing the asset against a light-theme layout. The illustration itself is not a light-mode color variant — its background token is fixed dark by design (see docs) — this preview only frames it against light surroundings."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-hidden="true">
+  <path id="shield" d="M256 61.44 L408.87 117.03 L408.87 235.15 C408.87 346.33 339.38 415.82 256 450.56 C172.62 415.82 103.13 346.33 103.13 235.15 L103.13 117.03 Z" fill="#3B82F6"/>
+  <path id="wedge" d="M256 200.41 L172.62 311.59 A111.18 111.18 0 0 1 339.38 311.59 Z" fill="#0F172A"/>
+  <circle id="dot" cx="256" cy="172.62" r="31.96" fill="#F8FAFC"/>
+</svg>

@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "grid": 8,
+  "stroke": {
+    "default": 4,
+    "fov": 2
+  },
+  "radius": {
+    "sm": 8,
+    "md": 16,
+    "lg": 24
+  },
+  "colors": {
+    "bg": "#0F172A",
+    "primary": "#3B82F6",
+    "success": "#22C55E",
+    "warning": "#EAB308",
+    "neutral": "#F8FAFC"
+  },
+  "opacity": {
+    "scanCone": 0.3
+  }
+}

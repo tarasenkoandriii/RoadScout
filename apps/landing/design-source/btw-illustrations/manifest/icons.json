@@ -1,0 +1,17 @@
+{
+  "id": "icons",
+  "version": "1.0.0",
+  "viewBox": [0, 0, 24, 24],
+  "components": ["core", "camera", "detection", "navigation", "privacy", "status", "ui", "hero", "brand"],
+  "exports": [
+    "05-Icons/sprites/sprite.svg",
+    "05-Icons/sprites/sprite-symbol.svg",
+    "05-Icons/previews/contact-sheet.svg",
+    "05-Icons/previews/icons-light.png",
+    "05-Icons/previews/icons-dark.png"
+  ],
+  "tokens": "tokens.json",
+  "license": "MIT",
+  "detailedManifest": "05-Icons/manifest/icons.json",
+  "note": "76 individual SVG files total (60 flat icons + 10 hero-family assets + 6 brand assets) — too many to enumerate as 'exports' in this normalized summary; see the detailed manifest (and 05-Icons/manifest/categories.json) for the full per-icon list, tags, and sprite symbol IDs."
+}
