@@ -75,6 +75,22 @@ export class BtwController {
     return this.btwService.requestThumb(req.telegramId, body.cameraId, body.targetLat, body.targetLng);
   }
 
+  // За прямим запитом користувача ("видео необходимо тянуть и в дев режиме - но через впн") —
+  // фактичне завантаження байтів кадру (те, на що веде `url` з POST /thumb вище). Свідомо GET,
+  // не POST — саме на це посилання вказує <img src> на клієнті (apps/btw/app/page.tsx), браузер
+  // сам робить звичайний GET. @Res({ passthrough: false }) — самі керуємо відповіддю (бінарні
+  // дані + Content-Type зображення, не JSON).
+  @UseGuards(TelegramAuthGuard)
+  @Get('thumb-image')
+  async thumbImage(@Query('cameraId') cameraId: string, @Query('targetLat') targetLat: string, @Query('targetLng') targetLng: string, @Res() res: Response) {
+    const { contentType, data } = await this.btwService.fetchThumbImage(cameraId, parseFloat(targetLat), parseFloat(targetLng));
+    res.setHeader('Content-Type', contentType);
+    // Кадр застаріває миттєво (MJPEG-знімок — не архівне зображення) — не даємо браузеру/проксі
+    // кешувати його довше, ніж один перегляд.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(data);
+  }
+
   @UseGuards(TelegramAuthGuard)
   @Post('lock')
   lock(@Req() req: any, @Body() body: { cameraId: string; targetLat: number; targetLng: number }) {

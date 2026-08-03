@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { bboxAroundPoint, LatLng } from '../../lib/geometry';
+import { ensureBtwSession, fetchDevLocationOverride } from '../../lib/btwSession';
 import type { MapCamera } from '../../components/MapView';
 
 // Leaflet звертається до window/document при завантаженні модуля — SSR має бути вимкнено,
@@ -27,12 +28,20 @@ const SCALE_OPTIONS = [
 // панорамування bbox для наступних запитів рахується ВІД НОВОГО ЦЕНТРУ МАПИ, а не від
 // початкової геолокації — тому навіть той перший клієнтський зчитаний GPS не "тягнеться" за
 // користувачем по всій сесії використання карти.
+//
+// ВИПРАВЛЕНО (за прямим запитом користувача — "реализуй и подмену координат на карте в мини
+// апп") — той самий dev-override, що вже працює на екрані сканування (app/page.tsx), тепер
+// перевіряється і тут ПЕРЕД реальною геолокацією. Це НЕ суперечить приватності, описаній вище:
+// override — це не "реальна позиція користувача", а координати, які АДМІН явно виставив для
+// ЦЬОГО telegram-акаунту через /admin/btw-dev-tools (те саме, що вже відбувається на екрані
+// сканування) — сервер тут так само не дізнається нічого понад те, що адмін сам туди вписав.
 export default function BtwMapPage() {
   const [center, setCenter] = useState<LatLng | null>(null);
   const [scaleIndex, setScaleIndex] = useState(1); // за замовчуванням 1 км
   const [cameras, setCameras] = useState<MapCamera[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usedDevOverride, setUsedDevOverride] = useState(false);
 
   const scale = SCALE_OPTIONS[scaleIndex];
 
@@ -56,25 +65,53 @@ export default function BtwMapPage() {
 
   // Одноразове зчитування позиції ЛИШЕ для центрування мапи при відкритті режиму — НЕ
   // зберігається, НЕ надсилається нікуди як ідентифікована точка (див. коментар вище).
+  //
+  // ВИПРАВЛЕНО — спершу перевіряємо dev-override (те саме джерело, що вже працює на екрані
+  // сканування), і лише якщо його немає — реальний navigator.geolocation, як і раніше.
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setCenter(c);
+    let cancelled = false;
+
+    function useRealGeolocation() {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (cancelled) return;
+          const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setCenter(c);
+          setLoading(false);
+          fetchCamerasForBounds(bboxAroundPoint(c, SCALE_OPTIONS[1].radiusM));
+        },
+        () => {
+          if (cancelled) return;
+          setError('Геолокация недоступна — укажите область на карте вручную (панорамирование двумя пальцами)');
+          setLoading(false);
+          // Розумний дефолт, щоб мапа взагалі щось показала навіть без геолокації — Київ,
+          // центр (та сама логіка, що /btw/manifest?city=kyiv за замовчуванням).
+          const fallback = { lat: 50.4501, lng: 30.5234 };
+          setCenter(fallback);
+          fetchCamerasForBounds(bboxAroundPoint(fallback, SCALE_OPTIONS[1].radiusM));
+        },
+        { enableHighAccuracy: false, timeout: 8000 },
+      );
+    }
+
+    (async () => {
+      await ensureBtwSession();
+      if (cancelled) return;
+      const override = await fetchDevLocationOverride();
+      if (cancelled) return;
+      if (override != null) {
+        setCenter({ lat: override.lat, lng: override.lng });
+        setUsedDevOverride(true);
         setLoading(false);
-        fetchCamerasForBounds(bboxAroundPoint(c, SCALE_OPTIONS[1].radiusM));
-      },
-      () => {
-        setError('Геолокация недоступна — укажите область на карте вручную (панорамирование двумя пальцами)');
-        setLoading(false);
-        // Розумний дефолт, щоб мапа взагалі щось показала навіть без геолокації — Київ,
-        // центр (та сама логіка, що /btw/manifest?city=kyiv за замовчуванням).
-        const fallback = { lat: 50.4501, lng: 30.5234 };
-        setCenter(fallback);
-        fetchCamerasForBounds(bboxAroundPoint(fallback, SCALE_OPTIONS[1].radiusM));
-      },
-      { enableHighAccuracy: false, timeout: 8000 },
-    );
+        fetchCamerasForBounds(bboxAroundPoint({ lat: override.lat, lng: override.lng }, SCALE_OPTIONS[1].radiusM));
+        return;
+      }
+      useRealGeolocation();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -111,6 +148,12 @@ export default function BtwMapPage() {
       </div>
 
       {error && <p className="absolute top-14 left-4 right-4 z-10 rounded bg-yellow-900/80 px-3 py-2 text-center text-xs text-yellow-200">{error}</p>}
+
+      {usedDevOverride && (
+        <p className="absolute top-14 left-4 right-4 z-10 rounded bg-yellow-900/80 px-3 py-2 text-center text-xs text-yellow-200">
+          ⚠️ используется подмена координат (dev)
+        </p>
+      )}
 
       <div className="h-screen w-full pt-14">
         <MapView center={center} zoom={scale.zoom} cameras={cameras} onBoundsChange={fetchCamerasForBounds} />

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
 
 // Beyond the Wall (BTW) — сканувальний екран, §3.1/§3.2 ТЗ (doc/BTW-tz.md).
 //
@@ -117,31 +118,9 @@ export default function BtwScanPage() {
   // пристрої (адмінка й цей mini-app — РІЗНІ домени) це означало: усі захищені запити мовчки
   // падали 401, override не застосовувався (тихий фолбек на реальний GPS), telemetry ніколи не
   // накопичувалась, а /api/scan повертав !res.ok, що на екрані виглядає як "кандидатів немає".
-  // ensureBtwSession() нижче реально логінить через Telegram.WebApp.initData (HMAC-перевірка
-  // на сервері — apps/api/src/auth/telegram-verify.util.ts::verifyTelegramWebAppInitData).
-  const btwSessionPromiseRef = useRef<Promise<void> | null>(null);
-  const ensureBtwSession = useCallback((): Promise<void> => {
-    let promise = btwSessionPromiseRef.current;
-    if (!promise) {
-      promise = (async () => {
-        const initData = (window as any).Telegram?.WebApp?.initData;
-        if (!initData) return; // не всередині Telegram (напр. звичайний браузер для тестів UI) — просто немає сесії, як і раніше
-        try {
-          await fetch('/api/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ initData }),
-          });
-        } catch {
-          // мовчазно продовжуємо без сесії — далі просто НЕ буде override/телеметрії/скану,
-          // як і раніше, а не блокуємо весь UI через збій одного логін-запиту
-        }
-      })();
-      btwSessionPromiseRef.current = promise;
-    }
-    return promise;
-  }, []);
+  // ensureBtwSession() (тепер у ../lib/btwSession.ts — спільний і для /map, за наступним прямим
+  // запитом користувача) реально логінить через Telegram.WebApp.initData (HMAC-перевірка на
+  // сервері — apps/api/src/auth/telegram-verify.util.ts::verifyTelegramWebAppInitData).
 
   // За прямим запитом користувача — коректна ініціалізація Telegram WebApp SDK (раніше лише
   // підключався скрипт тегом <script>, але ніколи не викликались ready()/expand() — без цього
@@ -218,21 +197,14 @@ export default function BtwScanPage() {
     // повернути щось чи null (404 у продакшені per DEV_AUTO_LOGIN — тут просто трактуємо як
     // "немає підміни", не як помилку).
     let usedOverride = false;
-    try {
-      const overrideRes = await fetch('/api/dev-location-override', { credentials: 'include' });
-      if (overrideRes.ok) {
-        const override = await overrideRes.json();
-        if (override != null) {
-          // Підміна є — використовуємо ЇЇ, не реальний navigator.geolocation взагалі, і не
-          // підписуємось на watchPosition (інакше реальний GPS одразу "перебʼє" підмінену
-          // точку першим-таки оновленням).
-          setPosition({ lat: override.lat, lng: override.lng, accuracyM: 5 });
-          setUsedDevOverride(true);
-          usedOverride = true;
-        }
-      }
-    } catch {
-      // мовчазно продовжуємо до реальної геолокації, якщо перевірка підміни не вдалась
+    const override = await fetchDevLocationOverride();
+    if (override != null) {
+      // Підміна є — використовуємо ЇЇ, не реальний navigator.geolocation взагалі, і не
+      // підписуємось на watchPosition (інакше реальний GPS одразу "перебʼє" підмінену
+      // точку першим-таки оновленням).
+      setPosition({ lat: override.lat, lng: override.lng, accuracyM: 5 });
+      setUsedDevOverride(true);
+      usedOverride = true;
     }
 
     if (!usedOverride) {
@@ -403,7 +375,12 @@ export default function BtwScanPage() {
           // часто ситуація взагалі актуальна).
           if (newDirect.length === 0 && (result.fallback ?? []).length > 0) t.fallbackOffered += 1;
           if (result.debug?.snapped) t.snapUsed = true;
-          if (t.scans % 10 === 0) sendTelemetry();
+          // ВИПРАВЛЕНО (за прямим запитом користувача — "телеметрии маловато") — раніше було
+          // раз на 10 сканів (~20с при інтервалі скана 2с): для короткого тестового сеансу це
+          // означало НУЛЬ проміжних відправок, лише один фінальний "хвіст" при виході з екрана
+          // (sendTelemetry() у cleanup useEffect). Раз на 3 скани (~6с) — дані видно в адмінці
+          // майже в реальному часі під час самого тестування, не лише постфактум.
+          if (t.scans % 3 === 0) sendTelemetry();
         }
       } catch {
         // мовчазно ігноруємо — наступний тик спробує знову
@@ -416,7 +393,7 @@ export default function BtwScanPage() {
   }, [phase, position, heading, showFallback]);
 
   // Надсилає накопичені лічильники й скидає їх — §6 ТЗ "агрегаты сессии, без координат"
-  // (жодних lat/lng тут немає навмисно). Викликається періодично (раз на 10 сканів) і при
+  // (жодних lat/lng тут немає навмисно). Викликається періодично (раз на 3 скани) і при
   // виході з екрана сканування (exitLock/beforeunload), щоб не втратити "хвіст" сесії.
   async function sendTelemetry() {
     const t = telemetryRef.current;

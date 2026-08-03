@@ -1,8 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { OcclusionService } from '../occlusion/occlusion.service';
 import { AzimuthHeuristicService } from '../scraper/azimuth-heuristic.service';
 import { GrokCameraAssistService } from '../common/grok-camera-assist.service';
+import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
 import { haversineDistance, bearing } from '../common/geometry.util';
 import {
   ObserverPose,
@@ -55,6 +57,15 @@ export class BtwService {
     private readonly occlusion: OcclusionService,
     private readonly azimuthHeuristic: AzimuthHeuristicService,
     private readonly grokAssist: GrokCameraAssistService,
+    // За прямим запитом користувача ("видео необходимо тянуть ... через впн, поскольку на
+    // камеры нью-йорка стоит фильтр на американский айпи") — той самий сервіс, що вже
+    // використовує scraper для обходу реєстрів камер (webshare rotating proxy тощо, див.
+    // scraper/proxy/registry-proxy.service.ts). Не експортований з ScraperModule — тому
+    // окремий екземпляр тут (у BtwModule), не спільний з ScraperModule. Це нормально: сервіс
+    // сам по собі stateless-обгортка над лінивим побудуванням http(s)-proxy-agent з ОДНІЄЇ й
+    // тієї самої env-змінної (REGISTRY_SCAN_PROXY_URL/Webshare/*), два екземпляри просто двічі
+    // ліниво збудують однакові агенти — жодного конфлікту стану.
+    private readonly registryProxy: RegistryProxyService,
   ) {}
 
   // У5 ТЗ (§5) — "не чаще 1 раза в 30 с". ВИПРАВЛЕНО за прямим запитом користувача (аудит
@@ -215,6 +226,17 @@ export class BtwService {
   // §7.3 ТЗ — кадр і захват, ЄДИНА точка контролю. Перевірки виконуються в цьому порядку,
   // саме як описано в ТЗ: (1) камера онлайн, (2) ціль не в забороненій зоні, (3) ціль
   // фізично може бути в полі зору камери, (4) ліміти й антисталкінг.
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "видео необходимо тянуть и в дев режиме - но
+  // через впн, поскольку на камеры нью-йорка стоит фильтр на американский айпи") — раніше тут
+  // повертався ПРЯМИЙ camera.streamUrl, і телефон користувача сам ішов по ньому НАПРЯМУ (свій
+  // мережевий шлях, не через бекенд) — жодного бекендового VPN/проксі це не зачіпало в
+  // принципі, навіть якщо він налаштований. Тепер повертаємо посилання на СВІЙ-таки
+  // `GET /btw/thumb-image` — саме він фактично завантажує байти зображення (можливо, через
+  // RegistryProxyService/VPN, див. fetchThumbImage нижче), а телефон вже отримує їх від НАШОГО
+  // бекенда. Перевірки безпеки нижче лишаються і тут (не втрачають сенсу — цей URL все одно
+  // веде на ще один захищений ендпоінт, що сам перевіряє все те саме заново), а не як заміна
+  // реальної точки контролю (якою тепер є /thumb-image, бо саме він реально віддає байти).
   async requestThumb(telegramId: string, cameraId: string, targetLat: number, targetLng: number) {
     await this.assertCameraAvailable(cameraId);
     await this.assertNotInForbiddenZone(targetLat, targetLng);
@@ -222,8 +244,47 @@ export class BtwService {
     // Rate-limit thumb (60/мин, §9 ТЗ) — не реалізовано (потребує окремого лічильника з TTL,
     // напр. Redis; AUDIT-btw.md) — див. AUDIT-btw.md.
 
+    const params = new URLSearchParams({
+      cameraId,
+      targetLat: String(targetLat),
+      targetLng: String(targetLng),
+    });
+    return { url: `/btw/thumb-image?${params}`, ttl: 60 };
+  }
+
+  // Реальне завантаження байтів кадру — викликається з GET /btw/thumb-image (той самий шлях,
+  // що браузерний <img src>, тому й сам GET, не POST). Свідомо ПОВТОРЮЄ ті самі перевірки, що
+  // requestThumb() вище — саме тут, а не в requestThumb(), відбувається фактична передача
+  // зображення, тож саме тут і мусить бути реальна точка контролю (без цього requestThumb()
+  // був би просто "видача перепустки", яку ніхто потім не перевіряє).
+  //
+  // Підтримується лише MJPEG_SNAPSHOT (реальний випадок — NycTmcAdapter, саме ці камери й
+  // викликали запит на VPN) — streamUrl для нього вже є прямим посиланням на статичне
+  // зображення. IFRAME/HLS/YOUTUBE_LIVE — це сторінки/плейлисти/embed-посилання, не окремий
+  // файл зображення; проксувати "байти" звідти немає сенсу (там треба або рендерити сторінку,
+  // або переписувати HLS-плейлист по сегментах — поза обсягом цього запиту).
+  async fetchThumbImage(cameraId: string, targetLat: number, targetLng: number): Promise<{ contentType: string; data: Buffer }> {
+    await this.assertCameraAvailable(cameraId);
+    await this.assertNotInForbiddenZone(targetLat, targetLng);
+    await this.assertWithinConeOfCamera(cameraId, targetLat, targetLng);
+
     const camera = await this.prisma.camera.findUniqueOrThrow({ where: { id: cameraId } });
-    return { url: camera.streamUrl, ttl: 60 };
+    if (camera.streamType !== 'MJPEG_SNAPSHOT') {
+      throw new BadRequestException(
+        `Проксирование кадра для streamType "${camera.streamType}" не реализовано (поддерживается только MJPEG_SNAPSHOT) — см. комментарий у fetchThumbImage().`,
+      );
+    }
+
+    const fetchOnce = (axiosConfig: object) =>
+      axios.get(camera.streamUrl, { ...axiosConfig, responseType: 'arraybuffer', timeout: 10000, validateStatus: (s) => s >= 200 && s < 300 });
+
+    const viaVpn = this.registryProxy.isConfigured();
+    const res = viaVpn ? (await this.registryProxy.request(fetchOnce)).data : await fetchOnce({});
+
+    return {
+      contentType: typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : 'image/jpeg',
+      data: Buffer.from(res.data),
+    };
   }
 
   async requestLock(telegramId: string, cameraId: string, targetLat: number, targetLng: number) {
