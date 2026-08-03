@@ -28,9 +28,16 @@ export interface Dictionary {
 
   privacy_eyebrow: string;
   privacy_title: string;
-  privacy_point1: string;
-  privacy_point2: string;
-  privacy_point3: string;
+  privacy_step1_title: string;
+  privacy_step1_text: string;
+  privacy_step2_title: string;
+  privacy_step2_text: string;
+  privacy_step3_title: string;
+  privacy_step3_text: string;
+  privacy_step4_title: string;
+  privacy_step4_text: string;
+  privacy_step5_title: string;
+  privacy_step5_text: string;
   privacy_imgAlt: string;
 
   faq_eyebrow: string;

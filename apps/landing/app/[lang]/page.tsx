@@ -128,7 +128,7 @@ export default function LandingPage() {
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('privacy_title')}</h2>
           </div>
 
-          <div className="mt-12 overflow-x-auto">
+          <div className="relative mt-12 overflow-x-auto">
             <Image
               src="/illustrations/privacy-desktop.png"
               alt={t('privacy_imgAlt')}
@@ -137,28 +137,34 @@ export default function LandingPage() {
               sizes="(max-width: 640px) 720px, 1200px"
               className="mx-auto min-w-[720px] max-w-full rounded-2xl sm:min-w-0"
             />
+            {/* ЗМІНЕНО за прямим запитом користувача — тексти взяті з референсного
+                зображення (5 підписів під кожною з 5 іконок: камера/AI на пристрої/лише
+                геометрія/зашифровано/ви контролюєте), перекладені на 10 мов, накладені
+                ПОВЕРХ нижньої частини самого зображення (не окремим блоком після нього) —
+                справжній HTML-текст, не вписаний у пікселі картинки. Позиції по X
+                (8/30/51/72/90%) відповідають фактичному розташуванню 5 іконок на
+                зображенні. min-w узгоджено з min-w самого <Image> вище — оверлей має
+                існувати в тій самій системі координат контейнера, що й зображення. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 min-w-[720px] pb-3 sm:min-w-0 sm:pb-4">
+              <div className="relative mx-auto h-0">
+                <PrivacyCaption leftPct={8} title={t('privacy_step1_title')}>
+                  {t('privacy_step1_text')}
+                </PrivacyCaption>
+                <PrivacyCaption leftPct={30} title={t('privacy_step2_title')}>
+                  {t('privacy_step2_text')}
+                </PrivacyCaption>
+                <PrivacyCaption leftPct={51} title={t('privacy_step3_title')}>
+                  {t('privacy_step3_text')}
+                </PrivacyCaption>
+                <PrivacyCaption leftPct={72} title={t('privacy_step4_title')}>
+                  {t('privacy_step4_text')}
+                </PrivacyCaption>
+                <PrivacyCaption leftPct={90} title={t('privacy_step5_title')}>
+                  {t('privacy_step5_text')}
+                </PrivacyCaption>
+              </div>
+            </div>
           </div>
-
-          <ul className="mx-auto mt-12 grid max-w-4xl gap-6 text-lg text-muted sm:grid-cols-3">
-            <li className="flex gap-3">
-              <span aria-hidden="true" className="mt-1 text-success">
-                ✓
-              </span>
-              <span>{t('privacy_point1')}</span>
-            </li>
-            <li className="flex gap-3">
-              <span aria-hidden="true" className="mt-1 text-success">
-                ✓
-              </span>
-              <span>{t('privacy_point2')}</span>
-            </li>
-            <li className="flex gap-3">
-              <span aria-hidden="true" className="mt-1 text-success">
-                ✓
-              </span>
-              <span>{t('privacy_point3')}</span>
-            </li>
-          </ul>
         </div>
       </section>
 
@@ -191,6 +197,22 @@ export default function LandingPage() {
         <p>{t('footer_copyright', { year: new Date().getFullYear() })}</p>
       </footer>
     </main>
+  );
+}
+
+// Підпис, накладений поверх нижньої частини privacy-ілюстрації, вирівняний під конкретною
+// іконкою за горизонтальною позицією (leftPct). Напівпрозорий темний фон під текстом —
+// потрібен для читабельності поверх зображення (не всюди під іконками достатньо темно
+// саме в тому місці, де сяде підпис).
+function PrivacyCaption({ leftPct, title, children }: { leftPct: number; title: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="absolute w-[17%] min-w-[110px] -translate-x-1/2 rounded-lg bg-bg/70 px-1.5 py-1 text-center backdrop-blur-sm"
+      style={{ left: `${leftPct}%` }}
+    >
+      <p className="font-display text-[11px] font-medium leading-tight text-primary sm:text-xs">{title}</p>
+      <p className="mt-0.5 text-[10px] leading-tight text-neutral/90 sm:text-[11px]">{children}</p>
+    </div>
   );
 }
 
