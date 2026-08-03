@@ -277,6 +277,40 @@ export class CamerasService {
       return { created: 0, skipped: errors.length, total: items.length, errors: errors.slice(0, 20) };
     }
 
+    // ВИПРАВЛЕНО (реальний знайдений інцидент — за прямим запитом користувача: імпорт падав
+    // із голим `Foreign key constraint violated: Camera_providerId_fkey`, без жодної
+    // вказівки, ЯКИЙ саме providerId відсутній). Перевіряємо існування ВСІХ referenced
+    // providerId/cityId ДО спроби вставки — одним легким запитом на кожен, а не витрачаючи
+    // повну (потенційно повільну на сотнях рядків) транзакцію лише для того, щоб дізнатись
+    // про відсутній довідник.
+    const referencedProviderIds = [...new Set(validRows.map((r) => r.data.providerId))];
+    const referencedCityIds = [...new Set(validRows.map((r) => r.data.cityId).filter(Boolean))];
+
+    const [existingProviders, existingCities] = await Promise.all([
+      this.prisma.cameraProvider.findMany({ where: { id: { in: referencedProviderIds } }, select: { id: true } }),
+      referencedCityIds.length > 0 ? this.prisma.city.findMany({ where: { id: { in: referencedCityIds as string[] } }, select: { id: true } }) : Promise.resolve([]),
+    ]);
+
+    const existingProviderIds = new Set(existingProviders.map((p) => p.id));
+    const existingCityIds = new Set(existingCities.map((c) => c.id));
+    const missingProviderIds = referencedProviderIds.filter((id) => !existingProviderIds.has(id));
+    const missingCityIds = referencedCityIds.filter((id) => !existingCityIds.has(id as string));
+
+    if (missingProviderIds.length > 0 || missingCityIds.length > 0) {
+      const parts: string[] = [];
+      if (missingProviderIds.length > 0) parts.push(`providerId: ${missingProviderIds.join(', ')}`);
+      if (missingCityIds.length > 0) parts.push(`cityId: ${missingCityIds.join(', ')}`);
+      return {
+        created: 0,
+        skipped: items.length,
+        total: items.length,
+        errors: [
+          `Импорт отменён — в базе отсутствуют записи-справочники, на которые ссылаются камеры: ${parts.join('; ')}. Сначала выполните соответствующие seed-скрипты (sql/*.sql), затем повторите импорт.`,
+          ...errors.slice(0, 19),
+        ],
+      };
+    }
+
     try {
       const created = await this.prisma.$transaction(
         async (tx) => {
