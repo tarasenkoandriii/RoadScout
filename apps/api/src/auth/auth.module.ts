@@ -27,6 +27,9 @@ if (jwtSecret === DEV_ONLY_FALLBACK_SECRET) {
   ],
   controllers: [AuthController],
   providers: [AuthService, TelegramAuthGuard, AdminGuard, BloggerGuard],
-  exports: [TelegramAuthGuard, AdminGuard, BloggerGuard, JwtModule],
+  // ВИПРАВЛЕНО (за прямим запитом користувача, під час додавання BtwController.session() —
+  // реального логіну для BTW mini-app) — AuthService раніше НЕ експортувався, тому був
+  // недоступний для ін'єкції поза цим модулем, попри те що сам AuthModule вже @Global().
+  exports: [AuthService, TelegramAuthGuard, AdminGuard, BloggerGuard, JwtModule],
 })
 export class AuthModule {}

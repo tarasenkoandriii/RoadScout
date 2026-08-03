@@ -1,7 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { BtwService } from './btw.service';
 import { TelegramAuthGuard } from '../auth/telegram-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { AuthService } from '../auth/auth.service';
+import { setSessionCookie } from '../auth/session-cookie.util';
 
 // Beyond the Wall (BTW) — контролер, §7 ТЗ (doc/BTW-tz.md). Автентифікація —
 // TelegramAuthGuard (той самий шаблон, що вже використовується по всьому проєкту —
@@ -9,9 +12,29 @@ import { AdminGuard } from '../auth/admin.guard';
 // написано в §7.4 ТЗ — це свідома відповідність вже наявній конвенції автентифікації в
 // проєкті, не помилка (обидва підходи однаково безпечні, TelegramAuthGuard перевіряє JWT,
 // видану після HMAC-перевірки init-data під час логіну).
+//
+// ВИПРАВЛЕНО (реальний баг, знайдений користувачем на живому пристрої): коментар вище
+// описував БАЖАНИЙ стан, який насправді ніколи не був реалізований — клієнт (apps/btw)
+// нізвідки не отримував ту саму "JWT, видану після HMAC-перевірки init-data", бо ендпоінта,
+// що робив би цю HMAC-перевірку й видавав JWT, просто не існувало. `POST session` нижче —
+// саме він, тепер реально є (детальний розбір — telegram-verify.util.ts).
 @Controller('btw')
 export class BtwController {
-  constructor(private readonly btwService: BtwService) {}
+  constructor(
+    private readonly btwService: BtwService,
+    private readonly authService: AuthService,
+  ) {}
+
+  // За прямим запитом користувача — реальний вхід для BTW mini-app. Викликається клієнтом
+  // (apps/btw/app/page.tsx) одразу після Telegram.WebApp.ready(), з Telegram.WebApp.initData.
+  // Свідомо БЕЗ guard — сама HMAC-перевірка initData всередині і Є перевіркою автентичності
+  // (той самий принцип, що вже POST /auth/telegram для Login Widget).
+  @Post('session')
+  async createSession(@Body() body: { initData: string }, @Res({ passthrough: true }) res: Response) {
+    const { token, user } = await this.authService.loginWithTelegramWebApp(body?.initData ?? '');
+    setSessionCookie(res, token);
+    return { user };
+  }
 
   @Get('manifest')
   getManifest(@Query('city') city: string) {

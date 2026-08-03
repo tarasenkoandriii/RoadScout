@@ -3,9 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { TelegramAuthPayload } from './telegram-verify.util';
-
-const COOKIE_NAME = 'session';
-const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+import { SESSION_COOKIE_NAME, setSessionCookie } from './session-cookie.util';
 
 @Controller('auth')
 export class AuthController {
@@ -18,7 +16,7 @@ export class AuthController {
   @Post('telegram')
   async loginWithTelegram(@Body() payload: TelegramAuthPayload, @Res({ passthrough: true }) res: Response) {
     const { token, user } = await this.authService.loginWithTelegram(payload);
-    this.setSessionCookie(res, token);
+    setSessionCookie(res, token);
     return { user };
   }
 
@@ -28,7 +26,7 @@ export class AuthController {
   @Post('dev-login')
   async devLogin(@Body() body: { role: string }, @Res({ passthrough: true }) res: Response) {
     const { token, user } = await this.authService.devLogin(body?.role);
-    this.setSessionCookie(res, token);
+    setSessionCookie(res, token);
     return { user };
   }
 
@@ -43,7 +41,7 @@ export class AuthController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(COOKIE_NAME, { path: '/' });
+    res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
     return { loggedOut: true };
   }
 
@@ -52,7 +50,7 @@ export class AuthController {
   // since "not logged in" is an expected, non-error state for this endpoint.
   @Get('me')
   async me(@Req() req: Request) {
-    const token = (req as any).cookies?.[COOKIE_NAME];
+    const token = (req as any).cookies?.[SESSION_COOKIE_NAME];
     if (!token) return { user: null };
 
     try {
@@ -62,15 +60,5 @@ export class AuthController {
     } catch {
       return { user: null };
     }
-  }
-
-  private setSessionCookie(res: Response, token: string) {
-    res.cookie(COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: COOKIE_MAX_AGE_MS,
-      path: '/',
-    });
   }
 }

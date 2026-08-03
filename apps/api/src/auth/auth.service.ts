@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import { TelegramAuthPayload, verifyTelegramAuth } from './telegram-verify.util';
+import { TelegramAuthPayload, verifyTelegramAuth, verifyTelegramWebAppInitData } from './telegram-verify.util';
 import {
   DevRole,
   findDevMockAccount,
@@ -51,6 +51,32 @@ export class AuthService {
       lastName: payload.last_name,
       username: payload.username,
       photoUrl: payload.photo_url,
+    });
+  }
+
+  // За прямим запитом користувача — реальний логін для BTW mini-app (Telegram.WebApp.initData),
+  // якого раніше не існувало ВЗАГАЛІ (клієнт лише покладався на кукі `session`, яку нічого не
+  // створювало — див. коментар у telegram-verify.util.ts::verifyTelegramWebAppInitData про повну
+  // діагностику). Окремий метод, а не перевикористання loginWithTelegram() вище — інший формат
+  // вхідних даних (підписаний query-string від Mini App, не {id, hash, ...} від Login Widget) і
+  // інший алгоритм перевірки підпису.
+  async loginWithTelegramWebApp(initData: string): Promise<{ token: string; user: SessionUser }> {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      throw new UnauthorizedException('Telegram login is not configured (TELEGRAM_BOT_TOKEN missing)');
+    }
+
+    const user = verifyTelegramWebAppInitData(initData, botToken);
+    if (!user) {
+      throw new UnauthorizedException('Invalid or expired Telegram Mini App init data');
+    }
+
+    return this.issueSession({
+      telegramId: String(user.id),
+      firstName: user.first_name ?? '',
+      lastName: user.last_name,
+      username: user.username,
+      photoUrl: user.photo_url,
     });
   }
 

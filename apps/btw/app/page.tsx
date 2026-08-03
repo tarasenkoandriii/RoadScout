@@ -110,6 +110,39 @@ export default function BtwScanPage() {
   const [refineMessage, setRefineMessage] = useState<string | null>(null);
   const lastRefineAtRef = useRef<number>(0);
 
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем на живому пристрої — "подмена координат
+  // не работает и телеметрии нет"): раніше тут НІКОЛИ не було реального логіну — усі виклики
+  // нижче (`/api/dev-location-override`, `/api/scan`, `/api/telemetry`, ...) покладались лише
+  // на `credentials: 'include'`, а кукі `session` нізвідки було взятись. На реальному
+  // пристрої (адмінка й цей mini-app — РІЗНІ домени) це означало: усі захищені запити мовчки
+  // падали 401, override не застосовувався (тихий фолбек на реальний GPS), telemetry ніколи не
+  // накопичувалась, а /api/scan повертав !res.ok, що на екрані виглядає як "кандидатів немає".
+  // ensureBtwSession() нижче реально логінить через Telegram.WebApp.initData (HMAC-перевірка
+  // на сервері — apps/api/src/auth/telegram-verify.util.ts::verifyTelegramWebAppInitData).
+  const btwSessionPromiseRef = useRef<Promise<void> | null>(null);
+  const ensureBtwSession = useCallback((): Promise<void> => {
+    let promise = btwSessionPromiseRef.current;
+    if (!promise) {
+      promise = (async () => {
+        const initData = (window as any).Telegram?.WebApp?.initData;
+        if (!initData) return; // не всередині Telegram (напр. звичайний браузер для тестів UI) — просто немає сесії, як і раніше
+        try {
+          await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ initData }),
+          });
+        } catch {
+          // мовчазно продовжуємо без сесії — далі просто НЕ буде override/телеметрії/скану,
+          // як і раніше, а не блокуємо весь UI через збій одного логін-запиту
+        }
+      })();
+      btwSessionPromiseRef.current = promise;
+    }
+    return promise;
+  }, []);
+
   // За прямим запитом користувача — коректна ініціалізація Telegram WebApp SDK (раніше лише
   // підключався скрипт тегом <script>, але ніколи не викликались ready()/expand() — без цього
   // WebApp може поводитись неочікувано: неправильний viewport, "білий екран" старту тощо).
@@ -119,7 +152,12 @@ export default function BtwScanPage() {
       tg.ready();
       tg.expand();
     }
-  }, []);
+    // Розігріваємо логін одразу при монтуванні (не чекаємо тапу користувача по кнопці "старт")
+    // — до моменту, коли requestPermissions() реально знадобиться сесія, запит найімовірніше
+    // вже завершиться. requestPermissions() однаково await'ить той самий проміс нижче, тому
+    // навіть якщо ні — коректність не постраждає, лише трохи більша затримка старту.
+    ensureBtwSession();
+  }, [ensureBtwSession]);
 
   // За прямим запитом користувача — надсилаємо "хвіст" накопиченої телеметрії (менше 10
   // сканів, що не встигли надіслатись періодично) при прихованні вкладки чи закритті
@@ -168,6 +206,11 @@ export default function BtwScanPage() {
   const requestPermissions = useCallback(async () => {
     setPhase('requesting');
     setErrorMessage(null);
+
+    // Гарантуємо, що сесія (якщо вона взагалі можлива — див. ensureBtwSession вище) уже
+    // встановлена ДО першого захищеного запиту нижче, а не просто сподіваємось, що встигла
+    // фонова спроба з mount-ефекту.
+    await ensureBtwSession();
 
     // 1. Геолокація — за прямим запитом користувача, спершу перевіряємо, чи є для ЦЬОГО
     // telegram-юзера серверна підміна (дебаг-режим, /admin/btw-dev-tools в адмінці). Той
@@ -267,7 +310,7 @@ export default function BtwScanPage() {
     }
 
     setPhase('scanning');
-  }, []);
+  }, [ensureBtwSession]);
 
   function handleOrientation(e: DeviceOrientationEvent & { webkitCompassHeading?: number }) {
     const raw = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? 360 - e.alpha : null);
