@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { json } from 'express';
 import { NotFoundRedirectFilter } from './common/not-found-redirect.filter';
 // Реальный сбой в проде: `import cookieParser from 'cookie-parser'` + `app.use(cookieParser())`
 // падал в рантайме с `TypeError: (0, cookie_parser_1.default) is not a function`, хотя
@@ -14,6 +15,13 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // ВИПРАВЛЕНО (реальний знайдений баг — за прямим запитом користувача, POST
+  // /admin/cameras/import повертав 413 на файлі всього 1.27МБ, 972 камери): Express за
+  // замовчуванням обмежує тіло JSON-запиту 100КБ — набагато менше, ніж навіть ліміт самого
+  // Vercel Hobby на тіло запиту (~4.5МБ, див. doc/AUDIT-vercel-hobby.md). "4mb" — з запасом
+  // під платформний ліміт Vercel, не впритул до нього.
+  app.use(json({ limit: '4mb' }));
 
   app.use(cookieParser());
 
