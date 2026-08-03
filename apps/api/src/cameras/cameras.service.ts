@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GeocodingService } from '../common/geocoding.service';
 import { GrokCameraAssistService } from '../common/grok-camera-assist.service';
 import { OcclusionService } from '../occlusion/occlusion.service';
-import { bearing, cameraSeesPoint, haversineDistance, LatLng, routeLength, syncCameraPolygon, syncCameraRoutePolygon } from '../common/geometry.util';
+import { bearing, cameraSeesPoint, haversineDistance, LatLng, routeLength, sectorToEwkt, routeLineToEwkt, syncCameraPolygon, syncCameraRoutePolygon } from '../common/geometry.util';
 import { CreateCameraDto } from './dto/create-camera.dto';
 import { CalibrateCameraDto, UpdateCameraDto } from './dto/update-camera.dto';
 import { FixedRoutePositionService } from '../route-position/fixed-route-position.service';
@@ -200,90 +200,150 @@ export class CamerasService {
   // першій же поганій записі — обробляє кожен елемент окремо, повертає підсумок
   // успішних/пропущених, той самий принцип "часткова помилка не ламає весь прохід", що вже
   // застосований у ScraperService.
+  // ВИПРАВЛЕНО (реальний знайдений баг — за прямим запитом користувача): раніше кожна камера
+  // робила ОКРЕМИЙ INSERT + ОКРЕМИЙ UPDATE (fov_polygon) послідовно — на імпорті 972 камер
+  // (NYC DOT) це ~1944 послідовних мережевих запити до Supabase-пулера й закінчувалось
+  // `504 Gateway Timeout` (`FUNCTION_INVOCATION_TIMEOUT`) задовго до завершення. Тепер:
+  // (1) валідація ВСІХ рядків одним проходом у пам'яті, без жодного звернення до БД;
+  // (2) один `createManyAndReturn()` — масовий INSERT за один мережевий запит;
+  // (3) один batched `UPDATE ... FROM (VALUES ...)` для fov_polygon усіх OUTDOOR-камер разом
+  //     (не N окремих UPDATE) — те саме для route_line/route_buffer_polygon FIXED_ROUTE-камер;
+  // (4) усе всередині ОДНІЄЇ транзакції (`$transaction`) — атомарно: або весь імпорт
+  //     успішний, або відкочується повністю. Це свідомий компроміс (озвучений явно, не
+  //     замовчаний): попередня версія була повільною, але стійкою до часткових помилок
+  //     (одна погана камера — пропускалась, решта імпортувались); ця версія швидка, але
+  //     "усе або нічого" — якщо хоч один рядок порушує зовнішній ключ (неіснуючий
+  //     providerId/cityId), відкотиться ВЕСЬ імпорт, а не лише той рядок.
   async importCameras(items: unknown[]) {
-    let created = 0;
-    let skipped = 0;
     const errors: string[] = [];
+    interface ValidRow {
+      data: any;
+      locationType: string;
+      mobilityType: string;
+      routeGeometry: { lat: number; lng: number }[] | undefined;
+    }
+    const validRows: ValidRow[] = [];
 
+    // Прохід 1 — лише валідація й побудова даних, ЖОДНОГО звернення до БД.
     for (const item of items) {
       const c = item as Record<string, unknown>;
       if (typeof c.name !== 'string' || typeof c.providerId !== 'string' || typeof c.streamUrl !== 'string' || typeof c.lat !== 'number' || typeof c.lng !== 'number') {
-        skipped += 1;
         errors.push(`Пропущена запись без обязательных полей (name/providerId/streamUrl/lat/lng): ${JSON.stringify(c).slice(0, 120)}`);
         continue;
       }
 
-      try {
-        const locationType = typeof c.locationType === 'string' ? (c.locationType as any) : 'OUTDOOR';
-        // ВАЖЛИВО (реальний знайдений інцидент — той самий аудит, що вище для
-        // exportByProvider): раніше mobilityType/route*-поля взагалі не читались тут — камера
-        // на маршруті мовчки ставала звичайною STATIONARY. Той самий принцип обробки, що вже
-        // застосований у create() (routeLengthMeters рахується з routeGeometry, не
-        // копіюється напряму — завжди актуальне значення, не застаріле з моменту експорту).
-        const mobilityType = typeof c.mobilityType === 'string' ? (c.mobilityType as any) : 'STATIONARY';
-        const routeGeometry = Array.isArray(c.routeGeometry) ? (c.routeGeometry as any) : undefined;
+      const locationType = typeof c.locationType === 'string' ? (c.locationType as any) : 'OUTDOOR';
+      const mobilityType = typeof c.mobilityType === 'string' ? (c.mobilityType as any) : 'STATIONARY';
+      const routeGeometry = Array.isArray(c.routeGeometry) ? (c.routeGeometry as any) : undefined;
 
-        // ОНОВЛЕНО за прямим запитом користувача ("ми повністю будемо мігрувати між
-        // оточеннями") — раніше status ЗАВЖДИ жорстко ставився 'UNKNOWN' (аргумент: "живий
-        // стан моніторингу"), а lastAutoCalibrationAttemptAt/autoCalibrationAttemptCount/
-        // lastAiCalibrationSuggestion не читались взагалі (аргумент: "процесна історія AI,
-        // не семантичні дані камери"). Обидва аргументи були правильні для сценарію "разова
-        // передача списку камер іншому провайдеру", але НЕ для повної міграції реєстру між
-        // середовищами — тут ці поля так само важливі для збереження, як і решта. Дати з
-        // JSON приходять як ISO-рядки (JSON.stringify серіалізує Date саме так), тому
-        // явно парсимо їх назад через new Date(...).
-        const camera = await this.prisma.camera.create({
-          data: {
-            name: c.name,
-            providerId: c.providerId,
-            cityId: typeof c.cityId === 'string' ? c.cityId : undefined,
-            streamUrl: c.streamUrl,
-            streamType: typeof c.streamType === 'string' ? (c.streamType as any) : 'IFRAME',
-            lat: c.lat,
-            lng: c.lng,
-            azimuth: typeof c.azimuth === 'number' ? c.azimuth : 0,
-            azimuthSource: typeof c.azimuthSource === 'string' ? c.azimuthSource : undefined,
-            fovAngle: typeof c.fovAngle === 'number' ? c.fovAngle : 80,
-            rangeMeters: typeof c.rangeMeters === 'number' ? c.rangeMeters : 200,
-            heightMeters: typeof c.heightMeters === 'number' ? c.heightMeters : undefined,
-            confidence: typeof c.confidence === 'string' ? (c.confidence as any) : 'ESTIMATED',
-            status: typeof c.status === 'string' ? (c.status as any) : 'UNKNOWN',
-            lastCheckedAt: typeof c.lastCheckedAt === 'string' ? new Date(c.lastCheckedAt) : undefined,
-            locationType,
-            district: typeof c.district === 'string' ? c.district : undefined,
-            notes: typeof c.notes === 'string' ? c.notes : undefined,
-            mobilityType,
-            routeGeometry: routeGeometry as any,
-            routeMode: typeof c.routeMode === 'string' ? (c.routeMode as any) : undefined,
-            routeSchedule: c.routeSchedule as any,
-            averageSpeed: typeof c.averageSpeed === 'number' ? c.averageSpeed : undefined,
-            routeStartedAt: typeof c.routeStartedAt === 'string' ? new Date(c.routeStartedAt) : undefined,
-            routeLengthMeters: routeGeometry ? routeLength(routeGeometry) : undefined,
-            lastAutoCalibrationAttemptAt: typeof c.lastAutoCalibrationAttemptAt === 'string' ? new Date(c.lastAutoCalibrationAttemptAt) : undefined,
-            autoCalibrationAttemptCount: typeof c.autoCalibrationAttemptCount === 'number' ? c.autoCalibrationAttemptCount : undefined,
-            lastAiCalibrationSuggestion: c.lastAiCalibrationSuggestion as any,
-          },
-        });
-        // Сектор обзору потрібен лише для OUTDOOR (той самий принцип, що вже застосований у
-        // ScraperService.processItem() для NATURE/INDOOR — див. doc/README.md).
-        if (locationType === 'OUTDOOR') {
-          await syncCameraPolygon(this.prisma, camera);
-        }
-        // ВАЖЛИВО — раніше цей виклик був відсутній тут узагалі (той самий інцидент, що
-        // вище): без нього імпортована FIXED_ROUTE-камера мала б routeGeometry в базі, але
-        // НЕ мала б route_buffer_polygon/route_line (PostGIS-геометрію, від якої залежить
-        // реальний пошук по маршруту) — той самий підхід, що вже застосований у create().
-        if (mobilityType === 'FIXED_ROUTE' && routeGeometry) {
-          await syncCameraRoutePolygon(this.prisma, camera.id, routeGeometry, camera.rangeMeters);
-        }
-        created += 1;
-      } catch (err) {
-        skipped += 1;
-        errors.push(`Ошибка при создании камеры "${c.name}": ${(err as Error).message}`);
-      }
+      validRows.push({
+        locationType,
+        mobilityType,
+        routeGeometry,
+        data: {
+          name: c.name,
+          providerId: c.providerId,
+          cityId: typeof c.cityId === 'string' ? c.cityId : undefined,
+          streamUrl: c.streamUrl,
+          streamType: typeof c.streamType === 'string' ? (c.streamType as any) : 'IFRAME',
+          lat: c.lat,
+          lng: c.lng,
+          azimuth: typeof c.azimuth === 'number' ? c.azimuth : 0,
+          azimuthSource: typeof c.azimuthSource === 'string' ? c.azimuthSource : undefined,
+          fovAngle: typeof c.fovAngle === 'number' ? c.fovAngle : 80,
+          rangeMeters: typeof c.rangeMeters === 'number' ? c.rangeMeters : 200,
+          heightMeters: typeof c.heightMeters === 'number' ? c.heightMeters : undefined,
+          confidence: typeof c.confidence === 'string' ? (c.confidence as any) : 'ESTIMATED',
+          status: typeof c.status === 'string' ? (c.status as any) : 'UNKNOWN',
+          lastCheckedAt: typeof c.lastCheckedAt === 'string' ? new Date(c.lastCheckedAt) : undefined,
+          locationType,
+          district: typeof c.district === 'string' ? c.district : undefined,
+          notes: typeof c.notes === 'string' ? c.notes : undefined,
+          mobilityType,
+          routeGeometry: routeGeometry as any,
+          routeMode: typeof c.routeMode === 'string' ? (c.routeMode as any) : undefined,
+          routeSchedule: c.routeSchedule as any,
+          averageSpeed: typeof c.averageSpeed === 'number' ? c.averageSpeed : undefined,
+          routeStartedAt: typeof c.routeStartedAt === 'string' ? new Date(c.routeStartedAt) : undefined,
+          routeLengthMeters: routeGeometry ? routeLength(routeGeometry) : undefined,
+          lastAutoCalibrationAttemptAt: typeof c.lastAutoCalibrationAttemptAt === 'string' ? new Date(c.lastAutoCalibrationAttemptAt) : undefined,
+          autoCalibrationAttemptCount: typeof c.autoCalibrationAttemptCount === 'number' ? c.autoCalibrationAttemptCount : undefined,
+          lastAiCalibrationSuggestion: c.lastAiCalibrationSuggestion as any,
+        },
+      });
     }
 
-    return { created, skipped, total: items.length, errors: errors.slice(0, 20) };
+    if (validRows.length === 0) {
+      return { created: 0, skipped: errors.length, total: items.length, errors: errors.slice(0, 20) };
+    }
+
+    try {
+      const created = await this.prisma.$transaction(
+        async (tx) => {
+          // Масовий INSERT за ОДИН мережевий запит. createManyAndReturn (Prisma 5.14+,
+          // PostgreSQL) повертає рядки в ТОМУ САМОМУ порядку, що й вхідний масив — на цьому
+          // тримається зіставлення insertedRows[i] <-> validRows[i] нижче.
+          const insertedRows = await (tx.camera as any).createManyAndReturn({
+            data: validRows.map((r) => r.data),
+            select: { id: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true },
+          });
+
+          // Один batched UPDATE для fov_polygon УСІХ OUTDOOR-камер разом — замість окремого
+          // UPDATE на кожну (той самий сектор-EWKT, що вже рахує sectorToEwkt(), лише тепер
+          // зібраний у єдиний SQL-запит через VALUES-таблицю).
+          const outdoorParams: unknown[] = [];
+          const outdoorValues: string[] = [];
+          validRows.forEach((r, i) => {
+            if (r.locationType !== 'OUTDOOR') return;
+            const row = insertedRows[i];
+            const ewkt = sectorToEwkt(row);
+            const base = outdoorParams.length;
+            outdoorParams.push(row.id, ewkt);
+            outdoorValues.push(`($${base + 1}, $${base + 2})`);
+          });
+          if (outdoorValues.length > 0) {
+            await tx.$executeRawUnsafe(
+              `UPDATE "Camera" AS c SET fov_polygon = ST_GeomFromEWKT(v.ewkt) FROM (VALUES ${outdoorValues.join(', ')}) AS v(id, ewkt) WHERE c.id = v.id`,
+              ...outdoorParams,
+            );
+          }
+
+          // Той самий підхід для route_line/route_buffer_polygon FIXED_ROUTE-камер (зазвичай
+          // значно менша підмножина, ніж OUTDOOR, але той самий принцип — один запит, не N).
+          const routeParams: unknown[] = [];
+          const routeValues: string[] = [];
+          validRows.forEach((r, i) => {
+            if (r.mobilityType !== 'FIXED_ROUTE' || !r.routeGeometry) return;
+            const row = insertedRows[i];
+            const lineEwkt = routeLineToEwkt(r.routeGeometry);
+            const degreesBuffer = row.rangeMeters / 111320; // те саме грубе наближення метри->градуси, що вже в syncCameraRoutePolygon()
+            const base = routeParams.length;
+            routeParams.push(row.id, lineEwkt, degreesBuffer);
+            routeValues.push(`($${base + 1}, $${base + 2}, $${base + 3}::double precision)`);
+          });
+          if (routeValues.length > 0) {
+            await tx.$executeRawUnsafe(
+              `UPDATE "Camera" AS c SET route_line = ST_GeomFromEWKT(v.line_ewkt), route_buffer_polygon = ST_Buffer(ST_GeomFromEWKT(v.line_ewkt), v.buf) FROM (VALUES ${routeValues.join(', ')}) AS v(id, line_ewkt, buf) WHERE c.id = v.id`,
+              ...routeParams,
+            );
+          }
+
+          return insertedRows.length;
+        },
+        { timeout: 60_000 }, // Prisma-транзакції за замовчуванням мають короткий таймаут (5с) — цього мало для сотень рядків, піднято з запасом
+      );
+
+      return { created, skipped: errors.length, total: items.length, errors: errors.slice(0, 20) };
+    } catch (err) {
+      // "Усе або нічого" (див. коментар вище методу) — якщо транзакція впала, ЖОДНА камера
+      // не створена. Явно повідомляємо про це, а не тихо повертаємо created: 0 без пояснення.
+      return {
+        created: 0,
+        skipped: items.length,
+        total: items.length,
+        errors: [`Импорт полностью откачен (транзакция не прошла): ${(err as Error).message}`, ...errors.slice(0, 19)],
+      };
+    }
   }
 
   async create(dto: CreateCameraDto) {
