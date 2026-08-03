@@ -376,8 +376,17 @@ export class BtwService {
   // непорожні міста (порожні не мають сенсу в випадаючому списку дебаг-інструменту),
   // відсортовано за спаданням кількості (найбагатше на камери місто — першим, зручно
   // одразу побачити, де є що тестувати).
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "нужно чтобы всегда работал селектор городов
+  // на этой вкладке в любом окружении") — свідомо БЕЗ assertDevToolsEnabled(). Це, на відміну
+  // від setDevLocationOverride()/auth.service.ts::devLogin(), суто READ-ONLY довідковий запит
+  // (список міст і координати вже існуючих камер, які будь-який адмін і так бачить у
+  // /admin/cameras) — не відкриває жодного обходу автентифікації чи запису даних. Гейт
+  // AdminGuard на контролері (справжній Telegram-логін + ADMIN_TELEGRAM_IDS allowlist,
+  // НЕЗАЛЕЖНИЙ від DEV_AUTO_LOGIN — див. admin.guard.ts) сам по собі достатній і працює
+  // однаково в будь-якому середовищі, на відміну від DEV_AUTO_LOGIN, який свідомо вимкнений на
+  // "реальних" деплоях.
   async listCitiesWithCameraDensity() {
-    this.assertDevToolsEnabled();
     const grouped = await this.prisma.camera.groupBy({
       by: ['cityId'],
       where: { ...this.SCANNABLE_CAMERA_FILTER, cityId: { not: null } },
@@ -403,8 +412,9 @@ export class BtwService {
   // мільйони), це інструмент адмінки для одноразового ручного вибору, не гарячий шлях.
   private static readonly DENSITY_RADIUS_METERS = 350;
 
+  // Той самий принцип, що й listCitiesWithCameraDensity() вище — READ-ONLY (лише читає вже
+  // наявні координати камер), без assertDevToolsEnabled(), гейт лише AdminGuard.
   async findDensestCameraPoint(cityId: string) {
-    this.assertDevToolsEnabled();
     const cameras = await this.prisma.camera.findMany({
       where: { ...this.SCANNABLE_CAMERA_FILTER, cityId },
       select: { id: true, name: true, lat: true, lng: true },
