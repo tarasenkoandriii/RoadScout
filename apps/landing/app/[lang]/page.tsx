@@ -135,31 +135,38 @@ export default function LandingPage() {
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('privacy_title')}</h2>
           </div>
 
+          {/* ВИПРАВЛЕНО за запитом користувача — прибрано вертикальну смугу прокрутки
+              всередині privacy. Причина: за специфікацією CSS, якщо overflow-x = auto, то
+              overflow-y теж обчислюється як auto; а підписи-заголовки, що звисали НИЖЧЕ
+              зображення (absolute, поза потоком), давали вертикальне переповнення → зайва
+              вертикальна смуга. Рішення: заголовки тепер займають РЕАЛЬНУ висоту в потоці
+              (окремий блок під зображенням), тож по вертикалі нічого не виходить за межі
+              контейнера — смуга зникає, а горизонтальний скрол на вузьких екранах (min-w)
+              лишається. */}
           <div className="relative mt-12 overflow-x-auto">
-            <Image
-              src="/illustrations/privacy-desktop.png"
-              alt={t('privacy_imgAlt')}
-              width={1518}
-              height={824}
-              sizes="(max-width: 640px) 720px, 1200px"
-              className="mx-auto min-w-[720px] max-w-full rounded-2xl sm:min-w-0"
-            />
-            {/* ЗМІНЕНО за прямим запитом користувача — підписи розкладено навколо кожної
-                іконки: короткий ОПИС кроку у темній смузі НАД іконкою, синій ЗАГОЛОВОК —
-                по центру ПІД іконкою. Обидва центровані по X точно під своєю іконкою.
-                leftPct — виміряні центри 5 іконок на privacy-desktop.png (у % ширини
-                зображення): 12.3 / 31.85 / 50.4 / 68.7 / 86.9. min-w узгоджено з min-w
-                самого <Image> вище, щоб оверлей жив у тій самій системі координат і на
-                мобільних скролився разом із зображенням. */}
-            <div className="pointer-events-none absolute inset-0 min-w-[720px] sm:min-w-0">
-              <PrivacyDesc leftPct={12.3}>{t('privacy_step1_text')}</PrivacyDesc>
-              <PrivacyDesc leftPct={31.85}>{t('privacy_step2_text')}</PrivacyDesc>
-              <PrivacyDesc leftPct={50.4}>{t('privacy_step3_text')}</PrivacyDesc>
-              <PrivacyDesc leftPct={68.7}>{t('privacy_step4_text')}</PrivacyDesc>
-              <PrivacyDesc leftPct={86.9}>{t('privacy_step5_text')}</PrivacyDesc>
-            </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 min-w-[720px] sm:min-w-0">
-              <div className="relative mx-auto h-0">
+            <div className="mx-auto min-w-[720px] max-w-full sm:min-w-0">
+              <div className="relative">
+                <Image
+                  src="/illustrations/privacy-desktop.png"
+                  alt={t('privacy_imgAlt')}
+                  width={1518}
+                  height={824}
+                  sizes="(max-width: 640px) 720px, 1200px"
+                  className="block w-full rounded-2xl"
+                />
+                {/* короткий ОПИС кроку у темній смузі НАД кожною іконкою (leftPct — виміряні
+                    центри 5 іконок у % ширини зображення) */}
+                <div className="pointer-events-none absolute inset-0">
+                  <PrivacyDesc leftPct={12.3}>{t('privacy_step1_text')}</PrivacyDesc>
+                  <PrivacyDesc leftPct={31.85}>{t('privacy_step2_text')}</PrivacyDesc>
+                  <PrivacyDesc leftPct={50.4}>{t('privacy_step3_text')}</PrivacyDesc>
+                  <PrivacyDesc leftPct={68.7}>{t('privacy_step4_text')}</PrivacyDesc>
+                  <PrivacyDesc leftPct={86.9}>{t('privacy_step5_text')}</PrivacyDesc>
+                </div>
+              </div>
+              {/* синій ЗАГОЛОВОК по центру ПІД кожною іконкою — у власному блоці з реальною
+                  висотою (h-16), щоб не створювати вертикального переповнення контейнера */}
+              <div className="pointer-events-none relative h-16">
                 <PrivacyTitle leftPct={12.3}>{t('privacy_step1_title')}</PrivacyTitle>
                 <PrivacyTitle leftPct={31.85}>{t('privacy_step2_title')}</PrivacyTitle>
                 <PrivacyTitle leftPct={50.4}>{t('privacy_step3_title')}</PrivacyTitle>
