@@ -351,15 +351,6 @@ export class BtwService {
     return this.prisma.btwViewpoint.findMany({ where: { telegramId }, orderBy: { createdAt: 'desc' } });
   }
 
-  // За прямим запитом користувача — програмний спуфінг GPS для дебагу BTW. Гейт — той самий
-  // DEV_AUTO_LOGIN, що вже вимикає auth.service.ts::devLogin() у продакшені (той самий
-  // принцип: 404, не просто "вимкнено", щоб функція взагалі не була видима зовні в prod).
-  private assertDevToolsEnabled() {
-    if (process.env.DEV_AUTO_LOGIN !== 'true') {
-      throw new NotFoundException();
-    }
-  }
-
   // За прямим запитом користувача — вибір міста зі списку (замість ручного вводу lat/lng
   // "наосліп") перед підміною координат. Той самий фільтр камер, що scan()/coverage() уже
   // вважають "придатними для сканування" (deletedAt: null, VERIFIED, OUTDOOR, ONLINE) — інакше
@@ -440,13 +431,24 @@ export class BtwService {
   }
 
   // Адмінська сторона — список усіх активних підмін (для вкладки в адмінці).
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "нахрена ты закрыл возможность дебажить мини
+  // апп ... из прод админки я управляю дебаг телефонами для мини апп - открой вкладку для
+  // прода тоже") — прибрано DEV_AUTO_LOGIN-гейт з усіх чотирьох методів підміни координат
+  // нижче (list/set/clear/getDevLocationOverride). На відміну від auth.service.ts::devLogin()
+  // (СПРАВЖНІЙ обхід автентифікації — видає сесію будь-якій ролі без Telegram-логіну взагалі,
+  // якщо знати сам URL API) підміна координат НЕ є обходом автентифікації: list/set/clear і
+  // так вимагають AdminGuard (реальний Telegram-логін конкретного адміна + ADMIN_TELEGRAM_IDS
+  // allowlist), а get — TelegramAuthGuard (реальний логін конкретного юзера) і повертає
+  // підміну ЛИШЕ для того telegramId, для якого адмін її явно встановив. Тобто без
+  // авторизованої дії адміна для ЦЬОГО конкретного юзера нічого не змінюється — саме так і
+  // працює "керування дебаг-телефонами" з прод-адмінки. devLogin() свідомо НЕ чіпаю — це інший
+  // ризик (справжній auth bypass), його вимикати в проді потрібно й далі.
   async listDevLocationOverrides() {
-    this.assertDevToolsEnabled();
     return this.prisma.btwDevLocationOverride.findMany({ orderBy: { updatedAt: 'desc' } });
   }
 
   async setDevLocationOverride(telegramId: string, lat: number, lng: number, label?: string) {
-    this.assertDevToolsEnabled();
     return this.prisma.btwDevLocationOverride.upsert({
       where: { telegramId },
       create: { telegramId, lat, lng, label },
@@ -455,18 +457,14 @@ export class BtwService {
   }
 
   async clearDevLocationOverride(telegramId: string) {
-    this.assertDevToolsEnabled();
     await this.prisma.btwDevLocationOverride.deleteMany({ where: { telegramId } });
     return { cleared: true };
   }
 
   // Клієнтська сторона — сам BTW-клієнт викликає це ПЕРЕД реальним navigator.geolocation,
-  // щоб дізнатись, чи для ЦЬОГО конкретного telegram-юзера є активна підміна. Повертає null
-  // (не помилку), якщо гейт вимкнений АБО підміни просто немає — той самий підхід, що
-  // GET /auth/dev-accounts (клієнт викликає безумовно щоразу, сервер сам вирішує, показати
-  // щось чи ні).
+  // щоб дізнатись, чи для ЦЬОГО конкретного telegram-юзера є активна підміна. Повертає null,
+  // якщо підміни просто немає для цього telegramId — сервер сам вирішує, показати щось чи ні.
   async getDevLocationOverride(telegramId: string): Promise<{ lat: number; lng: number } | null> {
-    if (process.env.DEV_AUTO_LOGIN !== 'true') return null;
     const override = await this.prisma.btwDevLocationOverride.findUnique({ where: { telegramId } });
     return override ? { lat: override.lat, lng: override.lng } : null;
   }
@@ -497,12 +495,10 @@ export class BtwService {
     return { ok: true };
   }
 
-  // Для адмінки — перегляд збереженої телеметрії після польового тесту. Гейт — той самий
-  // DEV_AUTO_LOGIN, що вже застосований для дебаг-інструментів вище (телеметрія в цій формі —
-  // теж суто діагностичний, не продакшн-аналітичний інструмент, доки немає повноцінного
-  // дашборду — AUDIT-btw.md).
+  // Для адмінки — перегляд збереженої телеметрії після польового тесту. Той самий принцип, що
+  // й вище — без DEV_AUTO_LOGIN-гейту, лише AdminGuard: телеметрія (агрегати сканів, без
+  // координат) не є секретом, доступним лише "не в проді".
   async listTelemetry() {
-    this.assertDevToolsEnabled();
     return this.prisma.btwTelemetryEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
   }
 
