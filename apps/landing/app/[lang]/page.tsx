@@ -164,6 +164,86 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ============ МОЖЛИВОСТІ (FEATURES) ============ */}
+      {/* За прямим запитом користувача — секція побудована так само, як privacy: дві надані
+          растрові ілюстрації на всю ширину, а поверх них — справжній HTML-текст, винесений
+          в i18n-словники й перекладений на всі 10 мов.
+          • Ілюстрація 1 (feature-collage) — 5 сцен без вписаного тексту: над кожною сценою
+            накладаємо короткий переклад-підпис біля її іконки (feature_scene{n}).
+          • Ілюстрація 2 (feature-grid) — макет із 6 карток + нижній потік, де англійський
+            текст «вшитий» у пікселі: перекладені підписи кладемо суцільними темними
+            плашками рівно поверх англійських блоків (координати виміряні з зображення,
+            у % — тому вирівнювання тримається на будь-якій ширині). Плашки close to
+            #05070E — колір інтер’єру карток, щоб перекривати оригінальний текст.
+          min-w оверлея = min-w зображення (горизонтальний скрол на вузьких екранах), щоб
+          текст і картинка жили в одній системі координат. */}
+      <section className="border-t border-white/5 px-6 py-24">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 text-center">
+            <Eyebrow>{t('features_eyebrow')}</Eyebrow>
+            <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('features_title')}</h2>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">{t('features_subtitle')}</p>
+          </div>
+
+          {/* Ілюстрація 1 — колаж із 5 сцен + переклад-підписи біля іконок */}
+          <div className="relative mt-10 overflow-x-auto">
+            <Image
+              src="/illustrations/feature-collage.png"
+              alt={t('features_imgAlt1')}
+              width={1536}
+              height={1024}
+              sizes="(max-width: 640px) 860px, 1100px"
+              className="mx-auto min-w-[860px] max-w-full rounded-2xl sm:min-w-0"
+            />
+            <div className="pointer-events-none absolute inset-0 min-w-[860px] sm:min-w-0">
+              <SceneLabel cx={17.1} top={12.5} accent="text-primary">{t('feature_scene1')}</SceneLabel>
+              <SceneLabel cx={50.2} top={11} accent="text-success">{t('feature_scene2')}</SceneLabel>
+              <SceneLabel cx={82.5} top={12.5} accent="text-primary">{t('feature_scene3')}</SceneLabel>
+              <SceneLabel cx={18.3} top={65} accent="text-[#F87171]">{t('feature_scene4')}</SceneLabel>
+              <SceneLabel cx={81.2} top={64} accent="text-primary">{t('feature_scene5')}</SceneLabel>
+            </div>
+          </div>
+
+          {/* Ілюстрація 2 — сітка можливостей + переклад поверх «вшитого» англійського тексту */}
+          <div className="relative mt-8 overflow-x-auto">
+            <Image
+              src="/illustrations/feature-grid.png"
+              alt={t('features_imgAlt2')}
+              width={1536}
+              height={1024}
+              sizes="(max-width: 640px) 920px, 1100px"
+              className="mx-auto min-w-[920px] max-w-full rounded-2xl sm:min-w-0"
+            />
+            <div className="pointer-events-none absolute inset-0 min-w-[920px] sm:min-w-0">
+              <GridCaption left={6.8} top={5} width={29} height={13.5} accent="text-primary" title={t('feature1_title')}>
+                {t('feature1_text')}
+              </GridCaption>
+              <GridCaption left={6.8} top={35.5} width={24} height={15.5} accent="text-primary" title={t('feature2_title')}>
+                {t('feature2_text')}
+              </GridCaption>
+              <GridCaption left={6.8} top={61.5} width={24} height={13} accent="text-primary" title={t('feature3_title')}>
+                {t('feature3_text')}
+              </GridCaption>
+              <GridCaption left={67.6} top={6} width={16} height={13} accent="text-[#2DD4BF]" title={t('feature4_title')}>
+                {t('feature4_text')}
+              </GridCaption>
+              <GridCaption left={67.6} top={34.5} width={16.5} height={16.5} accent="text-[#A78BFA]" title={t('feature5_title')}>
+                {t('feature5_text')}
+              </GridCaption>
+              <GridCaption left={67.6} top={61} width={13} height={18.5} accent="text-primary" title={t('feature6_title')}>
+                {t('feature6_text')}
+              </GridCaption>
+
+              <GridFlowLabel cx={19.5} accent="text-primary">{t('feature_flow1')}</GridFlowLabel>
+              <GridFlowLabel cx={34.7} accent="text-[#2DD4BF]">{t('feature_flow2')}</GridFlowLabel>
+              <GridFlowLabel cx={48.8} accent="text-[#A78BFA]">{t('feature_flow3')}</GridFlowLabel>
+              <GridFlowLabel cx={63.9} accent="text-success">{t('feature_flow4')}</GridFlowLabel>
+              <GridFlowLabel cx={79} accent="text-primary">{t('feature_flow5')}</GridFlowLabel>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ============ FAQ ============ */}
       <section className="px-6 py-24">
         <div className="mx-auto max-w-2xl">
@@ -279,5 +359,79 @@ function FaqItem({ q, children }: { q: string; children: React.ReactNode }) {
       </summary>
       <p className="mt-3 text-muted">{children}</p>
     </details>
+  );
+}
+
+
+// ── Підписи-оверлеї для секції features (аналог PrivacyCaption із privacy) ──
+
+// Короткий підпис над сценою колажу (ілюстрація 1). cx — горизонтальний центр сцени у %
+// ширини зображення, top — у % висоти. Напівпрозора темна плашка + backdrop-blur — для
+// читабельності поверх насиченої фотореалістичної сцени.
+function SceneLabel({
+  cx,
+  top,
+  accent,
+  children,
+}: {
+  cx: number;
+  top: number;
+  accent: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={`absolute -translate-x-1/2 whitespace-nowrap rounded-md bg-bg/85 px-2 py-1 text-center font-display text-[11px] font-medium leading-none backdrop-blur-sm sm:text-xs ${accent}`}
+      style={{ left: `${cx}%`, top: `${top}%` }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// Перекладена картка-підпис поверх «вшитого» англійського тексту сітки (ілюстрація 2).
+// left/top/width/height — прямокутник англійського блоку у % (виміряний із зображення);
+// суцільна темна плашка (колір інтер’єру карток #05070E) повністю перекриває оригінал,
+// а зверху сідає переклад: заголовок акцентним кольором + опис. minHeight (а не фіксована
+// висота) гарантує, що плашка не менша за англійський блок, але росте під довші переклади,
+// не обрізаючи їх.
+function GridCaption({
+  left,
+  top,
+  width,
+  height,
+  accent,
+  title,
+  children,
+}: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  accent: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="absolute overflow-hidden rounded-md bg-[#05070E] px-1.5 py-1"
+      style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, minHeight: `${height}%` }}
+    >
+      <p className={`font-display text-[13px] font-semibold leading-tight ${accent}`}>{title}</p>
+      <p className="mt-1 text-[11px] leading-snug text-neutral/85">{children}</p>
+    </div>
+  );
+}
+
+// Перекладений підпис нижнього потоку сітки (ілюстрація 2). cx — центр англійського підпису
+// у % ширини; вертикально стоїть рівно на ряду підписів під іконками.
+function GridFlowLabel({ cx, accent, children }: { cx: number; accent: string; children: React.ReactNode }) {
+  return (
+    <span
+      className={`absolute inline-flex -translate-x-1/2 items-center justify-center whitespace-nowrap rounded bg-[#05070E] px-2 text-center font-display text-[12px] font-medium leading-none ${accent}`}
+      style={{ left: `${cx}%`, top: '94%', minHeight: '3.2%' }}
+    >
+      {children}
+    </span>
   );
 }

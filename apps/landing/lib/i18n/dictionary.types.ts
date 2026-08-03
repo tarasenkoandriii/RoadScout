@@ -40,6 +40,34 @@ export interface Dictionary {
   privacy_step5_text: string;
   privacy_imgAlt: string;
 
+  features_eyebrow: string;
+  features_title: string;
+  features_subtitle: string;
+  feature1_title: string;
+  feature1_text: string;
+  feature2_title: string;
+  feature2_text: string;
+  feature3_title: string;
+  feature3_text: string;
+  feature4_title: string;
+  feature4_text: string;
+  feature5_title: string;
+  feature5_text: string;
+  feature6_title: string;
+  feature6_text: string;
+  feature_flow1: string;
+  feature_flow2: string;
+  feature_flow3: string;
+  feature_flow4: string;
+  feature_flow5: string;
+  feature_scene1: string;
+  feature_scene2: string;
+  feature_scene3: string;
+  feature_scene4: string;
+  feature_scene5: string;
+  features_imgAlt1: string;
+  features_imgAlt2: string;
+
   faq_eyebrow: string;
   faq_title: string;
   faq_q1: string;
