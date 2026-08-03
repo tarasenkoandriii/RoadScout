@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useI18n } from '../../components/I18nProvider';
 import LanguageSelector from '../../components/LanguageSelector';
 
@@ -48,10 +49,33 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="relative">
-            <picture>
-              <source media="(max-width: 639px)" srcSet="/illustrations/hero-mobile.svg" />
-              <img src="/illustrations/hero.svg" alt="" role="presentation" className="w-full rounded-3xl" />
-            </picture>
+            {/* За прямим запитом користувача — новий фотореалістичний hero (заміна
+                попереднього плоского SVG). next/image замість <picture>+<img>: реальна
+                користь саме для растрового фото (не було сенсу для плоских SVG-іконок,
+                там залишається mask-image-підхід) — автоматична віддача WebP,
+                респонсивні розміри, контроль пріоритету завантаження (priority — це
+                найважливіше зображення LCP на сторінці). Дві версії з art-direction
+                (десктоп/мобільна обрізка під постать) перемикаються через Tailwind-
+                брейкпоінти, не через <picture><source> — next/image не підтримує
+                декілька джерел в одному компоненті так само, як <picture>. */}
+            <Image
+              src="/illustrations/hero-desktop.png"
+              alt=""
+              role="presentation"
+              width={1536}
+              height={1024}
+              priority
+              className="hidden w-full rounded-3xl sm:block"
+            />
+            <Image
+              src="/illustrations/hero-mobile.png"
+              alt=""
+              role="presentation"
+              width={819}
+              height={1024}
+              priority
+              className="block w-full rounded-3xl sm:hidden"
+            />
           </div>
         </div>
       </section>
@@ -91,37 +115,50 @@ export default function LandingPage() {
 
       {/* ============ ПРИВАТНОСТЬ ============ */}
       <section className="border-t border-white/5 bg-surface px-6 py-24">
-        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
-          <div className="order-2 lg:order-1">
+        <div className="mx-auto max-w-6xl">
+          {/* ЗМІНЕНО за прямим запитом користувача — нова ілюстрація приватності є
+              горизонтальним 5-кроковим потоком (камера → AI на пристрої → лише геометрія
+              → зашифровано → користувач лишається головним), не одиночною централізованою
+              сценою, як стара плоска SVG-версія. Двоколонковий макет (текст/картинка
+              50/50) стискав би цей потік до нечитабельної ширини — тому текст тепер
+              центрований зверху, а ілюстрація йде на всю ширину контейнера нижче,
+              зберігаючи свою природну горизонтальну композицію. */}
+          <div className="mx-auto max-w-2xl text-center">
             <Eyebrow>{t('privacy_eyebrow')}</Eyebrow>
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('privacy_title')}</h2>
-            <ul className="mt-6 space-y-4 text-lg text-muted">
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="mt-1 text-success">
-                  ✓
-                </span>
-                <span>{t('privacy_point1')}</span>
-              </li>
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="mt-1 text-success">
-                  ✓
-                </span>
-                <span>{t('privacy_point2')}</span>
-              </li>
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="mt-1 text-success">
-                  ✓
-                </span>
-                <span>{t('privacy_point3')}</span>
-              </li>
-            </ul>
           </div>
-          <div className="order-1 lg:order-2">
-            <picture>
-              <source media="(max-width: 639px)" srcSet="/illustrations/privacy-mobile.svg" />
-              <img src="/illustrations/privacy.svg" alt={t('privacy_imgAlt')} className="w-full rounded-2xl" />
-            </picture>
+
+          <div className="mt-12 overflow-x-auto">
+            <Image
+              src="/illustrations/privacy-desktop.png"
+              alt={t('privacy_imgAlt')}
+              width={1518}
+              height={824}
+              sizes="(max-width: 640px) 720px, 1200px"
+              className="mx-auto min-w-[720px] max-w-full rounded-2xl sm:min-w-0"
+            />
           </div>
+
+          <ul className="mx-auto mt-12 grid max-w-4xl gap-6 text-lg text-muted sm:grid-cols-3">
+            <li className="flex gap-3">
+              <span aria-hidden="true" className="mt-1 text-success">
+                ✓
+              </span>
+              <span>{t('privacy_point1')}</span>
+            </li>
+            <li className="flex gap-3">
+              <span aria-hidden="true" className="mt-1 text-success">
+                ✓
+              </span>
+              <span>{t('privacy_point2')}</span>
+            </li>
+            <li className="flex gap-3">
+              <span aria-hidden="true" className="mt-1 text-success">
+                ✓
+              </span>
+              <span>{t('privacy_point3')}</span>
+            </li>
+          </ul>
         </div>
       </section>
 
