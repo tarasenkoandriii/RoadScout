@@ -360,6 +360,75 @@ export class BtwService {
     }
   }
 
+  // За прямим запитом користувача — вибір міста зі списку (замість ручного вводу lat/lng
+  // "наосліп") перед підміною координат. Той самий фільтр камер, що scan()/coverage() уже
+  // вважають "придатними для сканування" (deletedAt: null, VERIFIED, OUTDOOR, ONLINE) — інакше
+  // лічильник тут показував би місто як "багате на камери", а сканування на місці не знаходило
+  // б жодного кандидата (заплутувало б, а не допомагало відладці).
+  private readonly SCANNABLE_CAMERA_FILTER = {
+    deletedAt: null,
+    confidence: 'VERIFIED' as const,
+    locationType: 'OUTDOOR' as const,
+    status: 'ONLINE' as const,
+  };
+
+  // Список міст, де ВЗАГАЛІ є придатні для сканування камери, з їхньою кількістю — тільки
+  // непорожні міста (порожні не мають сенсу в випадаючому списку дебаг-інструменту),
+  // відсортовано за спаданням кількості (найбагатше на камери місто — першим, зручно
+  // одразу побачити, де є що тестувати).
+  async listCitiesWithCameraDensity() {
+    this.assertDevToolsEnabled();
+    const grouped = await this.prisma.camera.groupBy({
+      by: ['cityId'],
+      where: { ...this.SCANNABLE_CAMERA_FILTER, cityId: { not: null } },
+      _count: { _all: true },
+    });
+    if (grouped.length === 0) return [];
+
+    const cityIds = grouped.map((g) => g.cityId as string);
+    const cities = await this.prisma.city.findMany({ where: { id: { in: cityIds } }, select: { id: true, name: true } });
+    const nameById = new Map(cities.map((c) => [c.id, c.name]));
+
+    return grouped
+      .map((g) => ({ cityId: g.cityId as string, name: nameById.get(g.cityId as string) ?? '(?)', cameraCount: g._count._all }))
+      .sort((a, b) => b.cameraCount - a.cameraCount);
+  }
+
+  // Точка найбільшої щільності камер у вибраному місті — для кожної придатної для сканування
+  // камери рахуємо, скільки ІНШИХ таких камер лежить у радіусі DENSITY_RADIUS_METERS (типова
+  // "видима пішки" відстань — навмисно менша за грубий bbox 2500м, що scan() використовує для
+  // ПОШУКУ кандидатів: тут ідеться не про "де сервер шукатиме", а про "де реально стоїть купа
+  // камер поруч", щоб дебаг мав що показати одразу після переходу на локацію). O(n²) по
+  // камерах міста — прийнятно для розміру одного міста в цьому проєкті (десятки-сотні, не
+  // мільйони), це інструмент адмінки для одноразового ручного вибору, не гарячий шлях.
+  private static readonly DENSITY_RADIUS_METERS = 350;
+
+  async findDensestCameraPoint(cityId: string) {
+    this.assertDevToolsEnabled();
+    const cameras = await this.prisma.camera.findMany({
+      where: { ...this.SCANNABLE_CAMERA_FILTER, cityId },
+      select: { id: true, name: true, lat: true, lng: true },
+    });
+    if (cameras.length === 0) {
+      throw new NotFoundException('No scannable cameras in this city');
+    }
+
+    let best = cameras[0];
+    let bestNeighborCount = -1;
+    for (const camera of cameras) {
+      const neighborCount = cameras.reduce(
+        (count, other) => (other.id !== camera.id && haversineDistance(camera, other) <= BtwService.DENSITY_RADIUS_METERS ? count + 1 : count),
+        0,
+      );
+      if (neighborCount > bestNeighborCount) {
+        best = camera;
+        bestNeighborCount = neighborCount;
+      }
+    }
+
+    return { lat: best.lat, lng: best.lng, cameraId: best.id, cameraName: best.name, camerasNearby: bestNeighborCount + 1 };
+  }
+
   // Адмінська сторона — список усіх активних підмін (для вкладки в адмінці).
   async listDevLocationOverrides() {
     this.assertDevToolsEnabled();

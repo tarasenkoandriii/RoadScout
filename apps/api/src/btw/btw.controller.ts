@@ -100,6 +100,20 @@ export class BtwController {
   // Гейт — DEV_AUTO_LOGIN, той самий, що вже вимикає auth.service.ts::devLogin() у
   // продакшені (BtwService.assertDevToolsEnabled() кидає 404, якщо вимкнено).
 
+  // За прямим запитом користувача — вибір міста зі списку (з кількістю придатних для
+  // сканування камер) перед підміною координат, замість ручного вводу lat/lng наосліп.
+  @UseGuards(AdminGuard)
+  @Get('admin/dev-cities')
+  listDevCities() {
+    return this.btwService.listCitiesWithCameraDensity();
+  }
+
+  @UseGuards(AdminGuard)
+  @Get('admin/dev-cities/:cityId/densest-point')
+  getDensestCameraPoint(@Param('cityId') cityId: string) {
+    return this.btwService.findDensestCameraPoint(cityId);
+  }
+
   // Адмінська сторона — керування підмінами (окрема вкладка в адмінці).
   @UseGuards(AdminGuard)
   @Get('admin/dev-location-overrides')

@@ -23,6 +23,14 @@ interface TelemetryEvent {
   createdAt: string;
 }
 
+// За прямим запитом користувача — вибір міста зі списку (з кількістю придатних для
+// сканування камер) замість ручного вводу координат наосліп.
+interface CityOption {
+  cityId: string;
+  name: string;
+  cameraCount: number;
+}
+
 // BTW — дебаг-режим: програмний (не апаратний) спуфінг GPS-координат для конкретного
 // telegram-юзера (за прямим запитом користувача). Азимут (компас) свідомо НЕ підмінюється —
 // реальне обертання телефоном лишається потрібним, підміняється лише позиція. Гейт на
@@ -32,6 +40,9 @@ interface TelemetryEvent {
 export default function BtwDevToolsPage() {
   const [overrides, setOverrides] = useState<DevLocationOverride[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryEvent[]>([]);
+  const [cities, setCities] = useState<CityOption[]>([]);
+  const [selectedCityId, setSelectedCityId] = useState('');
+  const [cityPickLoading, setCityPickLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [disabled, setDisabled] = useState(false);
   const [telegramId, setTelegramId] = useState('');
@@ -55,6 +66,9 @@ export default function BtwDevToolsPage() {
 
       const telemetryRes = await fetch('/api/btw/admin/telemetry', { credentials: 'include' });
       if (telemetryRes.ok) setTelemetry(await telemetryRes.json());
+
+      const citiesRes = await fetch('/api/btw/admin/dev-cities', { credentials: 'include' });
+      if (citiesRes.ok) setCities(await citiesRes.json());
     } catch {
       setError('Не удалось загрузить список');
     } finally {
@@ -65,6 +79,34 @@ export default function BtwDevToolsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // При выборе города — подставляем координаты точки с максимальной плотностью камер
+  // (сервер сам считает "плотность" — среди камер этого города ищет ту, у которой больше
+  // всего соседей в радиусе ~350м, см. BtwService.findDensestCameraPoint). Метку/telegramId
+  // не трогаем — только lat/lng, чтобы не сбрасывать уже введённые значения.
+  async function handleSelectCity(cityId: string) {
+    setSelectedCityId(cityId);
+    if (!cityId) return;
+    setCityPickLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/btw/admin/dev-cities/${encodeURIComponent(cityId)}/densest-point`, { credentials: 'include' });
+      if (!res.ok) {
+        setError('Не удалось найти точку с камерами для этого города');
+        return;
+      }
+      const point: { lat: number; lng: number; cameraName: string; camerasNearby: number } = await res.json();
+      setLat(String(point.lat));
+      setLng(String(point.lng));
+      if (!label.trim()) {
+        setLabel(`${cities.find((c) => c.cityId === cityId)?.name ?? ''} — у камеры «${point.cameraName}» (рядом ещё ${point.camerasNearby - 1})`);
+      }
+    } catch {
+      setError('Не удалось найти точку с камерами для этого города');
+    } finally {
+      setCityPickLoading(false);
+    }
+  }
 
   async function handleSave() {
     const latNum = parseFloat(lat);
@@ -135,6 +177,30 @@ export default function BtwDevToolsPage() {
 
       <div className="mb-6 rounded border p-4">
         <h2 className="mb-2 font-medium">Добавить / обновить подмену</h2>
+
+        {/* За прямим запитом користувача — вибір міста (з бекенду, лише міста, де реально є
+            придатні для сканування камери) ПЕРЕД координатами. Вибір міста сам підставляє
+            lat/lng — точку з максимальною щільністю камер поруч, а не центр міста, щоб
+            одразу після переходу на локацію сканування знаходило кандидатів. */}
+        <div className="mb-3">
+          <select
+            className="w-full rounded border px-2 py-1 text-sm"
+            value={selectedCityId}
+            onChange={(e) => handleSelectCity(e.target.value)}
+            disabled={cityPickLoading}
+          >
+            <option value="">
+              {cities.length === 0 ? 'Нет городов с камерами, готовыми к сканированию' : 'Выбрать город…'}
+            </option>
+            {cities.map((c) => (
+              <option key={c.cityId} value={c.cityId}>
+                {c.name} ({c.cameraCount} {c.cameraCount === 1 ? 'камера' : 'камер'})
+              </option>
+            ))}
+          </select>
+          {cityPickLoading && <p className="mt-1 text-xs text-gray-500">Ищем точку с максимальной плотностью камер…</p>}
+        </div>
+
         <div className="grid grid-cols-2 gap-3 mb-3">
           <input
             className="rounded border px-2 py-1 text-sm"
