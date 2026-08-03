@@ -1,15 +1,27 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { Space_Grotesk, Manrope, JetBrains_Mono } from 'next/font/google';
+import { Unbounded, Manrope, JetBrains_Mono } from 'next/font/google';
 import I18nProvider from '../../components/I18nProvider';
 import SkipLink from '../../components/SkipLink';
 import { LANGUAGES, isSupportedLanguage, LanguageCode } from '../../lib/i18n/languages';
 import { getDictionary } from '../../lib/i18n';
 import '../globals.css';
 
-const displayFont = Space_Grotesk({ subsets: ['latin', 'cyrillic'], variable: '--font-display', weight: ['500', '700'] });
+// ВИПРАВЛЕНО (реальна помилка збірки, знайдена користувачем на `next build`) — Space
+// Grotesk НЕ має кириличної підмножини символів взагалі (лише latin/latin-ext/vietnamese),
+// а українська — одна з 10 мов сайту. Просте прибирання 'cyrillic' з конфігу зробило б білд
+// успішним, але мовчки зламало б заголовки саме для української версії (кириличні символи
+// впали б на інший, невибраний шрифт). Замінено на Unbounded — той самий геометричний,
+// технічний, "дисплейний" характер (і ті самі ваги 500/700), але з ПОВНОЮ кириличною
+// підтримкою (cyrillic/cyrillic-ext у офіційному наборі підмножин шрифту).
+const displayFont = Unbounded({ subsets: ['latin', 'cyrillic'], variable: '--font-display', weight: ['500', '700'] });
 const bodyFont = Manrope({ subsets: ['latin', 'cyrillic'], variable: '--font-body', weight: ['400', '500', '600'] });
-const monoFont = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '500'] });
+// ВИПРАВЛЕНО (та сама помилка, лише без явного збою збірки — 'latin' сам собою валідна
+// підмножина для JetBrains Mono, тому build проходив, але кириличні "телеметрійні" лейбли
+// (напр. '// приватність' в uk-словнику) мовчки рендерились би не тим шрифтом). JetBrains
+// Mono РЕАЛЬНО підтримує cyrillic (на відміну від Space Grotesk) — тут достатньо було просто
+// додати підмножину в запит, не міняти сам шрифт.
+const monoFont = JetBrains_Mono({ subsets: ['latin', 'cyrillic'], variable: '--font-mono', weight: ['400', '500'] });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://btw.example.com';
 
