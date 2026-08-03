@@ -45,14 +45,23 @@ export function middleware(request: Request) {
   const url = new URL(request.url);
   const { pathname } = url;
 
-  // Шлях уже має мовний префікс (напр. /en, /en/щось) — пропускаємо без змін (повертаємо
-  // undefined — так само, як NextResponse.next(), Next.js трактує "нічого не повернуто" як
-  // "продовжити звичайну маршрутизацію").
+  // ТИМЧАСОВЕ ДІАГНОСТИЧНЕ ЛОГУВАННЯ (за прямим запитом користувача — /uk дає 404 попри
+  // те, що build log підтверджує статичну генерацію цього маршруту) — прибрати після
+  // з'ясування причини. Ці рядки з'являться у Vercel → Logs (Runtime Logs) для функції
+  // Middleware на кожен реальний запит.
+  console.log('[middleware] pathname:', pathname);
+
   const hasLangPrefix = LANGUAGE_CODES.some((code) => pathname === `/${code}` || pathname.startsWith(`/${code}/`));
-  if (hasLangPrefix) return;
+  console.log('[middleware] hasLangPrefix:', hasLangPrefix);
+
+  if (hasLangPrefix) {
+    console.log('[middleware] passing through unchanged');
+    return;
+  }
 
   const lang = resolveLanguage(request);
   url.pathname = `/${lang}${pathname === '/' ? '' : pathname}`;
+  console.log('[middleware] redirecting to:', url.toString());
   return Response.redirect(url, 307);
 }
 
