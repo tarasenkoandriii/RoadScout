@@ -29,8 +29,15 @@ export default function LandingPage() {
   return (
     <main id="main">
       {/* ============ ШАПКА — лише перемикач мови ============ */}
-      <header className="flex justify-end px-6 pt-6">
-        <LanguageSelector />
+      {/* За запитом користувача — перемикач мови тепер плаваючий, прикріплений до верху
+          (fixed), тож лишається доступним під час скролу. Обгортка pointer-events-none, щоб
+          порожня смуга шапки не перехоплювала кліки по контенту під нею; сам віджет —
+          pointer-events-auto. z-40, аби бути поверх контенту (випадний список віджета має
+          свій z-50). */}
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-end px-6 pt-4 sm:pt-6">
+        <div className="pointer-events-auto">
+          <LanguageSelector />
+        </div>
       </header>
 
       {/* ============ HERO ============ */}

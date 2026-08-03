@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Unbounded, Manrope, JetBrains_Mono } from 'next/font/google';
 import I18nProvider from '../../components/I18nProvider';
-import SkipLink from '../../components/SkipLink';
 import { LANGUAGES, isSupportedLanguage, LanguageCode } from '../../lib/i18n/languages';
 import { getDictionary } from '../../lib/i18n';
 import '../globals.css';
@@ -136,7 +135,6 @@ export default function LangLayout({ children, params }: { children: React.React
     <html lang={lang} className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable}`}>
       <body className="bg-bg font-body text-neutral antialiased">
         <I18nProvider lang={lang}>
-          <SkipLink />
           {children}
         </I18nProvider>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
