@@ -137,31 +137,27 @@ export default function LandingPage() {
               sizes="(max-width: 640px) 720px, 1200px"
               className="mx-auto min-w-[720px] max-w-full rounded-2xl sm:min-w-0"
             />
-            {/* ЗМІНЕНО за прямим запитом користувача — тексти взяті з референсного
-                зображення (5 підписів під кожною з 5 іконок: камера/AI на пристрої/лише
-                геометрія/зашифровано/ви контролюєте), перекладені на 10 мов, накладені
-                ПОВЕРХ нижньої частини самого зображення (не окремим блоком після нього) —
-                справжній HTML-текст, не вписаний у пікселі картинки. Позиції по X
-                (8/30/51/72/90%) відповідають фактичному розташуванню 5 іконок на
-                зображенні. min-w узгоджено з min-w самого <Image> вище — оверлей має
-                існувати в тій самій системі координат контейнера, що й зображення. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 min-w-[720px] pb-3 sm:min-w-0 sm:pb-4">
+            {/* ЗМІНЕНО за прямим запитом користувача — підписи розкладено навколо кожної
+                іконки: короткий ОПИС кроку у темній смузі НАД іконкою, синій ЗАГОЛОВОК —
+                по центру ПІД іконкою. Обидва центровані по X точно під своєю іконкою.
+                leftPct — виміряні центри 5 іконок на privacy-desktop.png (у % ширини
+                зображення): 12.3 / 31.85 / 50.4 / 68.7 / 86.9. min-w узгоджено з min-w
+                самого <Image> вище, щоб оверлей жив у тій самій системі координат і на
+                мобільних скролився разом із зображенням. */}
+            <div className="pointer-events-none absolute inset-0 min-w-[720px] sm:min-w-0">
+              <PrivacyDesc leftPct={12.3}>{t('privacy_step1_text')}</PrivacyDesc>
+              <PrivacyDesc leftPct={31.85}>{t('privacy_step2_text')}</PrivacyDesc>
+              <PrivacyDesc leftPct={50.4}>{t('privacy_step3_text')}</PrivacyDesc>
+              <PrivacyDesc leftPct={68.7}>{t('privacy_step4_text')}</PrivacyDesc>
+              <PrivacyDesc leftPct={86.9}>{t('privacy_step5_text')}</PrivacyDesc>
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 min-w-[720px] sm:min-w-0">
               <div className="relative mx-auto h-0">
-                <PrivacyCaption leftPct={8} title={t('privacy_step1_title')}>
-                  {t('privacy_step1_text')}
-                </PrivacyCaption>
-                <PrivacyCaption leftPct={30} title={t('privacy_step2_title')}>
-                  {t('privacy_step2_text')}
-                </PrivacyCaption>
-                <PrivacyCaption leftPct={51} title={t('privacy_step3_title')}>
-                  {t('privacy_step3_text')}
-                </PrivacyCaption>
-                <PrivacyCaption leftPct={72} title={t('privacy_step4_title')}>
-                  {t('privacy_step4_text')}
-                </PrivacyCaption>
-                <PrivacyCaption leftPct={90} title={t('privacy_step5_title')}>
-                  {t('privacy_step5_text')}
-                </PrivacyCaption>
+                <PrivacyTitle leftPct={12.3}>{t('privacy_step1_title')}</PrivacyTitle>
+                <PrivacyTitle leftPct={31.85}>{t('privacy_step2_title')}</PrivacyTitle>
+                <PrivacyTitle leftPct={50.4}>{t('privacy_step3_title')}</PrivacyTitle>
+                <PrivacyTitle leftPct={68.7}>{t('privacy_step4_title')}</PrivacyTitle>
+                <PrivacyTitle leftPct={86.9}>{t('privacy_step5_title')}</PrivacyTitle>
               </div>
             </div>
           </div>
@@ -200,19 +196,32 @@ export default function LandingPage() {
   );
 }
 
-// Підпис, накладений поверх нижньої частини privacy-ілюстрації, вирівняний під конкретною
-// іконкою за горизонтальною позицією (leftPct). Напівпрозорий темний фон під текстом —
-// потрібен для читабельності поверх зображення (не всюди під іконками достатньо темно
-// саме в тому місці, де сяде підпис).
-function PrivacyCaption({ leftPct, title, children }: { leftPct: number; title: string; children: React.ReactNode }) {
+// Опис кроку, накладений на ТЕМНУ смугу зображення НАД відповідною іконкою (leftPct —
+// горизонтальний центр іконки). Фон зображення там достатньо темний, тож замість плашки —
+// лише легка тінь тексту для читабельності. bottom підібрано так, щоб опис стояв трохи вище
+// верхнього краю ряду іконок (ряд іконок починається на ~15% висоти від низу зображення).
+function PrivacyDesc({ leftPct, children }: { leftPct: number; children: React.ReactNode }) {
   return (
-    <div
-      className="absolute w-[17%] min-w-[110px] -translate-x-1/2 rounded-lg bg-bg/70 px-1.5 py-1 text-center backdrop-blur-sm"
+    <p
+      className="absolute w-[18%] min-w-[116px] -translate-x-1/2 text-center text-[10px] leading-tight text-neutral/90 [text-shadow:_0_1px_4px_rgba(0,0,0,0.95)] sm:text-[11px]"
+      style={{ left: `${leftPct}%`, bottom: '16.5%' }}
+    >
+      {children}
+    </p>
+  );
+}
+
+// Заголовок кроку — по центру ПІД відповідною іконкою (той самий leftPct — центр іконки).
+// Стоїть одразу під нижнім краєм зображення (top-0 у h-0 контейнері + невеликий відступ),
+// щоб не перекривати іконку. Синій текст із легкою тінню для читабельності на темному фоні.
+function PrivacyTitle({ leftPct, children }: { leftPct: number; children: React.ReactNode }) {
+  return (
+    <p
+      className="absolute top-0 mt-1.5 w-[19%] min-w-[112px] -translate-x-1/2 text-center font-display text-[11px] font-medium leading-tight text-primary [text-shadow:_0_1px_4px_rgba(0,0,0,0.85)] sm:text-xs"
       style={{ left: `${leftPct}%` }}
     >
-      <p className="font-display text-[11px] font-medium leading-tight text-primary sm:text-xs">{title}</p>
-      <p className="mt-0.5 text-[10px] leading-tight text-neutral/90 sm:text-[11px]">{children}</p>
-    </div>
+      {children}
+    </p>
   );
 }
 
