@@ -94,13 +94,38 @@ async function main() {
       );
     }
 
-    const result = await generateTilesForCity(citySlug, cameras);
+    // ВИПРАВЛЕНО (за прямим запитом користувача — розбір живого випадку, коли New York
+    // застряг рівно на "88/288 ячеек" чотири запуски АДМІНСЬКОЇ кнопки поспіль, § детальний
+    // розбір і зменшення GRID_CELL_SIZE_M у tile-generation.util.ts): адмінська кнопка
+    // ОБМЕЖЕНА таймаутом Vercel-функції (GENERATION_TIME_BUDGET_MS=220с) і тому МУСИТЬ
+    // повертатись частково готовою для великих міст — саме тому весь механізм ідемпотентних
+    // повторних запусків і існує. Але ЦЕЙ CLI-скрипт запускається на власній машині
+    // розробника — жодного таймауту serverless-функції немає, тому НЕМАЄ причини змушувати
+    // людину вручну перезапускати команду в циклі самому. Тепер скрипт сам повторює виклик,
+    // доки generateTilesForCity() не поверне complete:true — той самий кеш комірок у Vercel
+    // Blob, що й раніше, просто цикл тепер усередині скрипта, а не в руках людини.
+    //
+    // Захисна верхня межа ітерацій (не безумовний `while (true)`) — на випадок, якщо якась
+    // конкретна комірка структурно НІКОЛИ не зможе завершитись (§ чесний коментар біля
+    // GRID_CELL_SIZE_M — навіть після зменшення розміру комірки теоретично можливо для
+    // найщільніших районів) — щоб скрипт зрештою зупинився з чітким повідомленням, а не висів
+    // нескінченно, гріючи Overpass марними повторними запитами.
+    const MAX_ITERATIONS = 200;
+    let result = await generateTilesForCity(citySlug, cameras);
+    let iteration = 1;
+    while (!result.complete && iteration < MAX_ITERATIONS) {
+      console.log(
+        `[generate-btw-tiles] прохід ${iteration}: ${result.cellsDone}/${result.cellsTotal} комірок сітки — продовжуємо автоматично (кеш комірок у Vercel Blob зберігає прогрес)...`,
+      );
+      iteration += 1;
+      result = await generateTilesForCity(citySlug, cameras);
+    }
 
     if (!result.complete) {
-      console.log(
-        `[generate-btw-tiles] частково готово: ${result.cellsDone}/${result.cellsTotal} комірок сітки — запустіть цей самий скрипт ще раз, щоб продовжити (кеш комірок у Vercel Blob уже зберігає прогрес).`,
+      console.error(
+        `[generate-btw-tiles] зупинено після ${MAX_ITERATIONS} проходів, усе ще частково готово: ${result.cellsDone}/${result.cellsTotal} комірок сітки. Схоже, певні комірки НІКОЛИ не завершуються (надто щільна/велика ділянка для одного Overpass-запиту навіть після зменшення розміру комірки, § tile-generation.util.ts) — просто повторний запуск цього скрипта навряд чи допоможе; потрібне подальше зменшення GRID_CELL_SIZE_M або адаптивне дроблення проблемних комірок.`,
       );
-      return;
+      process.exit(1);
     }
 
     console.log(
