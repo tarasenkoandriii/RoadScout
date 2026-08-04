@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
+import BtwRadar from '../components/BtwRadar';
 
 // Beyond the Wall (BTW) — сканувальний екран, §3.1/§3.2 ТЗ (doc/BTW-tz.md).
 //
@@ -13,8 +14,12 @@ import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
 // - У2 (комплементарний фільтр), У3 (snap до вулиці, на сервері), У4 (калібрування за
 //   кандидатом) — РЕАЛІЗОВАНІ. Vision-уточнення (У5) — реалізоване (кнопка "Уточнить").
 // - Магнітне схилення — використовується фіксоване наближення з /btw/manifest (не WMM).
-// - Кільце-радар на Canvas (§3.1.2) — замінено на простішу горизонтальну компас-стрічку +
-//   список кандидатів (той самий сенс: видно, у який бік повертати телефон).
+// - Кільце-радар на Canvas (§3.1.2) — ЧАСТКОВО реалізовано (components/BtwRadar.tsx): за
+//   прямим запитом користувача це СВІДОМО зменшений обсяг — статичний (без
+//   requestAnimationFrame) Canvas 2D, БЕЗ Web Worker і БЕЗ PMTiles/офлайн-геометрії, поверх
+//   тих самих даних, що вже приходять у /btw/scan для компас-стрічки. Сектори навколо точок —
+//   стилізоване наближення з orientationFit, не справжній азимут камери (той не передається
+//   клієнту). Компас-стрічка лишена поруч, не видалена — той самий сенс, друга візуалізація.
 // - Розмиття облич/номерів (§11.3), водяний знак (§11.3) — сервер поки що просто віддає
 //   streamUrl напряму.
 // - Debug HUD (сирі покази сенсорів, snap-статус, лічильники каскаду фільтрів) — доданий
@@ -100,6 +105,10 @@ export default function BtwScanPage() {
   // За прямим запитом користувача — стан для debug HUD (М0-спайк на реальному пристрої).
   const [scanDebug, setScanDebug] = useState<ScanDebug | null>(null);
   const [showHud, setShowHud] = useState(true);
+  // §3.1.2 ТЗ — кільце-радар (components/BtwRadar.tsx). За замовчуванням увімкнено (це і є
+  // основна запитана фіча), з можливістю сховати — той самий патерн перемикання, що вже HUD
+  // нижче, для тих, хто хоче бачити відео без накладеної панелі.
+  const [showRadar, setShowRadar] = useState(true);
   const [usedDevOverride, setUsedDevOverride] = useState(false);
   const [lockedCandidate, setLockedCandidate] = useState<Candidate | null>(null);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
@@ -526,6 +535,16 @@ export default function BtwScanPage() {
     }
   }
 
+  // Радар (components/BtwRadar.tsx) знає лише cameraId точки, по якій тапнули — сам компонент
+  // отримує урізаний BtwRadarCandidate[] (без усіх полів Candidate), тому тут відновлюємо
+  // повний об'єкт з тих самих масивів candidates/fallbackCandidates і йдемо тим самим шляхом
+  // захвату, що вже й список кандидатів нижче (єдина точка входу в handleLock — той самий
+  // "видео через VPN" пайплайн, за прямим запитом користувача, а не окрема копія логіки).
+  function handleRadarSelect(cameraId: string) {
+    const candidate = candidates.find((c) => c.cameraId === cameraId) ?? fallbackCandidates.find((c) => c.cameraId === cameraId);
+    if (candidate) handleLock(candidate);
+  }
+
   // У5 ТЗ (§5) — "по кнопке «уточнить», не чаще 1 раза в 30 с". Захоплює поточний кадр
   // відео телефону через offscreen Canvas -> base64 data URL (jpeg, стиснуто — vision-запит
   // все одно дорогий, немає сенсу слати нестиснутий кадр повного розміру).
@@ -689,6 +708,14 @@ export default function BtwScanPage() {
   }
 
   // phase === 'scanning'
+  // Той самий набір, що вже й компас-стрічка/список нижче показують — direct завжди, fallback
+  // лише коли користувач сам розкрив його (showFallback), щоб радар не "спойлерив" резервні
+  // кандидати до явного тапу "Показать резервные".
+  const radarCandidates = [
+    ...candidates.map((c) => ({ ...c, isFallback: false })),
+    ...(showFallback ? fallbackCandidates.map((c) => ({ ...c, isFallback: true })) : []),
+  ];
+
   return (
     <div className="relative min-h-screen bg-black text-white">
       {hasCamera ? (
@@ -733,8 +760,8 @@ export default function BtwScanPage() {
         </div>
       )}
 
-      {/* Компас-стрічка замість Canvas-радара (§3.1.2 ТЗ, спрощення — див. AUDIT-btw.md) —
-          показує позиції кандидатів відносно поточного напрямку погляду. */}
+      {/* Компас-стрічка — та сама, що й раніше, лишена поруч із радаром нижче (той самий сенс,
+          друга візуалізація тих самих даних, § 3.1.2 ТЗ). */}
       <div className="absolute top-6 left-4 right-4 rounded-full bg-black/50 px-4 py-3">
         <div className="relative h-2 rounded-full bg-white/20">
           <div className="absolute left-1/2 top-1/2 h-4 w-1 -translate-x-1/2 -translate-y-1/2 rounded bg-white" />
@@ -762,6 +789,29 @@ export default function BtwScanPage() {
           {hasGyroRef.current && <span className="ml-2 text-blue-400">гироскоп активен</span>}
         </p>
       </div>
+
+      {/* За прямим запитом користувача ("радара из ТЗ с секторами и отметками") — кільце-радар
+          §3.1.2 ТЗ, у зменшеному обсязі (components/BtwRadar.tsx). Перемикач поруч із HUD —
+          той самий патерн, щоб можна було сховати панель і бачити відео без накладення. */}
+      <button
+        onClick={() => setShowRadar((v) => !v)}
+        className="absolute top-2 left-2 z-10 rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300"
+      >
+        {showRadar ? 'Радар ▲' : 'Радар ▼'}
+      </button>
+      {showRadar && (
+        <div className="absolute top-24 left-1/2 z-10 -translate-x-1/2 rounded-xl bg-black/40 p-2">
+          <BtwRadar heading={heading} candidates={radarCandidates} onSelect={handleRadarSelect} />
+          <p className="mt-1 text-center text-[10px] text-gray-400">
+            <span className="text-green-400">●</span> прямой{' '}
+            {showFallback && (
+              <>
+                · <span className="text-amber-400">●</span> резервный
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       <div className="absolute bottom-0 left-0 right-0 max-h-[45vh] overflow-y-auto rounded-t-2xl bg-black/70 p-4">
         {fallbackNotice && <p className="mb-2 text-center text-xs text-green-400">{fallbackNotice}</p>}
