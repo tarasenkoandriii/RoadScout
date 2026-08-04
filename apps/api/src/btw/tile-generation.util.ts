@@ -16,7 +16,16 @@ import { encodeBuildingsTile } from './tile-format';
 import type { DecodedBuilding, CamerasTile, CamerasTileEntry, StreetsTile, StreetsTileEntry } from './tile-format';
 import axios from 'axios';
 import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
+import { fetchOverpassConcurrent } from '../common/overpass-client.util';
 
+// РЕФАКТОРИНГ (за прямим запитом користувача — розбір випадку з AI-автокалібруванням камери,
+// що повернуло "Азимут: —"; § детальний розбір у common/overpass-client.util.ts): гонка по
+// кількох Overpass-дзеркалах + опційна VPN-група раніше була ПРОДубльована тут і в
+// azimuth-heuristic.service.ts (де взагалі не було дзеркал — лише голий fetch() до одного
+// ендпоінту). Спільна функція тепер у overpass-client.util.ts, використовується ОБОМА місцями —
+// нижче лишились лише локальні для генерації тайлів значення (таймаут/конкурентність), самі
+// HTTP-спроби більше не дублюються тут.
+//
 // RegistryProxyService — той самий проксі ("VPN проекту"), яким уже ходять fetchThumbImage()
 // (btw.service.ts) і fetchStreamImageProxy() (cameras.service.ts) в обхід гео-блокувань.
 // Інстанційовано ТУТ напряму (`new`, не Nest DI) — клас не має власних залежностей у
@@ -111,6 +120,43 @@ export async function fetchBlobJson(url: string): Promise<any> {
 export async function fetchBlobBuffer(url: string): Promise<Buffer> {
   const res = await axios.get(url, { responseType: 'arraybuffer' });
   return Buffer.from(res.data);
+}
+
+// ДОДАНО (за прямим запитом користувача — "мы создаем полный кеш overpass by city - предлагаю
+// использовать сначала его а уже потом фоллбеком переходить к сервису запросов"): читання
+// вже згенерованого streets.json міста, щоб AzimuthHeuristicService (scraper/azimuth-heuristic.
+// service.ts) міг перевірити ЙОГО ПЕРШИМ, перш ніж бити живий Overpass — той самий bbox+запас
+// 800м, що вже покриває всі камери міста (§ computeBboxFromCameras), тому для точки в межах
+// цього міста кеш дає ТУ САМУ відповідь, що дав би живий запит, але без мережевого виклику й
+// без ризику 406/504/timeout.
+//
+// Власний невеликий TTL-кеш у пам'яті (окремий від AzimuthHeuristicService.cache — інша форма
+// значення, весь StreetsTile, а не один AzimuthGuess) — інакше кожен виклик fetchGuess()/
+// getNearbyStreetAzimuths() (для BTW-сканування — раз на ~2с при активному скануванні, § вже
+// задокументовано в azimuth-heuristic.service.ts) бив би Vercel Blob (list()+GET) наново,
+// повертаючи ОДИН і той самий вміст streets.json, що не змінюється між регенераціями міста.
+const STREETS_TILE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 хв — достатньо, щоб не бити Blob на кожен виклик, і досить мало, щоб підхопити регенерацію того самого міста без рестарту процесу
+interface StreetsTileCacheEntry {
+  tile: StreetsTile | null; // null — навмисно кешується теж (немає завершеної генерації для цього міста), щоб не повторювати list() щоразу
+  expiresAt: number;
+}
+const streetsTileCache = new Map<string, StreetsTileCacheEntry>();
+
+export async function getCachedStreetsTile(citySlug: string): Promise<StreetsTile | null> {
+  const cached = streetsTileCache.get(citySlug);
+  if (cached && cached.expiresAt > Date.now()) return cached.tile;
+
+  let tile: StreetsTile | null = null;
+  try {
+    const pathname = `${getCityBlobPrefix(citySlug)}/streets.json`;
+    const found = (await listBlobsByPrefix(pathname))[0];
+    if (found) tile = await fetchBlobJson(found.url);
+  } catch {
+    tile = null; // не критично — викликач (AzimuthHeuristicService) сам падає на живий Overpass
+  }
+
+  streetsTileCache.set(citySlug, { tile, expiresAt: Date.now() + STREETS_TILE_CACHE_TTL_MS });
+  return tile;
 }
 
 const METERS_PER_DEG_LAT = 111320;
@@ -217,125 +263,25 @@ export function computeBboxFromCameras(cameras: { lat: number; lng: number }[], 
 // запустити CLI-скрипт локально, де такого обмеження немає.
 const OVERPASS_QUERY_TIMEOUT_S = 55;
 
-// За прямим запитом користувача ("свой User-Agent в запросах (хороший тон, который сейчас у
-// нас отсутствует)") — той самий принцип, що вже geocoding.service.ts застосовує для Nominatim
-// ("требует идентифицирующий User-Agent... без него запросы могут блокироваться без
-// предупреждения"). Overpass API офіційно рекомендує те саме (OSM Wiki/Fair Use policy —
-// описовий User-Agent із назвою застосунку й контактом, щоб адміністратори сервісу могли
-// зв'язатись замість мовчазного бану IP при проблемній поведінці клієнта). Формат — рядок, а
-// не браузерний User-Agent-спуфінг (той стиль, що вже 'RoadScoutBot/1.0' у scraper/providers/*
-// — там навмисно імітується браузер, щоб обійти анти-бот захист сайтів-агрегаторів; тут інша
-// мета — чесно ідентифікуватись публічному API, тому інший, "не-браузерний" формат, як і в
-// geocoding.service.ts).
-const OVERPASS_USER_AGENT = 'RoadScout-BTW-TileGenerator/1.0 (+https://roadscout.example/bot; tile generation for offline radar scanning)';
-
-// ВИПРАВЛЕНО (реальний, відтворюваний інцидент — скріншот користувача з /admin/btw-tiles:
-// генерація для New York двічі поспіль провалилась з `Overpass HTTP 406`, обидва рази менш
-// ніж за секунду — надто швидко для реального таймауту чи "живого" rate-limit черги). Пошук
-// (community.openstreetmap.org/t/overpass-api-error-406, cadshift.com/blog/qgis-overpass-406)
-// підтверджує: це НЕ пов'язано з відсутністю User-Agent (він уже є вище, попередній крок
-// цього самого запиту користувача) чи з нашим запитом — головний інстанс overpass-api.de
-// останнім часом застосовує "request-shape"-фільтри проти AI-скрейперів, що інколи блокують
-// і легітимних клієнтів так само. Список дзеркал — ті самі публічні інстанси, що вже досліджені
-// й названі користувачу в цій сесії раніше ("как настроить Overpass"). OVERPASS_ENDPOINTS
-// дозволяє адміну перевизначити список/порядок через env, не чіпаючи код (той самий принцип
-// конфігурованості, що вже в OVERPASS_QUERY_TIMEOUT_S/getContentCheckTimeBudgetMs() тощо по
-// проєкту).
-const DEFAULT_OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-];
-function getOverpassEndpoints(): string[] {
-  const fromEnv = process.env.OVERPASS_ENDPOINTS?.split(',').map((s) => s.trim()).filter(Boolean);
-  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_OVERPASS_ENDPOINTS;
-}
-
 // ПЕРЕРОБЛЕНО (за прямим запитом користувача — наступний скріншот після впровадження дзеркал
-// вище показав, що ПОСЛІДОВНИЙ перебір сам створює нову проблему: перший ендпоінт просто
-// ЗАВИС — не відповів швидкою 406, а мовчав аж до власного AbortSignal ("The operation was
-// aborted due to timeout", 1м46с), з'ївши майже весь тодішній бюджет 120с на ОДНУ спробу з
-// чотирьох). Дослівні вимоги користувача: "добавь тайм менеджмент = максимум 60 секунд",
-// "добавь кокурентность - 5 запросов одновременно", "вторую группу запросов параллельно через
-// впн проекта". Реалізовано так:
-//
-// 1) Часовий менеджмент — 60с. Оскільки ВСІ спроби нижче тепер ідуть ОДНОЧАСНО (не по черзі),
-//    один спільний таймаут на кожну спробу (OVERPASS_ATTEMPT_TIMEOUT_MS) автоматично і є
-//    фактичним лімітом часу на весь виклик — не сума по спробах, як у попередній послідовній
-//    версії, а їхній max (усі стартують разом).
-// 2) Конкурентність — до 5 запитів одночасно: по одному прямому запиту на кожне дзеркало
-//    (MAX_CONCURRENT_OVERPASS_REQUESTS обмежує зверху) + друга група нижче.
-// 3) Друга група — той самий головний ендпоінт, але через VPN проекту (RegistryProxyService,
-//    той самий проксі, що вже fetchThumbImage()/fetchStreamImageProxy() використовують для
-//    обходу гео-блокувань) — паралельно з прямими спробами, а не замість них: інша вихідна IP-
-//    адреса іноді обходить саме той "request-shape"-фільтр, що спричиняє 406 (VPN — інший
-//    патерн трафіку, не обов'язково інша причина блокування, тож про запас, а не замість).
-//
-// Перемагає та спроба, що відповість першою успішно (Promise.any) — решта просто ігноруються
-// (без явного скасування "запізнілих" запитів, вони самі згаснуть по AbortSignal). Якщо
-// провалились УСІ — кидається агрегована помилка з причиною кожної спроби (видно в історії
-// запусків адмінки, BtwTileGenerationRun.error).
+// показав, що ПОСЛІДОВНИЙ перебір сам створює нову проблему: перший ендпоінт просто ЗАВИС — не
+// відповів швидкою 406, а мовчав аж до власного AbortSignal ("The operation was aborted due to
+// timeout", 1м46с), з'ївши майже весь тодішній бюджет 120с на ОДНУ спробу з чотирьох). Дослівні
+// вимоги користувача: "добавь тайм менеджмент = максимум 60 секунд", "добавь кокурентность - 5
+// запросов одновременно", "вторую группу запросов параллельно через впн проекта" — сама логіка
+// гонки (дзеркала + VPN-група) тепер у спільному common/overpass-client.util.ts::
+// fetchOverpassConcurrent() (§ детальний коментар там і причина винесення). Тут лишаються лише
+// ЛОКАЛЬНІ для генерації тайлів значення часового бюджету/конкурентності — сам виклик передає їх
+// у спільну функцію.
 const OVERPASS_ATTEMPT_TIMEOUT_MS = 60_000;
 const MAX_CONCURRENT_OVERPASS_REQUESTS = 5;
 
-interface OverpassAttempt {
-  label: string;
-  run: () => Promise<any>;
-}
-
-function buildOverpassAttempts(query: string): OverpassAttempt[] {
-  const endpoints = getOverpassEndpoints().slice(0, MAX_CONCURRENT_OVERPASS_REQUESTS);
-  const attempts: OverpassAttempt[] = endpoints.map((endpoint) => ({
-    label: endpoint,
-    run: () =>
-      axios
-        .post(endpoint, query, {
-          headers: { 'User-Agent': OVERPASS_USER_AGENT, 'Content-Type': 'text/plain' },
-          timeout: OVERPASS_ATTEMPT_TIMEOUT_MS,
-          validateStatus: (s) => s >= 200 && s < 300,
-        })
-        .then((res) => res.data),
-  }));
-
-  // Друга група (п.3 вище) — лише якщо VPN реально налаштований і лишилось місце в лімiтi
-  // конкурентності; інакше registryProxy.request() сам виродився б у ще один прямий запит до
-  // того самого ендпоінту — жодної додаткової користі, лише зайвий дубль.
-  if (attempts.length < MAX_CONCURRENT_OVERPASS_REQUESTS && endpoints.length > 0 && registryProxy.isConfigured()) {
-    const viaVpnEndpoint = endpoints[0];
-    attempts.push({
-      label: `${viaVpnEndpoint} (через VPN проекту)`,
-      run: () =>
-        registryProxy
-          .request((axiosConfig) =>
-            axios.post(viaVpnEndpoint, query, {
-              ...axiosConfig,
-              headers: { 'User-Agent': OVERPASS_USER_AGENT, 'Content-Type': 'text/plain' },
-              timeout: OVERPASS_ATTEMPT_TIMEOUT_MS,
-              validateStatus: (s) => s >= 200 && s < 300,
-            }),
-          )
-          .then((result) => result.data.data),
-    });
-  }
-
-  return attempts;
-}
-
-async function fetchOverpass(query: string): Promise<any> {
-  const attempts = buildOverpassAttempts(query);
-  if (attempts.length === 0) {
-    throw new Error('Overpass: нет доступных эндпоинтов (OVERPASS_ENDPOINTS пуст)');
-  }
-
-  try {
-    return await Promise.any(attempts.map((a) => a.run()));
-  } catch (err) {
-    // AggregateError, коли ВСІ спроби відхилені — err.errors у тому самому порядку, що attempts.
-    const reasons = err instanceof AggregateError ? err.errors : [err];
-    const details = reasons.map((e: any, i: number) => `${attempts[i]?.label ?? '?'}: ${e?.response?.status ? `HTTP ${e.response.status}` : e?.message ?? e}`).join('; ');
-    throw new Error(`Overpass: все ${attempts.length} параллельных попытки провалились — ${details}`);
-  }
+function fetchOverpass(query: string): Promise<any> {
+  return fetchOverpassConcurrent(query, {
+    timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS,
+    maxConcurrent: MAX_CONCURRENT_OVERPASS_REQUESTS,
+    registryProxy,
+  });
 }
 
 // ВИПРАВЛЕНО (за прямим запитом користувача — "разбей bbox на сетку", після того як живий тест

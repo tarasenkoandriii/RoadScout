@@ -117,6 +117,17 @@ export interface AzimuthFovSuggestion {
   suggestedRangeMeters: number | null;
   confidence: number; // 0..1, спільна для всіх трьох значень
   reasoning: string | null;
+  // ДОДАНО (за прямим запитом користувача — розбір випадку "Азимут: —" і "по возможности
+  // определи азимут кодом для таких случаев"): ДЕТЕРМІНОВАНІ (не-AI) кандидати азимута з
+  // AzimuthHeuristicService — обидва напрямки вздовж найближчої дороги за даними OpenStreetMap
+  // (той самий roadAzimuth, що йде в промпт AI як підказка, § buildAzimuthFovPrompt вище, плюс
+  // протилежний напрямок +180°). Заповнюється НЕЗАЛЕЖНО від того, чи вдалося AI визначити
+  // азимут — навіть якщо suggestedAzimuth: null (як у випадку зі скріншота користувача), тут
+  // може бути 1-2 кандидати, і адмін може застосувати один з них вручну одним кліком. null,
+  // якщо поблизу взагалі не знайдено дороги (Overpass не повернув нічого в радіусі 60м) АБО
+  // сам heuristic-запит провалився мережево (source==='fallback') — в обох випадках чесно
+  // немає жодного орієнтиру по карті, а не вигаданий 0°.
+  roadAzimuthCandidates: number[] | null;
 }
 
 // У5 ТЗ (§5, doc/BTW-tz.md, doc/AUDIT-btw.md) — результат порівняння кадру телефону з кадром
@@ -376,8 +387,38 @@ export class GrokCameraAssistService {
     // За прямим запитом користувача — результат ПОПЕРЕДНЬОЇ спроби AI-калібрування цієї самої
     // камери (якщо була), щоб AI міг будувати на власному попередньому аналізі.
     previousAttempt?: { suggestedAzimuth: number | null; suggestedFovAngle: number | null; suggestedRangeMeters: number | null; confidence: number; reasoning: string | null } | null,
+    // ДОДАНО (за прямим запитом користувача — "мы создаем полный кеш overpass by city -
+    // предлагаю использовать сначала его а уже потом фоллбеком переходить к сервису запросов"):
+    // `Camera.city.slug`, якщо камера прив'язана до міста (nullable — див. schema.prisma) —
+    // дозволяє guessForPoint() нижче спершу перевірити ВЖЕ згенерований BTW-тайл цього міста
+    // (streets.json), перш ніж бити живий Overpass. `undefined`/`null` — поведінка НЕ
+    // змінюється, як і до цієї зміни.
+    citySlug?: string | null,
   ): Promise<AzimuthFovSuggestion> {
     const imageUrl = resolveImageUrl(streamType, streamUrl);
+
+    // ПРОРИВНЕ ПОКРАЩЕННЯ (за прямим запитом користувача) — реальний напрямок дороги з карти
+    // як орієнтир для AI (див. коментар до buildAzimuthFovPrompt() вище). Той самий
+    // AzimuthHeuristicService, що вже кешує запити по сітці координат — повторний виклик тут
+    // майже завжди потрапляє в кеш, не робить зайвого мережевого запиту.
+    //
+    // ПЕРЕНЕСЕНО НАГОРУ, ПЕРЕД imageUrl/apiKey-перевірками (за прямим запитом користувача —
+    // "по возможности определи азимут кодом для таких случаев"): раніше цей виклик стояв
+    // ПІСЛЯ обох ранніх `return` (кадр недоступний / AI не налаштований) — тобто
+    // roadAzimuthCandidates узагалі НЕ обчислювався в цих випадках, хоча детермінований
+    // орієнтир по карті не залежить від наявності кадру чи AI. Тепер обчислюється завжди,
+    // одразу за lat/lng — і потрапляє у ВСІ шляхи повернення нижче, включно з обома ранніми.
+    let roadAzimuth: number | null = null;
+    try {
+      const heuristic = await this.azimuthHeuristic.guessForPoint(lat, lng, citySlug);
+      // 'cached' (§ AzimuthSource, azimuth-heuristic.service.ts) — результат з ВЖЕ
+      // згенерованого тайлу міста, той самий рівень довіри, що й живий 'heuristic', просто без
+      // мережевого запиту — тому теж приймається тут як реальний орієнтир, не лише 'heuristic'.
+      if (heuristic.source === 'heuristic' || heuristic.source === 'cached') roadAzimuth = heuristic.azimuth;
+    } catch {
+      // Не критично — просто не даємо AI (і адміну) цей орієнтир, якщо Overpass недоступний
+    }
+    const roadAzimuthCandidates: number[] | null = roadAzimuth != null ? [roadAzimuth, (roadAzimuth + 180) % 360] : null;
 
     if (!imageUrl) {
       return {
@@ -393,6 +434,7 @@ export class GrokCameraAssistService {
         suggestedRangeMeters: null,
         confidence: 0,
         reasoning: null,
+        roadAzimuthCandidates,
       };
     }
 
@@ -408,19 +450,8 @@ export class GrokCameraAssistService {
         suggestedRangeMeters: null,
         confidence: 0,
         reasoning: null,
+        roadAzimuthCandidates,
       };
-    }
-
-    // ПРОРИВНЕ ПОКРАЩЕННЯ (за прямим запитом користувача) — реальний напрямок дороги з карти
-    // як орієнтир для AI (див. коментар до buildAzimuthFovPrompt() вище). Той самий
-    // AzimuthHeuristicService, що вже кешує запити по сітці координат — повторний виклик тут
-    // майже завжди потрапляє в кеш, не робить зайвого мережевого запиту.
-    let roadAzimuth: number | null = null;
-    try {
-      const heuristic = await this.azimuthHeuristic.guessForPoint(lat, lng);
-      if (heuristic.source === 'heuristic') roadAzimuth = heuristic.azimuth;
-    } catch {
-      // Не критично — просто не даємо AI цей орієнтир, якщо Overpass недоступний
     }
 
     try {
@@ -447,7 +478,7 @@ export class GrokCameraAssistService {
 
       const text: string = res.data?.choices?.[0]?.message?.content ?? '';
       const parsed = this.parseAzimuthFovJson(text);
-      return { configured: true, imageAvailable: true, imageUrl, unavailableReason: null, ...parsed };
+      return { configured: true, imageAvailable: true, imageUrl, unavailableReason: null, ...parsed, roadAzimuthCandidates };
     } catch (err) {
       this.logger.warn(`Grok azimuth/FOV vision call failed: ${(err as Error).message}`);
       return {
@@ -460,6 +491,7 @@ export class GrokCameraAssistService {
         suggestedRangeMeters: null,
         confidence: 0,
         reasoning: null,
+        roadAzimuthCandidates,
       };
     }
   }
@@ -980,7 +1012,21 @@ export class GrokCameraAssistService {
   // Тепер повертається явна причина (`reason`) замість голого null, щоб і сервер, і
   // адміністратор бачили ТОЧНО, що саме пішло не так.
   async submitAzimuthFovBatch(
-    cameras: { id: string; name: string; streamUrl: string; streamType: string; lat: number; lng: number; azimuth: number; fovAngle: number; rangeMeters: number; lastAiCalibrationSuggestion?: any }[],
+    // citySlug ДОДАНО (§ той самий коментар, що біля suggestAzimuthFov() вище) — опційне, щоб
+    // не ламати виклики, де citySlug ще не прокинуто.
+    cameras: {
+      id: string;
+      name: string;
+      streamUrl: string;
+      streamType: string;
+      lat: number;
+      lng: number;
+      azimuth: number;
+      fovAngle: number;
+      rangeMeters: number;
+      lastAiCalibrationSuggestion?: any;
+      citySlug?: string | null;
+    }[],
   ): Promise<{ xaiBatchId: string; requestMap: Record<string, { cameraId: string }> } | { error: string }> {
     const apiKey = getApiKey();
     if (!apiKey) return { error: 'Не настроен XAI_API_KEY (или GROK_API_KEY) — переменная окружения пуста.' };
@@ -1025,8 +1071,10 @@ export class GrokCameraAssistService {
           // самий принцип, що вже застосований для самого батчу калібрування.
           let roadAzimuth: number | null = null;
           try {
-            const heuristic = await this.azimuthHeuristic.guessForPoint(camera.lat, camera.lng);
-            if (heuristic.source === 'heuristic') roadAzimuth = heuristic.azimuth;
+            const heuristic = await this.azimuthHeuristic.guessForPoint(camera.lat, camera.lng, camera.citySlug);
+            // 'cached' — той самий рівень довіри, що й 'heuristic', § коментар у
+            // suggestAzimuthFov() вище.
+            if (heuristic.source === 'heuristic' || heuristic.source === 'cached') roadAzimuth = heuristic.azimuth;
           } catch {
             // Не критично — просто не даємо AI цей орієнтир, якщо Overpass недоступний
           }

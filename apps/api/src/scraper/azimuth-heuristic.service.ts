@@ -1,7 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { fetchOverpassConcurrent } from '../common/overpass-client.util';
+import { RegistryProxyService } from './proxy/registry-proxy.service';
+import { getCachedStreetsTile } from '../btw/tile-generation.util';
+import type { StreetsTile, StreetsTileEntry } from '../btw/tile-format';
 
 export type RangeHint = 'bridge' | 'avenue' | 'street' | 'yard';
-export type AzimuthSource = 'heuristic' | 'fallback';
+// 'cached' ДОДАНО (за прямим запитом користувача — "мы создаем полный кеш overpass by city -
+// предлагаю использовать сначала его а уже потом фоллбеком переходить к сервису запросов", §
+// детальний коментар біля tryCachedStreetEntry() нижче): результат узятий з УЖЕ ЗГЕНЕРОВАНОГО
+// BTW-тайлу міста (streets.json у Vercel Blob, tile-generation.util.ts), без жодного живого
+// Overpass-запиту. Семантично це так само надійний, "не вигаданий" результат, як 'heuristic' —
+// відрізняється лише ПОХОДЖЕННЯ (кеш vs живий запит), не якість/довіра. Викликачі, що досі
+// перевіряли лише `=== 'heuristic'` (щоб відрізнити реальний результат від фолбека), ОНОВЛЕНО
+// приймати й 'cached' — див. grok-camera-assist.service.ts.
+export type AzimuthSource = 'heuristic' | 'cached' | 'fallback';
 
 export interface AzimuthGuess {
   azimuth: number;
@@ -41,14 +53,38 @@ export class AzimuthHeuristicService {
   // бо CacheEntry типізований конкретно під AzimuthGuess, інша форма значення тут (number[]).
   private readonly streetAzimuthCache = new Map<string, { azimuths: number[]; expiresAt: number }>();
 
-  async guessForPoint(lat: number, lng: number): Promise<AzimuthGuess> {
+  // ВИПРАВЛЕНО (за прямим запитом користувача — розбір живого випадку, коли AI-автокалібрування
+  // камери повернуло "Азимут: —" при успішно оціненому FOV/дальності: "разбери этот случай и
+  // почему мы не можем определить азимут... по возможности определи азимут кодом для таких
+  // случаев"): цей сервіс роками ходив у Overpass ГОЛИМ `fetch()` до ОДНОГО ендпоінту
+  // (overpass-api.de), без дзеркал/User-Agent/конкурентної гонки — той самий "request-shape"-
+  // фільтр (HTTP 406), що вже задокументовано й виправлено для генерації тайлів
+  // (tile-generation.util.ts), тут ніколи не виправлявся, бо це НЕЗАЛЕЖНИЙ код-шлях. Саме це,
+  // швидше за все, і спричинило конкретний випадок зі скріншота: `guessForPoint()` (викликається
+  // з grok-camera-assist.service.ts::suggestAzimuthFov() для підказки AI "дорога йде вздовж
+  // X°/Y°") отримав `source:'fallback'` (мовчазний відмов Overpass), тому AI не отримав жодного
+  // орієнтиру по дорозі й, не знайшовши NB/SB/EB/WB у назві камери, чесно повернув azimuth:null.
+  // Тепер усі три Overpass-виклики нижче (fetchGuess/fetchGuessesBatch/getNearbyStreetAzimuths)
+  // ідуть через СПІЛЬНУ fetchOverpassConcurrent() (common/overpass-client.util.ts) — ту саму
+  // гонку по дзеркалах + опційний VPN-проксі, що вже надійно працює для генерації тайлів.
+  // RegistryProxyService — той самий проксі, яким уже ходять fetchThumbImage()/
+  // fetchStreamImageProxy() — інжектується через DI (зареєстровано в CommonModule як окремий
+  // провайдер, той самий принцип, що вже ScraperModule/BtwModule/CamerasModule застосовують).
+  constructor(private readonly registryProxy: RegistryProxyService) {}
+
+  // `citySlug` — ДОДАНО опційним (за прямим запитом користувача, § коментар біля
+  // tryCachedStreetEntry() нижче): якщо передано і для цього міста вже є ПОВНІСТЮ згенерований
+  // BTW-тайл (streets.json), спершу перевіряється ВІН — і, якщо в ньому знайдено дорогу поблизу,
+  // жодного живого Overpass-запиту взагалі не робиться. `undefined`/`null` (як у всіх викликах
+  // до цієї зміни) — поведінка НЕ змінюється, одразу живий запит, як і раніше.
+  async guessForPoint(lat: number, lng: number, citySlug?: string | null): Promise<AzimuthGuess> {
     const key = this.gridKey(lat, lng);
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.guess;
     }
 
-    const guess = await this.fetchGuess(lat, lng);
+    const guess = await this.fetchGuess(lat, lng, citySlug);
     this.cache.set(key, { guess, expiresAt: Date.now() + getCacheTtlMs() });
     return guess;
   }
@@ -67,7 +103,11 @@ export class AzimuthHeuristicService {
   // 60м (той самий радіус, що й раніше в одноточковому запиті) — так само надійно, як і
   // попередня логіка "elements[0]" (яка теж неявно покладалась на радіус запиту), але тепер
   // явно перевіряється відстань, а не просто перший елемент масиву.
-  async guessForPoints(points: { lat: number; lng: number }[]): Promise<AzimuthGuess[]> {
+  // `citySlug` — ОДИН на весь пакет точок (не по одному на точку) — свідоме спрощення: усі наявні
+  // виклики цього методу (див. ScraperService — прогрів кешу під час імпорту одного провайдера)
+  // і так стосуються точок з ОДНОГО міста (один імпорт = один CameraProvider = одне City), тому
+  // per-point citySlug додав би складність без реальної користі для наявних викликачів.
+  async guessForPoints(points: { lat: number; lng: number }[], citySlug?: string | null): Promise<AzimuthGuess[]> {
     if (points.length === 0) return [];
 
     const results: (AzimuthGuess | null)[] = points.map((p) => {
@@ -79,7 +119,7 @@ export class AzimuthHeuristicService {
     if (uncachedIndices.length === 0) return results as AzimuthGuess[];
 
     const uncachedPoints = uncachedIndices.map((i) => points[i]);
-    const fetched = await this.fetchGuessesBatch(uncachedPoints);
+    const fetched = await this.fetchGuessesBatch(uncachedPoints, citySlug);
 
     uncachedIndices.forEach((originalIndex, batchIndex) => {
       const guess = fetched[batchIndex];
@@ -90,7 +130,7 @@ export class AzimuthHeuristicService {
     return results as AzimuthGuess[];
   }
 
-  private async fetchGuessesBatch(points: { lat: number; lng: number }[]): Promise<AzimuthGuess[]> {
+  private async fetchGuessesBatch(points: { lat: number; lng: number }[], citySlug?: string | null): Promise<AzimuthGuess[]> {
     const MAX_BATCH = getOverpassBatchSize();
     // Захисний рекурсивний розподіл, якщо викликач передав більше точок, ніж дозволяє
     // максимальний розмір одного запиту (не мало б траплятись, якщо виклик уже сам ділить на
@@ -98,41 +138,57 @@ export class AzimuthHeuristicService {
     if (points.length > MAX_BATCH) {
       const combined: AzimuthGuess[] = [];
       for (let i = 0; i < points.length; i += MAX_BATCH) {
-        combined.push(...(await this.fetchGuessesBatch(points.slice(i, i + MAX_BATCH))));
+        combined.push(...(await this.fetchGuessesBatch(points.slice(i, i + MAX_BATCH), citySlug)));
       }
       return combined;
     }
 
+    // ДОДАНО (§ коментар біля tryCachedStreetEntry() нижче) — спершу пробуємо тайл-кеш міста
+    // ДЛЯ КОЖНОЇ точки окремо; лише точки, яких кеш НЕ покрив (немає тайлу для міста ВЗАГАЛІ,
+    // або є тайл, але жодної дороги в радіусі 60м від конкретної точки), ідуть у живий пакетний
+    // Overpass-запит нижче — змішування джерел у межах одного виклику тут навмисне (на відміну
+    // від getNearbyStreetAzimuths(), де порожній результат з кешу — це вже остаточна відповідь,
+    // тут "порожньо для ЦІЄЇ точки" не означає "порожньо для всіх" — інші точки пакета цілком
+    // можуть бути в зовсім інших місцях того самого міста).
+    const results: (AzimuthGuess | null)[] = new Array(points.length).fill(null);
+    if (citySlug) {
+      const tile = await getCachedStreetsTile(citySlug).catch(() => null);
+      if (tile) {
+        points.forEach((p, i) => {
+          const entry = this.findNearestCachedStreetEntry(tile, p.lat, p.lng, 60);
+          if (entry) results[i] = this.cachedEntryToGuess(entry);
+        });
+      }
+    }
+    const missingIndices = results.reduce<number[]>((acc, r, i) => (r === null ? [...acc, i] : acc), []);
+    if (missingIndices.length === 0) return results as AzimuthGuess[];
+
+    const missingPoints = missingIndices.map((i) => points[i]);
     try {
-      const queryParts = points.map((p) => `way(around:60,${p.lat},${p.lng})["highway"];`).join('\n        ');
+      const queryParts = missingPoints.map((p) => `way(around:60,${p.lat},${p.lng})["highway"];`).join('\n        ');
       const query = `
         [out:json][timeout:25];
         (${queryParts});
         out geom;
       `;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), getFetchTimeoutMs());
-
-      let res: Response;
-      try {
-        res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      const data = await res.json();
+      const data = await fetchOverpassConcurrent(query, {
+        timeoutMs: getFetchTimeoutMs(),
+        registryProxy: this.registryProxy,
+      });
       const ways: any[] = data.elements ?? [];
 
-      return points.map((p) => this.pickNearestWay(p, ways));
+      missingIndices.forEach((originalIndex, i) => {
+        results[originalIndex] = this.pickNearestWay(missingPoints[i], ways);
+      });
     } catch (err) {
-      this.logger.warn(`Batched azimuth heuristic failed for ${points.length} points: ${(err as Error).message}`);
-      return points.map(() => ({ azimuth: 0, rangeHint: 'yard' as RangeHint, source: 'fallback' as AzimuthSource }));
+      this.logger.warn(`Batched azimuth heuristic failed for ${missingPoints.length} points: ${(err as Error).message}`);
+      missingIndices.forEach((originalIndex) => {
+        results[originalIndex] = { azimuth: 0, rangeHint: 'yard' as RangeHint, source: 'fallback' as AzimuthSource };
+      });
     }
+
+    return results as AzimuthGuess[];
   }
 
   // 60м — той самий радіус, що вже був у одноточковому Overpass-запиті (`around:60`) — тут
@@ -172,7 +228,22 @@ export class AzimuthHeuristicService {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  private async fetchGuess(lat: number, lng: number): Promise<AzimuthGuess> {
+  private async fetchGuess(lat: number, lng: number, citySlug?: string | null): Promise<AzimuthGuess> {
+    // ДОДАНО (за прямим запитом користувача — "мы создаем полный кеш overpass by city -
+    // предлагаю использовать сначала его а уже потом фоллбеком переходить к сервису запросов"):
+    // якщо для цього міста ВЖЕ є повністю згенерований BTW-тайл (streets.json у Vercel Blob,
+    // § tile-generation.util.ts::getCachedStreetsTile()), перевіряємо його ПЕРШИМ — жодного
+    // живого Overpass-запиту, якщо в тайлі знайшлась дорога поблизу. Тайл будується РАЗ на
+    // місто (адмінська вкладка "BTW: тайлы радара") і покриває bbox УСІХ камер міста + запас
+    // 800м — тому для точки, що належить тому самому місту, це не "гірша" відповідь за живий
+    // запит, а ТА САМА відповідь без мережевого виклику й без ризику 406/504/timeout.
+    if (citySlug) {
+      const cachedGuess = await this.tryCachedStreetEntry(lat, lng, citySlug, 60);
+      if (cachedGuess) return cachedGuess;
+      // Немає тайлу для міста, або є тайл, але поруч немає дороги — падаємо на живий Overpass
+      // нижче, як і раніше (та сама поведінка, що й до цієї зміни, коли citySlug не передано).
+    }
+
     try {
       const query = `
         [out:json][timeout:10];
@@ -180,21 +251,10 @@ export class AzimuthHeuristicService {
         out geom;
       `;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), getFetchTimeoutMs());
-
-      let res: Response;
-      try {
-        res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      const data = await res.json();
+      const data = await fetchOverpassConcurrent(query, {
+        timeoutMs: getFetchTimeoutMs(),
+        registryProxy: this.registryProxy,
+      });
       const way = data.elements?.[0];
 
       if (!way?.geometry || way.geometry.length < 2) {
@@ -210,6 +270,42 @@ export class AzimuthHeuristicService {
       this.logger.warn(`Azimuth heuristic failed for (${lat}, ${lng}): ${(err as Error).message}`);
       return { azimuth: 0, rangeHint: 'yard', source: 'fallback' };
     }
+  }
+
+  // === Тайл-кеш (BTW streets.json) — спільна логіка для fetchGuess()/fetchGuessesBatch() вище
+  // й getNearbyStreetAzimuths() нижче. ===
+
+  private async tryCachedStreetEntry(lat: number, lng: number, citySlug: string, radiusM: number): Promise<AzimuthGuess | null> {
+    try {
+      const tile = await getCachedStreetsTile(citySlug);
+      if (!tile) return null;
+      const entry = this.findNearestCachedStreetEntry(tile, lat, lng, radiusM);
+      return entry ? this.cachedEntryToGuess(entry) : null;
+    } catch {
+      return null; // будь-яка проблема з читанням кешу — тихий фолбек на живий Overpass, не критична помилка
+    }
+  }
+
+  private findNearestCachedStreetEntry(tile: StreetsTile, lat: number, lng: number, radiusM: number): StreetsTileEntry | null {
+    let best: { entry: StreetsTileEntry; dist: number } | null = null;
+    for (const entry of tile.streets) {
+      const dist = this.haversine(lat, lng, entry.lat, entry.lng);
+      if (dist <= radiusM && (!best || dist < best.dist)) {
+        best = { entry, dist };
+      }
+    }
+    return best?.entry ?? null;
+  }
+
+  // ЧЕСНО: streets.json (StreetsTileEntry, tile-format.ts) несе лише {lat, lng, axisAzimuths} —
+  // НЕ несе оригінальні OSM-теги (highway/bridge), тому rangeHint ТУТ не може бути справжньою
+  // класифікацією (avenue/street/bridge), як у живому шляху (classifyHighway()) — свідомий
+  // дефолт 'street' (медіанна оцінка, не крайні "avenue"/"yard"), а не вигадана точна категорія.
+  // axisAzimuths[0] — перший з уже задедуплікованих (± 10°) напрямків уздовж дороги; той самий
+  // рівень довільності, що й живий шлях (bearing p1->p2 теж не "справжній" бік, звідки дивиться
+  // камера — обидва шляхи дають лише ОДИН орієнтир з двох можливих, а не остаточну відповідь).
+  private cachedEntryToGuess(entry: StreetsTileEntry): AzimuthGuess {
+    return { azimuth: entry.axisAzimuths[0] ?? 0, rangeHint: 'street', source: 'cached' };
   }
 
   // Округление до сетки ~100м (0.001° по широте ≈ 111м на экваторе, для наших широт (Україна,
@@ -247,11 +343,34 @@ export class AzimuthHeuristicService {
   // (людина може дивитись в будь-яку сторону вздовж вулиці, не лише в бік, звідки рахувався
   // bearing) — "получаем 2–4 «разрешённых» направления" з ТЗ відповідає, наприклад,
   // перехрестю двох вулиць: 0°/180° + 90°/270°.
-  async getNearbyStreetAzimuths(lat: number, lng: number, radiusM = 30): Promise<number[]> {
+  async getNearbyStreetAzimuths(lat: number, lng: number, radiusM = 30, citySlug?: string | null): Promise<number[]> {
     const key = this.gridKey(lat, lng);
     const cached = this.streetAzimuthCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.azimuths;
+    }
+
+    // ДОДАНО (§ детальний коментар біля fetchGuess()/tryCachedStreetEntry() вище — той самий
+    // принцип "кеш тайлу спершу, живий Overpass лише фолбеком"): на відміну від fetchGuess()
+    // (де "немає дороги В ЦІЙ ТОЧЦІ" по кешу — недостатня підстава ігнорувати живий запит,
+    // бо радіус лише 60м), тут ПОРОЖНІЙ результат з кешу ТЕЖ довіряємо як остаточному —
+    // тайл покриває bbox УСІХ камер міста (§ computeBboxFromCameras, marginM=800), а ця точка,
+    // якщо citySlug дійсно належить камері цього міста, гарантовано в межах того bbox (bbox
+    // побудований САМЕ з координат камер міста). ЧЕСНО: єдиний реалістичний спосіб, яким це
+    // могло б бути невірним — нова камера додана до міста ПІСЛЯ останньої генерації тайлів
+    // (тоді кешований bbox міг не покривати її точку) — прийнятний, задокументований компроміс,
+    // не критичний (наступна регенерація тайлів міста це виправить).
+    if (citySlug) {
+      try {
+        const tile = await getCachedStreetsTile(citySlug);
+        if (tile) {
+          const azimuths = this.findCachedStreetAzimuthsWithinRadius(tile, lat, lng, radiusM);
+          this.streetAzimuthCache.set(key, { azimuths, expiresAt: Date.now() + getCacheTtlMs() });
+          return azimuths;
+        }
+      } catch {
+        // Немає тайлу/проблема з читанням кешу — падаємо на живий Overpass нижче, як і раніше.
+      }
     }
 
     try {
@@ -261,21 +380,10 @@ export class AzimuthHeuristicService {
         out geom;
       `;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), getFetchTimeoutMs());
-
-      let res: Response;
-      try {
-        res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      const data = await res.json();
+      const data = await fetchOverpassConcurrent(query, {
+        timeoutMs: getFetchTimeoutMs(),
+        registryProxy: this.registryProxy,
+      });
       const azimuths = this.extractStreetAzimuthCandidates(data.elements ?? []);
       this.streetAzimuthCache.set(key, { azimuths, expiresAt: Date.now() + getCacheTtlMs() });
       return azimuths;
@@ -308,6 +416,27 @@ export class AzimuthHeuristicService {
     }
 
     return [...candidates];
+  }
+
+  // Та сама ідея, що extractStreetAzimuthCandidates() вище (дедуплікація в межах 10°), але
+  // джерело — ВЖЕ готові `axisAzimuths` кількох близьких StreetsTileEntry з тайл-кешу міста
+  // (кожен запис тайлу вже сам по собі задедуплікований у межах ОДНОГО way, § tile-generation.
+  // util.ts — тут дедуплікація повторюється, бо кілька РІЗНИХ way поблизу можуть дати близькі,
+  // але не тотожні напрямки, наприклад дві майже паралельні сусідні вулиці).
+  private findCachedStreetAzimuthsWithinRadius(tile: StreetsTile, lat: number, lng: number, radiusM: number): number[] {
+    const DEDUP_TOLERANCE_DEG = 10;
+    const candidates: number[] = [];
+    for (const entry of tile.streets) {
+      if (this.haversine(lat, lng, entry.lat, entry.lng) > radiusM) continue;
+      for (const candidate of entry.axisAzimuths) {
+        const isDuplicate = candidates.some((existing) => {
+          const diff = Math.abs(existing - candidate) % 360;
+          return Math.min(diff, 360 - diff) < DEDUP_TOLERANCE_DEG;
+        });
+        if (!isDuplicate) candidates.push(candidate);
+      }
+    }
+    return candidates;
   }
 }
 

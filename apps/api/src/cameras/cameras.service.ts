@@ -120,7 +120,14 @@ export class CamerasService {
   // підказки/перевірка доступності) має працювати навіть для вже видаленої камери (наприклад,
   // для майбутньої функції "відновити"), на відміну від списків/пошуку нижче.
   async findOne(id: string) {
-    const camera = await this.prisma.camera.findUnique({ where: { id }, include: { provider: true } });
+    // include: { city: true } ДОДАНО (за прямим запитом користувача — "мы создаем полный кеш
+    // overpass by city - предлагаю использовать сначала его а уже потом фоллбеком..."):
+    // suggestAzimuthFovForCamera() нижче потребує camera.city?.slug, щоб передати його в
+    // AzimuthHeuristicService і спершу перевірити тайл-кеш міста. Просте розширення
+    // повертаного об'єкта (city.slug — nullable поле City, camera.cityId теж nullable) — не
+    // ламає жодного з наявних викликачів findOne() (вони просто отримують один додатковий
+    // необов'язковий ключ, який ігнорують).
+    const camera = await this.prisma.camera.findUnique({ where: { id }, include: { provider: true, city: true } });
     if (!camera) throw new NotFoundException(`Camera ${id} not found`);
     return camera;
   }
@@ -517,6 +524,9 @@ export class CamerasService {
       camera.lng,
       { azimuth: camera.azimuth, fovAngle: camera.fovAngle, rangeMeters: camera.rangeMeters },
       previousAttempt ?? null,
+      // За прямим запитом користувача — "используй его сначала а уже потом фоллбеком..." —
+      // camera.city (§ include у findOne() вище) може бути null (nullable-зв'язок), звідси ?? null.
+      camera.city?.slug ?? null,
     );
 
     // За прямим запитом користувача — зберігаємо ПОВНИЙ результат (включно з reasoning) для
@@ -722,10 +732,14 @@ export class CamerasService {
   async submitCalibrationBatch() {
     const BATCH_SIZE = 50;
 
+    // include: { city: true } ДОДАНО (§ той самий коментар, що вже в findOne() вище) — щоб
+    // передати camera.city?.slug у submitAzimuthFovBatch() і скористатись тайл-кешем міста
+    // замість живого Overpass, де він уже є.
     const neverTried = await this.prisma.camera.findMany({
       where: { confidence: 'ESTIMATED', deletedAt: null, lastAutoCalibrationAttemptAt: null },
       orderBy: { createdAt: 'asc' },
       take: BATCH_SIZE,
+      include: { city: true },
     });
     const cameras =
       neverTried.length >= BATCH_SIZE
@@ -740,6 +754,7 @@ export class CamerasService {
               // тайбрейк для камер з однаковою кількістю спроб.
               orderBy: [{ autoCalibrationAttemptCount: 'asc' }, { lastAutoCalibrationAttemptAt: 'asc' }],
               take: BATCH_SIZE - neverTried.length,
+              include: { city: true },
             })),
           ];
 
@@ -747,7 +762,9 @@ export class CamerasService {
       return { submitted: false, reason: 'Нет камер со статусом ESTIMATED для калибровки.' };
     }
 
-    const submission = await this.grokAssist.submitAzimuthFovBatch(cameras);
+    const submission = await this.grokAssist.submitAzimuthFovBatch(
+      cameras.map((c) => ({ ...c, citySlug: c.city?.slug ?? null })),
+    );
     if ('error' in submission) {
       return { submitted: false, reason: submission.error };
     }

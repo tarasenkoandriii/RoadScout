@@ -250,7 +250,12 @@ export class ScraperService {
         const OVERPASS_BATCH_SIZE = 20;
         for (let i = 0; i < pointsToWarm.length; i += OVERPASS_BATCH_SIZE) {
           try {
-            await this.azimuthHeuristic.guessForPoints(pointsToWarm.slice(i, i + OVERPASS_BATCH_SIZE));
+            // provider.city?.slug ДОДАНО (за прямим запитом користувача — "используй кеш overpass
+            // by city сначала, а уже потом фоллбеком..."): дозволяє guessForPoints() спершу
+            // перевірити ВЖЕ згенерований BTW-тайл цього міста (streets.json), перш ніж бити
+            // живий Overpass — весь цей провайдер прив'язаний до ОДНОГО міста (§ resolveAdapter()
+            // вище й так вимагає provider.city для більшості адаптерів).
+            await this.azimuthHeuristic.guessForPoints(pointsToWarm.slice(i, i + OVERPASS_BATCH_SIZE), provider.city?.slug ?? null);
           } catch (err) {
             // Прогрів кешу — суто оптимізація; якщо групований запит не вдався (мережа,
             // Overpass недоступний тощо), просто не прогріваємо — processItem() однаково
@@ -287,7 +292,7 @@ export class ScraperService {
                 return;
               }
 
-              await this.processItem(run.id, provider.id, provider.cityId, cityHint, resolvedItem, stats, adapter);
+              await this.processItem(run.id, provider.id, provider.cityId, provider.city?.slug ?? null, cityHint, resolvedItem, stats, adapter);
               if (adapter.fetchDetails) await sleep(getDetailFetchDelayMs());
             } catch (itemErr) {
               stats.errorCount += 1;
@@ -518,6 +523,10 @@ export class ScraperService {
     runId: string,
     providerId: string,
     cityId: string | null,
+    // citySlug ДОДАНО (за прямим запитом користувача — "используй кеш overpass by city сначала,
+    // а уже потом фоллбеком..."), окремо від cityId (Prisma id, не URL-safe slug, який власне
+    // потрібен для ключа тайл-кешу в Vercel Blob, § getCityBlobPrefix()).
+    citySlug: string | null,
     cityHint: CityHint | null,
     rawItem: RawCameraItem,
     stats: RunStats,
@@ -730,7 +739,7 @@ export class ScraperService {
       return;
     }
 
-    const heuristic = await this.azimuthHeuristic.guessForPoint(geocodeResult.lat, geocodeResult.lng);
+    const heuristic = await this.azimuthHeuristic.guessForPoint(geocodeResult.lat, geocodeResult.lng, citySlug);
     await this.importLog.log({
       runId,
       providerId,

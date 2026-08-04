@@ -31,6 +31,13 @@ interface AzimuthFovSuggestion {
   suggestedRangeMeters: number | null;
   confidence: number;
   reasoning: string | null;
+  // ДОДАНО (за прямим запитом користувача — "разбери этот случай и почему мы не можем
+  // определить азимут... по возможности определи азимут кодом для таких случаев", § детальний
+  // коментар у grok-camera-assist.service.ts): ДЕТЕРМІНОВАНІ (не-AI) кандидати азимута — обидва
+  // напрямки вздовж найближчої дороги за OpenStreetMap. Заповнено НЕЗАЛЕЖНО від того, чи AI
+  // визначив свій власний азимут — саме це дає адміну код-based варіант навіть тоді, коли AI
+  // чесно повернув suggestedAzimuth: null (як на скріншоті, що призвів до цього виправлення).
+  roadAzimuthCandidates: number[] | null;
 }
 
 interface StreamAvailability {
@@ -121,6 +128,12 @@ export default function CalibrateCameraPage() {
       rangeMeters: aiSuggestion.suggestedRangeMeters ?? camera.rangeMeters,
     });
   };
+
+  // ДОДАНО (за прямим запитом користувача — "по возможности определи азимут кодом для таких
+  // случаев"): застосовує ОДИН із детермінованих кандидатів (напрямок вздовж найближчої дороги
+  // за OpenStreetMap) як азимут — не чіпає FOV/дальність (на відміну від applyAiCalibration
+  // вище), бо кандидат дає лише напрямок, не ширину/глибину огляду.
+  const applyRoadAzimuth = (deg: number) => update({ azimuth: Math.round(deg) });
 
   // Перевірка доступності відео за запитом (див. запит користувача: "недоступное видео") —
   // YouTube oEmbed + AI vision-резерв, див. GrokCameraAssistService.checkStreamAvailability.
@@ -297,6 +310,33 @@ export default function CalibrateCameraPage() {
                       </button>
                     </>
                   )}
+                </div>
+              )}
+              {/* ДОДАНО (за прямим запитом користувача — розбір випадку "Азимут: —" і "по
+                  возможности определи азимут кодом для таких случаев"): детерміновані (не-AI)
+                  кандидати азимута з карти (OpenStreetMap) — показуються НЕЗАЛЕЖНО від того,
+                  зміг AI визначити свій азимут чи ні. Особливо корисно саме тоді, коли AI
+                  чесно повернув "не знаю" (немає NB/SB/EB/WB у назві, сцена неоднозначна) — тут
+                  все одно є 1-2 конкретних кандидати вздовж найближчої дороги для застосування
+                  одним кліком. */}
+              {aiSuggestion?.roadAzimuthCandidates && aiSuggestion.roadAzimuthCandidates.length > 0 && (
+                <div className="mt-2 rounded bg-blue-50 p-2 text-xs">
+                  <p className="text-gray-700">
+                    Ориентир по карте (OpenStreetMap): ближайшая дорога идёт по оси{' '}
+                    {aiSuggestion.roadAzimuthCandidates.map((deg) => `${Math.round(deg)}°`).join(' / ')} — камера у дороги почти всегда
+                    смотрит вдоль одного из этих направлений.
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    {aiSuggestion.roadAzimuthCandidates.map((deg) => (
+                      <button
+                        key={deg}
+                        onClick={() => applyRoadAzimuth(deg)}
+                        className="rounded border border-blue-300 px-2 py-0.5 text-blue-700 hover:bg-blue-100"
+                      >
+                        Применить {Math.round(deg)}°
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
