@@ -190,6 +190,19 @@ export class BtwController {
     return this.btwService.generateTiles(body.city);
   }
 
+  // "Мониторинг времени" запуску генерації (за прямим запитом користувача — "сделай
+  // возможность идемпотентного мнгоразового запуска с мониторингом времени - как уже делали с
+  // камерами") — поточний статус (якщо ще "running", скільки часу вже минуло) + історія
+  // останніх спроб. Викликається сторінкою /admin/btw-tiles як одразу після відкриття
+  // (показати результат попередньої спроби до першого кліку), так і під час очікування
+  // (опитування поки generateTiles ще виконується десь-в-іншому виклику — свіжий "running"-
+  // запис від паралельного натискання кнопки, див. BtwService.generateTiles()).
+  @UseGuards(AdminGuard)
+  @Get('admin/generation-status')
+  getGenerationStatus(@Query('city') city: string) {
+    return this.btwService.getGenerationStatus(city);
+  }
+
   // Адмінська сторона — керування підмінами (окрема вкладка в адмінці).
   @UseGuards(AdminGuard)
   @Get('admin/dev-location-overrides')

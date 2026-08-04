@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // За прямим запитом користувача — "сделай новую вкладку в админке для запуска скрипта...
 // npx ts-node scripts/generate-btw-tiles.ts kyiv... по городам (список селекто городов)".
@@ -14,6 +14,15 @@ import { useEffect, useState } from 'react';
 // §4.7.1 ТЗ). Для дуже великих/щільних міст це може впертися в ліміт serverless-функції
 // (Vercel Hobby — 300с, doc/AUDIT-vercel-hobby.md) — сервер у такому разі поверне зрозумілу
 // помилку з підказкою запустити CLI-скрипт локально (там такого обмеження немає).
+//
+// ІДЕМПОТЕНТНІСТЬ + МОНІТОРИНГ ЧАСУ (за прямим запитом користувача — "сделай возможность
+// идемпотентного мнгоразового запуска с мониторингом времени - как уже делали с камерами"):
+// нижче тепер опитується GET /btw/admin/generation-status (BtwService.getGenerationStatus()) —
+// показує, чи вже виконується запуск для обраного міста (у т.ч. запущений В ІНШІЙ вкладці/
+// адміном — не лише в цьому браузері), скільки часу він вже триває, і коротку історію останніх
+// спроб із причиною провалу. Повторний клік на кнопку, поки запуск ще живий, повертає від
+// сервера 409 (BtwService.generateTiles()) замість того, щоб тихо продублювати запит до
+// Overpass — саме це тут і має на увазі "ідемпотентний повторний запуск".
 
 interface CityOption {
   cityId: string;
@@ -44,6 +53,46 @@ interface GenerateResult {
   streetCount: number;
 }
 
+interface GenerationRun {
+  id: string;
+  citySlug: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  error: string | null;
+  cameraCount: number | null;
+  buildingCount: number | null;
+  streetCount: number | null;
+  elapsedMs?: number | null; // заповнено сервером ЛИШЕ для latest.status === 'running'
+}
+
+interface GenerationStatus {
+  citySlug: string;
+  latest: GenerationRun | null;
+  history: GenerationRun[];
+}
+
+// Опитування статусу поки триває "running" — той самий часовий бюджет за замовчуванням
+// (6 хв), що й BTW_TILE_GENERATION_STALE_RUN_MS на сервері (btw.service.ts), просто щоб
+// таймер тут не крутився нескінченно, якщо щось пішло геть не так і статус ніколи не змінився.
+const STATUS_POLL_MS = 4000;
+const LOCAL_TICK_MS = 1000;
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} мс`;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}м ${seconds}с` : `${seconds}с`;
+}
+
+function runStatusLabel(status: GenerationRun['status']): string {
+  if (status === 'running') return '⏳ выполняется';
+  if (status === 'completed') return '✅ успешно';
+  return '❌ ошибка';
+}
+
 export default function BtwTilesPage() {
   const [cities, setCities] = useState<CityOption[]>([]);
   const [loadingCities, setLoadingCities] = useState(true);
@@ -53,6 +102,11 @@ export default function BtwTilesPage() {
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [genStatus, setGenStatus] = useState<GenerationStatus | null>(null);
+  const [nowTick, setNowTick] = useState(0); // тік для живого таймера — сам не несе даних
+
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -74,8 +128,6 @@ export default function BtwTilesPage() {
   async function loadManifest(slug: string) {
     setManifestLoading(true);
     setManifest(null);
-    setResult(null);
-    setError(null);
     try {
       const res = await fetch(`/api/btw/manifest?city=${encodeURIComponent(slug)}`, { credentials: 'include' });
       if (res.ok) setManifest(await res.json());
@@ -86,9 +138,61 @@ export default function BtwTilesPage() {
     }
   }
 
-  function handleSelectCity(slug: string) {
+  // Повертає свіжий статус (для першого завантаження і для кожного опитування) — окремо від
+  // loadManifest вище, бо це різні ендпоінти з різним сенсом (стан ФАЙЛІВ vs стан ЗАПУСКІВ).
+  async function fetchStatus(slug: string): Promise<GenerationStatus | null> {
+    try {
+      const res = await fetch(`/api/btw/admin/generation-status?city=${encodeURIComponent(slug)}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return (await res.json()) as GenerationStatus;
+    } catch {
+      return null;
+    }
+  }
+
+  function stopPolling() {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (tickTimerRef.current) {
+      clearInterval(tickTimerRef.current);
+      tickTimerRef.current = null;
+    }
+  }
+
+  // Поки latest.status === 'running' — опитуємо сервер раз на STATUS_POLL_MS (дізнатись, чи
+  // не завершилось — і саме сервер, а не клієнт, вирішує це остаточно: запуск міг бути
+  // розпочатий в ІНШІЙ вкладці/адміном) і окремо "тікаємо" раз на секунду (LOCAL_TICK_MS) для
+  // плавного живого таймера між опитуваннями, замість того, щоб число застигало на 4с.
+  function startPollingIfRunning(slug: string, status: GenerationStatus | null) {
+    stopPolling();
+    if (status?.latest?.status !== 'running') return;
+
+    tickTimerRef.current = setInterval(() => setNowTick((t) => t + 1), LOCAL_TICK_MS);
+    pollTimerRef.current = setInterval(async () => {
+      const fresh = await fetchStatus(slug);
+      setGenStatus(fresh);
+      if (fresh?.latest?.status !== 'running') {
+        stopPolling();
+        await loadManifest(slug); // запуск (свій чи чужой) завершився — оновити статус тайлов
+      }
+    }, STATUS_POLL_MS);
+  }
+
+  useEffect(() => stopPolling, []); // прибрати таймери при виході зі сторінки
+
+  async function handleSelectCity(slug: string) {
+    stopPolling();
     setSelectedSlug(slug);
-    if (slug) loadManifest(slug);
+    setResult(null);
+    setError(null);
+    setGenStatus(null);
+    if (!slug) return;
+    await loadManifest(slug);
+    const status = await fetchStatus(slug);
+    setGenStatus(status);
+    startPollingIfRunning(slug, status);
   }
 
   async function handleGenerate() {
@@ -105,6 +209,9 @@ export default function BtwTilesPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
+        // 409 (уже выполняется — см. BtwService.generateTiles()) выглядит так же, как любая
+        // другая ошибка, но статус ниже тут же покажет живой таймер того запуска, который
+        // реально идёт — так что "ошибка" в этом случае не тупик, а просто устаревшее нажатие.
         setError(body?.message ?? 'Не удалось сгенерировать тайлы');
         return;
       }
@@ -114,10 +221,20 @@ export default function BtwTilesPage() {
       setError('Ошибка сети при генерации тайлов');
     } finally {
       setGenerating(false);
+      const status = await fetchStatus(selectedSlug);
+      setGenStatus(status);
+      startPollingIfRunning(selectedSlug, status);
     }
   }
 
   const selectedCity = cities.find((c) => c.slug === selectedSlug);
+  const latestRun = genStatus?.latest ?? null;
+  const isRunningRemotely = latestRun?.status === 'running';
+  // elapsedMs — снимок с сервера на момент последнего fetchStatus(); nowTick лишь заставляет
+  // React перерисовать между опросами, реальное число всегда считаем от startedAt заново —
+  // так таймер не "залипает" на устаревшем значении между STATUS_POLL_MS.
+  const liveElapsedMs = isRunningRemotely && latestRun ? Date.now() - new Date(latestRun.startedAt).getTime() : null;
+  void nowTick; // используется только чтобы триггернуть перерисовку — само значение не нужно
 
   return (
     <div className="p-6 max-w-3xl">
@@ -170,18 +287,33 @@ export default function BtwTilesPage() {
           </div>
         )}
 
+        {isRunningRemotely && latestRun && (
+          <div className="mb-3 rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+            <div className="font-medium">⏳ Генерация уже выполняется — {formatDuration(liveElapsedMs ?? latestRun.elapsedMs ?? 0)}</div>
+            <div className="mt-0.5 text-blue-700">
+              Запущена {new Date(latestRun.startedAt).toLocaleTimeString('ru-RU')} (возможно, из другой вкладки/другим админом) —
+              повторный запуск заблокирован сервером, пока этот не завершится или не зависнет дольше отведённого времени.
+            </div>
+          </div>
+        )}
+
         <button
           onClick={handleGenerate}
-          disabled={!selectedSlug || !selectedCity?.slug || generating}
+          disabled={!selectedSlug || !selectedCity?.slug || generating || isRunningRemotely}
           className="rounded bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
         >
-          {generating ? 'Генерация… (до 1-2 минут, не закрывайте вкладку)' : 'Сгенерировать тайлы'}
+          {generating
+            ? 'Генерация… (до 1-2 минут, не закрывайте вкладку)'
+            : isRunningRemotely
+              ? 'Уже выполняется…'
+              : 'Сгенерировать тайлы'}
         </button>
 
         <p className="mt-2 text-xs text-gray-500">
           Для очень больших/плотных городов запрос может не уложиться в лимит serverless-функции (Vercel Hobby — 300с) — в
           этом случае сервер вернёт понятную ошибку с подсказкой запустить тот же скрипт локально:{' '}
-          <code>npx ts-node scripts/generate-btw-tiles.ts {selectedSlug || '<slug>'}</code>.
+          <code>npx ts-node scripts/generate-btw-tiles.ts {selectedSlug || '<slug>'}</code>. Повторный клик по кнопке безопасен —
+          сервер не запустит вторую генерацию параллельно (см. блок выше, если запуск уже идёт).
         </p>
       </div>
 
@@ -194,6 +326,42 @@ export default function BtwTilesPage() {
           <div className="mt-1 text-xs text-green-700">
             Записано в {result.cityDir}. GET /btw/manifest?city={result.citySlug} теперь вернёт scanMode: &quot;local-worker&quot;.
           </div>
+        </div>
+      )}
+
+      {genStatus && (genStatus.latest || genStatus.history.length > 0) && (
+        <div className="mt-6 rounded border p-4">
+          <h2 className="mb-2 font-medium text-sm">История запусков для этого города</h2>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="pb-1 pr-3">Начало</th>
+                <th className="pb-1 pr-3">Статус</th>
+                <th className="pb-1 pr-3">Длительность</th>
+                <th className="pb-1">Подробности</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[genStatus.latest, ...genStatus.history].filter((r): r is GenerationRun => !!r).map((run) => (
+                <tr key={run.id} className="border-t align-top">
+                  <td className="py-1 pr-3 whitespace-nowrap">{new Date(run.startedAt).toLocaleString('ru-RU')}</td>
+                  <td className="py-1 pr-3 whitespace-nowrap">{runStatusLabel(run.status)}</td>
+                  <td className="py-1 pr-3 whitespace-nowrap">
+                    {run.status === 'running'
+                      ? formatDuration((run.elapsedMs ?? liveElapsedMs) || 0)
+                      : run.durationMs != null
+                        ? formatDuration(run.durationMs)
+                        : '—'}
+                  </td>
+                  <td className="py-1 text-gray-600">
+                    {run.status === 'completed'
+                      ? `здания: ${run.buildingCount ?? '?'}, камеры: ${run.cameraCount ?? '?'}, улицы: ${run.streetCount ?? '?'}`
+                      : run.error ?? '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

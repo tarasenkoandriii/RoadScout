@@ -769,3 +769,32 @@ model BtwTelemetryEvent {
   @@index([telegramId])
   @@index([createdAt])
 }
+
+// За прямим запитом користувача — "сделай возможность идемпотентного мнгоразового запуска
+// с мониторингом времени - как уже делали с камерами": той самий принцип, що вже
+// MonitoringService.checkAll()/checkYoutubeAndVisionAvailability() застосовують до перевірки
+// камер (startedAt + часовий бюджет, "зупинитись і продовжити наступного разу", lastCheckedAt
+// як слід для наступного проходу) — тут генерація тайлів для одного міста НЕ є циклом по
+// багатьох записах (один виклик = один прохід Overpass), тож "ідемпотентність" тут означає
+// інше: (1) захист від ПАРАЛЕЛЬНОГО повторного запуску того самого міста, поки попередній ще
+// виконується (реальний випадок — адмін тисне кнопку двічі, або перший запит завис на
+// Overpass timeout і адмін тисне ще раз, не знаючи, що перший ще живий); (2) видима історія
+// спроб із тривалістю й причиною провалу (напр. Overpass HTTP 406 — реальний випадок зі
+// скріншота користувача), щоб не тикати кнопку наосліп.
+model BtwTileGenerationRun {
+  id         String    @id @default(cuid())
+  citySlug   String
+  // running -> completed | failed. "running" довше за STALE_RUN_MS (btw.service.ts) вважається
+  // завислим (serverless-інстанс міг просто померти, не встигнувши оновити статус) — новий
+  // запуск дозволяється, а зависла спроба позначається failed заднім числом.
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+  error      String?
+  cameraCount   Int?
+  buildingCount Int?
+  streetCount   Int?
+
+  @@index([citySlug, startedAt])
+}

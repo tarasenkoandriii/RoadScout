@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,6 +23,19 @@ import {
   MAX_TARGET_RADIUS_M,
 } from './btw-geometry.util';
 import { generateTilesForCity } from './tile-generation.util';
+
+// generateTiles()/getGenerationStatus() нижче — за прямим запитом користувача ("сделай
+// возможность идемпотентного мнгоразового запуска с мониторингом времени - как уже делали с
+// камерами"). Скільки часу "running"-запис вважається ще живим, перш ніж наступний виклик
+// generateTiles() того самого міста дозволить собі почати новий запуск замість того, щоб
+// відмовити з ConflictException — трохи БІЛЬШЕ за жорсткий ліміт Vercel Hobby (300с,
+// doc/AUDIT-vercel-hobby.md), щоб не вважати живий (ще не завершений) запит завислим
+// достроково; трохи МЕНШЕ, ніж "довго й незрозуміло чекати" для адміна, що просто хоче
+// повторити спробу після реального збою.
+function getTileGenerationStaleRunMs(): number {
+  const v = parseInt(process.env.BTW_TILE_GENERATION_STALE_RUN_MS ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 6 * 60 * 1000; // 6 хв
+}
 
 // За прямим запитом користувача — розширений результат /btw/scan із діагностикою для debug
 // HUD (потрібно саме для М0-спайку на реальному пристрої, doc/AUDIT-btw.md).
@@ -252,13 +265,47 @@ export class BtwService {
       throw new BadRequestException('Не указан город (slug)');
     }
 
+    // ІДЕМПОТЕНТНІСТЬ (за прямим запитом користувача — див. коментар біля
+    // getTileGenerationStaleRunMs() вище): якщо для цього міста вже є "running"-запис — не
+    // вважаємо це автоматично помилкою. Свіжий (молодший за staleMs) — справді ще виконується
+    // десь-в-іншому виклику, повторний паралельний запуск лише марно б'є по тому самому
+    // Overpass другий раз одночасно -> ConflictException з чіткою підказкою. Застарілий
+    // (старший за staleMs) — той інстанс, найімовірніше, просто впав/був вбитий serverless-
+    // таймаутом, не встигнувши сам себе позначити failed; помічаємо це заднім числом і
+    // дозволяємо новий запуск, а не блокуємо адміна назавжди "живим", що насправді вже мертвий.
+    const staleMs = getTileGenerationStaleRunMs();
+    const existingRunning = await this.prisma.btwTileGenerationRun.findFirst({
+      where: { citySlug, status: 'running' },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (existingRunning) {
+      const ageMs = Date.now() - existingRunning.startedAt.getTime();
+      if (ageMs < staleMs) {
+        throw new ConflictException(
+          `Генерация тайлов для "${citySlug}" уже выполняется (запущена ${Math.round(ageMs / 1000)}с назад) — дождитесь завершения или повторите позже.`,
+        );
+      }
+      this.logger.warn(`[generateTiles] city=${citySlug}: предыдущий запуск ${existingRunning.id} завис на ${Math.round(ageMs / 1000)}с — помечаю failed и начинаю новый`);
+      await this.prisma.btwTileGenerationRun.update({
+        where: { id: existingRunning.id },
+        data: { status: 'failed', finishedAt: new Date(), durationMs: ageMs, error: 'Запуск считается зависшим (не завершился за отведённое время) — вероятно, инстанс упал по таймауту.' },
+      });
+    }
+
+    const run = await this.prisma.btwTileGenerationRun.create({ data: { citySlug, status: 'running' } });
+
     const cameras = await this.prisma.camera.findMany({
       where: { ...this.SCANNABLE_CAMERA_FILTER, city: { slug: citySlug } },
       select: { id: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
     });
 
     if (cameras.length === 0) {
-      throw new BadRequestException(`Нет подходящих (VERIFIED/OUTDOOR/ONLINE) камер для города со slug="${citySlug}"`);
+      const message = `Нет подходящих (VERIFIED/OUTDOOR/ONLINE) камер для города со slug="${citySlug}"`;
+      await this.prisma.btwTileGenerationRun.update({
+        where: { id: run.id },
+        data: { status: 'failed', finishedAt: new Date(), durationMs: Date.now() - run.startedAt.getTime(), error: message },
+      });
+      throw new BadRequestException(message);
     }
 
     try {
@@ -266,16 +313,60 @@ export class BtwService {
       this.logger.log(
         `[generateTiles] city=${citySlug}: buildings=${result.buildingCount} (${result.buildingBytes}B), cameras=${result.cameraCount}, streets=${result.streetCount}`,
       );
+      await this.prisma.btwTileGenerationRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'completed',
+          finishedAt: new Date(),
+          durationMs: Date.now() - run.startedAt.getTime(),
+          cameraCount: result.cameraCount,
+          buildingCount: result.buildingCount,
+          streetCount: result.streetCount,
+        },
+      });
       return result;
     } catch (err) {
-      // Найімовірніша причина збою тут — Overpass (мережа/таймаут, §4.7.1) чи serverless-ліміт
-      // часу виконання (Vercel Hobby 300с, doc/AUDIT-vercel-hobby.md) для дуже великого міста
-      // — тому людське повідомлення прямо підказує CLI-альтернативу без такого обмеження.
-      this.logger.warn(`[generateTiles] failed for city=${citySlug}: ${(err as Error).message}`);
+      // Найімовірніша причина збою тут — Overpass (мережа/таймаут/бан за rate-limit — §4.7.1,
+      // реальний випадок зі скріншота користувача, HTTP 406) чи serverless-ліміт часу
+      // виконання (Vercel Hobby 300с, doc/AUDIT-vercel-hobby.md) для дуже великого міста —
+      // тому людське повідомлення прямо підказує CLI-альтернативу без такого обмеження.
+      const message = (err as Error).message;
+      this.logger.warn(`[generateTiles] failed for city=${citySlug}: ${message}`);
+      await this.prisma.btwTileGenerationRun.update({
+        where: { id: run.id },
+        data: { status: 'failed', finishedAt: new Date(), durationMs: Date.now() - run.startedAt.getTime(), error: message },
+      });
       throw new BadRequestException(
-        `Не удалось сгенерировать тайлы для "${citySlug}": ${(err as Error).message}. Для больших городов (риск таймаута serverless-функции) запустите тот же скрипт локально: npx ts-node scripts/generate-btw-tiles.ts ${citySlug}`,
+        `Не удалось сгенерировать тайлы для "${citySlug}": ${message}. Для больших городов (риск таймаута serverless-функции) запустите тот же скрипт локально: npx ts-node scripts/generate-btw-tiles.ts ${citySlug}`,
       );
     }
+  }
+
+  // Для UI (apps/admin/app/admin/btw-tiles/page.tsx) — "мониторинг времени" запуску: поточний
+  // статус (якщо ще "running" — скільки вже минуло часу, щоб адмін бачив живий таймер, а не
+  // просто заблоковану кнопку без пояснень) + коротка історія останніх спроб (тривалість,
+  // причина провалу) — та сама ідея, що вже "previousAttempt" у suggestAzimuthFovForCamera()
+  // вище (показати результат ПОПЕРЕДНЬОЇ спроби, а не лише "зараз щось відбувається").
+  async getGenerationStatus(citySlug: string) {
+    if (!citySlug?.trim()) {
+      throw new BadRequestException('Не указан город (slug)');
+    }
+    const runs = await this.prisma.btwTileGenerationRun.findMany({
+      where: { citySlug },
+      orderBy: { startedAt: 'desc' },
+      take: 5,
+    });
+    const [latest, ...history] = runs;
+    return {
+      citySlug,
+      latest: latest
+        ? {
+            ...latest,
+            elapsedMs: latest.status === 'running' ? Date.now() - latest.startedAt.getTime() : null,
+          }
+        : null,
+      history,
+    };
   }
 
   // §7.2 ТЗ — дельта-версіонування статусів камер. Спрощено: рахуємо версію по кількості
