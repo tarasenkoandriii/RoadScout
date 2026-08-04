@@ -46,6 +46,16 @@ export class BtwController {
     return this.btwService.getStatus(city);
   }
 
+  // §4.7.1/§4.7.5 ТЗ — роздача тайлів для клієнтського Web Worker (apps/btw/workers/
+  // btw-scan.worker.ts, apps/btw/lib/btwLocalScanner.ts). Без guard — той самий рівень
+  // публічності, що вже /btw/manifest, /btw/status, /btw/coverage вище (нечутливі геометричні
+  // дані, не персональні). Range-заголовок прокидується напряму в BtwService.streamTile(),
+  // яка сама вирішує 200 vs 206 (справжня підтримка HTTP Range, §4.7.1).
+  @Get('tiles/:city/:layer')
+  async getTile(@Param('city') city: string, @Param('layer') layer: string, @Req() req: any, @Res() res: Response) {
+    await this.btwService.streamTile(city, layer, req.headers['range'], res);
+  }
+
   // §7 ТЗ формально не має "POST /btw/scan" з тілом пози як HTTP-ендпоінту сканування (у
   // повній версії ТЗ — це серверний ФОЛБЕК, а не основний шлях) — тут це саме він, єдиний
   // шлях у цьому кроці (клієнтський Web Worker не реалізовано, див. AUDIT-btw.md).
@@ -166,6 +176,18 @@ export class BtwController {
   @Get('admin/dev-cities/:cityId/densest-point')
   getDensestCameraPoint(@Param('cityId') cityId: string) {
     return this.btwService.findDensestCameraPoint(cityId);
+  }
+
+  // За прямим запитом користувача — "сделай новую вкладку в админке для запуска скрипта...
+  // по городам": те саме, що `npx ts-node scripts/generate-btw-tiles.ts <slug>` у CLI, тепер
+  // однією кнопкою з нової вкладки (apps/admin/app/admin/btw-tiles/page.tsx). `body.city` —
+  // САМЕ `City.slug` (напр. "kyiv"), не відображувана назва — той самий `slug`, що тепер
+  // повертає `listDevCities()` вище (BtwService.generateTiles() кидає зрозумілу
+  // BadRequestException, якщо переплутано).
+  @UseGuards(AdminGuard)
+  @Post('admin/generate-tiles')
+  generateTiles(@Body() body: { city: string }) {
+    return this.btwService.generateTiles(body.city);
   }
 
   // Адмінська сторона — керування підмінами (окрема вкладка в адмінці).

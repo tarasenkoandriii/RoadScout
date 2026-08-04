@@ -40,6 +40,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/admin/btw-dev-tools" className="font-medium">
             BTW: подмена координат
           </Link>
+          <Link href="/admin/btw-tiles" className="font-medium">
+            BTW: тайлы радара
+          </Link>
           <Link href="/" className="ml-auto text-gray-500">
             Публичная страница ↗
           </Link>

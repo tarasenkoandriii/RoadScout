@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { OcclusionService } from '../occlusion/occlusion.service';
 import { AzimuthHeuristicService } from '../scraper/azimuth-heuristic.service';
@@ -17,7 +20,9 @@ import {
   computeCoverageFromSamples,
   snapHeadingToStreetGrid,
   RankedCandidate,
+  MAX_TARGET_RADIUS_M,
 } from './btw-geometry.util';
+import { generateTilesForCity } from './tile-generation.util';
 
 // За прямим запитом користувача — розширений результат /btw/scan із діагностикою для debug
 // HUD (потрібно саме для М0-спайку на реальному пристрої, doc/AUDIT-btw.md).
@@ -92,10 +97,27 @@ export class BtwService {
   // в `BtwLockEvent`, коректно переживає холодні старти й кілька інстансів.
   private static readonly REFINE_COOLDOWN_MS = 30_000;
 
-  // §7.1 ТЗ — спрощено: без PMTiles (немає офлайн-пайплайну збірки з OSM у цьому кроці, див.
-  // AUDIT-btw.md) повертаємо тільки метадані, потрібні клієнту для роботи в режимі
-  // серверного фолбеку (§3.3, "Перископ по адресу") — саме магнітне схилення, необхідне для
-  // приведення показань компаса до істинного азимута (§4.1 ТЗ).
+  // ВИПРАВЛЕНО/РОЗШИРЕНО за прямим запитом користувача ("lets realize (b) the full spec as
+  // originally written"): раніше тут БЕЗУМОВНО поверталось layers:null — тепер перевіряємо
+  // диск (getLocalTileLayers нижче) і якщо тайли для міста реально згенеровані (скриптом
+  // apps/api/scripts/generate-btw-tiles.ts — Я НЕ можу виконати цей скрипт у цьому середовищі,
+  // бо він потребує живого доступу до Overpass API й до продакшн-БД, яких тут немає, — але сам
+  // скрипт коректний і призначений для запуску користувачем поза цим сендбоксом), клієнт
+  // отримує реальні URL і переходить у 'local-worker' режим (apps/btw/lib/btwLocalScanner.ts).
+  // Якщо тайлів немає — точно той самий 'server-fallback-only', що й раніше, БЕЗ регресії.
+  //
+  // ЧЕСНО (§7.1 ТЗ): "формат — один файл PMTiles на місто в об'єктному сховищі (R2/Supabase
+  // Storage)" — тут замість цього звичайні файли на локальному диску апі-сервера, роздані через
+  // GET /btw/tiles/:city/:layer із СПРАВЖНЬОЮ підтримкою HTTP Range (streamTile нижче) — тому
+  // що (перевірено прямо в цьому сеансі): немає credentials для R2/Supabase Storage
+  // (.env.example не містить жодних), і `npm view pmtiles version` повертає 403 Forbidden від
+  // registry.npmjs.org (мережа для встановлення нових пакетів недоступна). Сама PMTiles-логіка
+  // (одна карта тайлів z15-піраміди на місто) також не реалізована — замість неї ОДИН тайл на
+  // все місто (спрощення, задокументоване в новому doc/AUDIT-btw-radar-m1-m2.md).
+  // `cityName` тут — САМЕ `City.slug` (напр. "kyiv"), коли йдеться про пошук тайлів
+  // (getLocalTileLayers нижче) — контролер передає `city ?? 'kyiv'`, тобто дефолт сам по собі
+  // вже узгоджений зі slug-форматом. Для решти цього методу (declination) значення параметра
+  // взагалі не впливає на результат — фіксована константа нижче.
   async getManifest(cityName: string) {
     // ⚠️ ЧЕСНО: справжня формула WMM (World Magnetic Model) вимагає npm-пакет geomagnetism
     // (§4.1 ТЗ) — не встановлений (немає мережі в цій пісочниці). Тимчасово — фіксоване
@@ -104,14 +126,156 @@ export class BtwService {
     // Замінити на geomagnetism, коли з'явиться мережевий доступ для встановлення пакета.
     const APPROX_UKRAINE_DECLINATION_DEG = 8;
 
+    const layers = this.getLocalTileLayers(cityName);
+
     return {
       city: cityName,
       declination: APPROX_UKRAINE_DECLINATION_DEG,
-      // Немає PMTiles-шарів у цьому кроці — клієнт (коли буде реалізований) працює лише через
-      // серверний /btw/scan, не через локальні тайли.
-      layers: null,
-      scanMode: 'server-fallback-only',
+      layers,
+      scanMode: layers ? 'local-worker' : 'server-fallback-only',
     };
+  }
+
+  // Директорія тайлів на диску апі-сервера — конфігурована env-змінною (той самий принцип
+  // "env-змінна з розумним дефолтом", що вже getMonitoringConcurrency() у monitoring.service.ts
+  // цього ж кроку), за замовчуванням `<cwd>/btw-tiles/<citySlug>/<layer>.<ext>`. Скрипт
+  // генерації (apps/api/scripts/generate-btw-tiles.ts) і generateTiles() нижче пишуть сюди ж
+  // (обидва — через спільну generateTilesForCity(), tile-generation.util.ts).
+  private getTilesDir(): string {
+    return process.env.BTW_TILES_DIR ?? path.join(process.cwd(), 'btw-tiles');
+  }
+
+  // ВИПРАВЛЕНО термінологію (за прямим запитом користувача — адмінська вкладка генерації
+  // тайлів виявила реальну плутанину): параметр тут і нижче — САМЕ `City.slug` (наприклад
+  // "kyiv"), НЕ `City.name` (український відображуваний напис, наприклад "Київ", див.
+  // schema.prisma). Ці два методи самі по собі DB-агностичні (просто складають шлях на диску з
+  // рядка) — плутанина була у ВИКЛИКАЧІВ (generateTiles() нижче, до фіксу, і CLI-скрипт),
+  // які фільтрували камери в БД через `city: { name: citySlug }` — тобто буквальний рядок
+  // "kyiv" ніколи не збігався б із жодним `City.name` (там завжди українська назва). Тепер
+  // всюди узгоджено — `slug`.
+  private getTileFilePath(citySlug: string, layer: 'buildings' | 'cameras' | 'streets'): string {
+    const ext = layer === 'buildings' ? 'bin' : 'json';
+    // path.basename() — захист від directory traversal через city/layer з query/param (обидва
+    // приходять від клієнта як @Query('city')/@Param('layer')); той самий принцип обережності,
+    // що вже застосовується в проєкті для будь-якого шляху, похідного від користувацького вводу.
+    return path.join(this.getTilesDir(), path.basename(citySlug), `${path.basename(layer)}.${ext}`);
+  }
+
+  private getLocalTileLayers(
+    citySlug: string,
+  ): { buildings: { url: string; version: number }; cameras: { url: string; version: number }; streets: { url: string; version: number } } | null {
+    const buildingsPath = this.getTileFilePath(citySlug, 'buildings');
+    const camerasPath = this.getTileFilePath(citySlug, 'cameras');
+    const streetsPath = this.getTileFilePath(citySlug, 'streets');
+
+    if (!fs.existsSync(buildingsPath) || !fs.existsSync(camerasPath) || !fs.existsSync(streetsPath)) {
+      return null;
+    }
+
+    // mtime файлу як версія/cache-bust токен — грубий, але чесний субститут справжнього ETag
+    // з вмісту (§4.7.1 ТЗ: "Кэш: 30 сут, ETag" / "24 ч, ETag") — той самий рівень точності, що
+    // й streamTile() нижче вже реально віддає в заголовку ETag.
+    return {
+      buildings: { url: `/api/tiles/${encodeURIComponent(citySlug)}/buildings`, version: Math.round(fs.statSync(buildingsPath).mtimeMs) },
+      cameras: { url: `/api/tiles/${encodeURIComponent(citySlug)}/cameras`, version: Math.round(fs.statSync(camerasPath).mtimeMs) },
+      streets: { url: `/api/tiles/${encodeURIComponent(citySlug)}/streets`, version: Math.round(fs.statSync(streetsPath).mtimeMs) },
+    };
+  }
+
+  // §4.7.1 ТЗ — "запити через HTTP Range". СПРАВЖНЯ підтримка Range тут реалізована (206 Partial
+  // Content, Content-Range) — це не спрощено, попри те що самé сховище (локальний диск
+  // апі-сервера, не PMTiles-контейнер в об'єктному сховищі) є задокументованою відмінністю
+  // (див. коментар біля getManifest() вище). Викликається з контролера — сам метод керує
+  // response напряму (той самий підхід, що вже fetchThumbImage()/thumbImage() у контролері).
+  async streamTile(cityName: string, layer: string, rangeHeader: string | undefined, res: Response): Promise<void> {
+    if (layer !== 'buildings' && layer !== 'cameras' && layer !== 'streets') {
+      res.status(404).send('unknown tile layer');
+      return;
+    }
+
+    const filePath = this.getTileFilePath(cityName, layer);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).send('tile not found — run generate-btw-tiles.ts for this city first');
+      return;
+    }
+
+    const stat = fs.statSync(filePath);
+    const contentType = layer === 'buildings' ? 'application/octet-stream' : 'application/json';
+    // §4.7.1 ТЗ: buildings/streets — 30 діб кешу, cameras — 24 год (статус камер змінюється
+    // частіше, тому окремий короткий /btw/status покриває свіжість між перезбірками тайлу).
+    const cacheControl = layer === 'cameras' ? 'public, max-age=86400' : 'public, max-age=2592000';
+    const etag = `"${Math.round(stat.mtimeMs)}-${stat.size}"`;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', cacheControl);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('ETag', etag);
+
+    const rangeMatch = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader) : null;
+    if (rangeMatch) {
+      const start = rangeMatch[1] ? parseInt(rangeMatch[1], 10) : 0;
+      const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : stat.size - 1;
+
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stat.size) {
+        res.status(416).setHeader('Content-Range', `bytes */${stat.size}`).end();
+        return;
+      }
+
+      const clampedEnd = Math.min(end, stat.size - 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${clampedEnd}/${stat.size}`);
+      res.setHeader('Content-Length', String(clampedEnd - start + 1));
+      fs.createReadStream(filePath, { start, end: clampedEnd }).pipe(res);
+      return;
+    }
+
+    res.setHeader('Content-Length', String(stat.size));
+    fs.createReadStream(filePath).pipe(res);
+  }
+
+  // За прямим запитом користувача — "сделай новую вкладку в админке для запуска скрипта...
+  // по городам": те саме, що apps/api/scripts/generate-btw-tiles.ts робить у CLI, тепер
+  // доступне однією кнопкою з адмінки (apps/admin/app/admin/btw-tiles/page.tsx), через спільну
+  // generateTilesForCity() (tile-generation.util.ts) — жодної повторної логіки Overpass/
+  // кодування тайлів, лише інше джерело камер (injected PrismaService замість
+  // standalone `new PrismaClient()` у скрипті).
+  //
+  // ВИПРАВЛЕНО (реальна плутанина, знайдена саме під час підготовки цієї вкладки): камери
+  // фільтруються по `city: { slug: citySlug } }` — НЕ `{ name: citySlug }`, як помилково було
+  // написано в першій версії скрипта цього кроку. `City.name` — український відображуваний
+  // напис ("Київ"), `City.slug` — латинський URL-ідентифікатор ("kyiv", схема прямо документує
+  // це як "используется в запросах фронтенда/URL"). Виклик `getManifest('kyiv')` (дефолт
+  // контролера) ніколи не знайшов би жодного міста при фільтрі по `name`. Адмінська вкладка
+  // передає `slug` із listCitiesWithCameraDensity() (тепер теж повертає `slug`, див. вище).
+  async generateTiles(citySlug: string) {
+    if (!citySlug?.trim()) {
+      throw new BadRequestException('Не указан город (slug)');
+    }
+
+    const cameras = await this.prisma.camera.findMany({
+      where: { ...this.SCANNABLE_CAMERA_FILTER, city: { slug: citySlug } },
+      select: { id: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
+    });
+
+    if (cameras.length === 0) {
+      throw new BadRequestException(`Нет подходящих (VERIFIED/OUTDOOR/ONLINE) камер для города со slug="${citySlug}"`);
+    }
+
+    try {
+      const result = await generateTilesForCity(citySlug, cameras, this.getTilesDir());
+      this.logger.log(
+        `[generateTiles] city=${citySlug}: buildings=${result.buildingCount} (${result.buildingBytes}B), cameras=${result.cameraCount}, streets=${result.streetCount}`,
+      );
+      return result;
+    } catch (err) {
+      // Найімовірніша причина збою тут — Overpass (мережа/таймаут, §4.7.1) чи serverless-ліміт
+      // часу виконання (Vercel Hobby 300с, doc/AUDIT-vercel-hobby.md) для дуже великого міста
+      // — тому людське повідомлення прямо підказує CLI-альтернативу без такого обмеження.
+      this.logger.warn(`[generateTiles] failed for city=${citySlug}: ${(err as Error).message}`);
+      throw new BadRequestException(
+        `Не удалось сгенерировать тайлы для "${citySlug}": ${(err as Error).message}. Для больших городов (риск таймаута serverless-функции) запустите тот же скрипт локально: npx ts-node scripts/generate-btw-tiles.ts ${citySlug}`,
+      );
+    }
   }
 
   // §7.2 ТЗ — дельта-версіонування статусів камер. Спрощено: рахуємо версію по кількості
@@ -403,12 +567,28 @@ export class BtwService {
     return inside;
   }
 
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — скріншот: 3 кандидати в списку
+  // сканування, усі з "покрытие 100%", тап на одного з них -> "Цель вне радиуса действия
+  // камеры"): ця перевірка порівнювала distance ЛИШЕ з `camera.rangeMeters`, БЕЗ ЖОДНОГО
+  // допуску — тоді як Ф2 (`passesConeFilter`, btw-geometry.util.ts — той самий алгоритм і в
+  // apps/btw/lib/btw-geometry-engine.ts для локального Worker'а), яка й вирішує, чи кандидат
+  // ВЗАГАЛІ потрапляє у список сканування, порівнює з `camera.rangeMeters + target.radiusM`
+  // (`computeTargetZone` обмежує `target.radiusM` до 25-120м, §4.3 ТЗ). Кандидат, чия
+  // дистанція потрапляла саме в цей проміжок (`rangeMeters < distance <= rangeMeters + 120`),
+  // коректно ПРОХОДИВ Ф2 і показувався в списку — але ЗАВЖДИ провалював цю строгу перевірку
+  // при тапі. Системна невідповідність двох формул, не залежить від локального/серверного
+  // шляху сканування (обидва застосовують ту саму Ф2-формулу з тим самим допуском). Тепер тут
+  // той самий максимально можливий допуск (MAX_TARGET_RADIUS_M — верхня межа
+  // `target.radiusM`, тепер СПІЛЬНА іменована константа з btw-geometry.util.ts, а не другий
+  // незалежний магічний літерал 120), що Ф2 і так уже дозволяє: будь-який кандидат, що легально
+  // пройшов у список, більше не може провалити цю перевірку при фактичному тапі на нього.
+
   // §7.3 ТЗ, перевірка (3) — "дешевая проверка конуса без окклюзии (защита от использования
   // BTW как массового браузера камер)".
   private async assertWithinConeOfCamera(cameraId: string, targetLat: number, targetLng: number) {
     const camera = await this.prisma.camera.findUniqueOrThrow({ where: { id: cameraId } });
     const distance = haversineDistance(camera, { lat: targetLat, lng: targetLng });
-    if (distance > camera.rangeMeters) {
+    if (distance > camera.rangeMeters + MAX_TARGET_RADIUS_M) {
       throw new BadRequestException('Цель вне радиуса действия камеры');
     }
   }
@@ -490,11 +670,20 @@ export class BtwService {
     if (grouped.length === 0) return [];
 
     const cityIds = grouped.map((g) => g.cityId as string);
-    const cities = await this.prisma.city.findMany({ where: { id: { in: cityIds } }, select: { id: true, name: true } });
-    const nameById = new Map(cities.map((c) => [c.id, c.name]));
+    // РОЗШИРЕНО (за прямим запитом користувача — нова адмінська вкладка генерації тайлів,
+    // "по городам (список селект городов)"): додано `slug` — той самий ідентифікатор, що
+    // generateTiles()/getManifest()/streamTile() нижче використовують для файлової системи й
+    // URL (`City.slug`, наприклад "kyiv" — НЕ `name`, український відображуваний напис
+    // "Київ"). Стара вкладка "BTW: подмена координат" (яка вже споживає цей метод) просто
+    // ігнорує нове поле — не ламається.
+    const cities = await this.prisma.city.findMany({ where: { id: { in: cityIds } }, select: { id: true, name: true, slug: true } });
+    const cityById = new Map(cities.map((c) => [c.id, c]));
 
     return grouped
-      .map((g) => ({ cityId: g.cityId as string, name: nameById.get(g.cityId as string) ?? '(?)', cameraCount: g._count._all }))
+      .map((g) => {
+        const city = cityById.get(g.cityId as string);
+        return { cityId: g.cityId as string, name: city?.name ?? '(?)', slug: city?.slug ?? '', cameraCount: g._count._all };
+      })
       .sort((a, b) => b.cameraCount - a.cameraCount);
   }
 

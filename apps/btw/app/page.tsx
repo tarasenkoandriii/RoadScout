@@ -4,24 +4,36 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
 import BtwRadar from '../components/BtwRadar';
+import { BtwLocalScanner, ScanSupersededError } from '../lib/btwLocalScanner';
+import type { LocalScanResult } from '../lib/btwLocalScanner';
 
 // Beyond the Wall (BTW) — сканувальний екран, §3.1/§3.2 ТЗ (doc/BTW-tz.md).
 //
-// ⚠️ ЧЕСНО (повний перелік — doc/AUDIT-btw.md): це MVP-версія клієнта. НЕ реалізовано в
-// цьому кроці:
-// - Web Worker з геометричним рушієм і локальними тайлами (§4.7, §8.1) — сканування йде
-//   через серверний фолбек /btw/scan (POST) при КОЖНОМУ тику, а не локально за 3-6мс.
-// - У2 (комплементарний фільтр), У3 (snap до вулиці, на сервері), У4 (калібрування за
-//   кандидатом) — РЕАЛІЗОВАНІ. Vision-уточнення (У5) — реалізоване (кнопка "Уточнить").
+// ⚠️ ЧЕСНО (повний перелік — doc/AUDIT-btw.md і новий doc/AUDIT-btw-radar-m1-m2.md): це
+// MVP-версія клієнта з ДОДАНИМ (за прямим запитом користувача — "lets realize (b) the full
+// spec as originally written") локальним шляхом сканування. НЕ реалізовано в цьому кроці:
+// - Web Worker з геометричним рушієм і локальними тайлами (§4.7, §8.1) — ТЕПЕР Є
+//   (workers/btw-scan.worker.ts + lib/btwLocalScanner.ts): якщо сервер має згенеровані тайли
+//   для міста (getManifest() поверне layers != null), кожен тик сканує ЛОКАЛЬНО, без мережі.
+//   Якщо тайлів немає (типовий випадок у цьому середовищі — генерація вимагає живого
+//   Overpass+БД доступу поза цим сендбоксом) — код автоматично й непомітно для юзера
+//   продовжує йти старим шляхом, POST /api/scan щотика, без жодної зміни поведінки.
+// - У2 (комплементарний фільтр), У3 (snap до вулиці, на сервері й тепер локально), У4
+//   (калібрування за кандидатом) — РЕАЛІЗОВАНІ. Vision-уточнення (У5) — реалізоване (кнопка
+//   "Уточнить").
 // - Магнітне схилення — використовується фіксоване наближення з /btw/manifest (не WMM).
-// - Кільце-радар на Canvas (§3.1.2) — ЧАСТКОВО реалізовано (components/BtwRadar.tsx): за
-//   прямим запитом користувача це СВІДОМО зменшений обсяг — статичний (без
-//   requestAnimationFrame) Canvas 2D, БЕЗ Web Worker і БЕЗ PMTiles/офлайн-геометрії, поверх
-//   тих самих даних, що вже приходять у /btw/scan для компас-стрічки. Сектори навколо точок —
-//   стилізоване наближення з orientationFit, не справжній азимут камери (той не передається
-//   клієнту). Компас-стрічка лишена поруч, не видалена — той самий сенс, друга візуалізація.
+// - Кільце-радар на Canvas (§3.1.2) — components/BtwRadar.tsx: статичний (без
+//   requestAnimationFrame) Canvas 2D, поверх тих самих даних, що приходять із /btw/scan АБО
+//   тепер із локального Worker'а (однакова форма відповіді в обох випадках). Сектори
+//   малюються за справжнім cameraAzimuth (не наближенням).
 // - Розмиття облич/номерів (§11.3), водяний знак (§11.3) — сервер поки що просто віддає
 //   streamUrl напряму.
+// - PMTiles (реальний контейнерний формат), Flatbush (реальний R-tree), z15-піраміда тайлів,
+//   Copernicus DEM рельєф — усе це задокументовані спрощення локального шляху, див.
+//   doc/AUDIT-btw-radar-m1-m2.md (коротко: звичайні файли + HTTP Range замість PMTiles,
+//   лінійний скан з bbox-відсіканням замість Flatbush, один тайл на місто замість піраміди,
+//   рельєф не враховується — усе через відсутність мережевого доступу/credentials у цьому
+//   середовищі розробки, не архітектурне рішення).
 // - Debug HUD (сирі покази сенсорів, snap-статус, лічильники каскаду фільтрів) — доданий
 //   саме для М0-спайку на реальному пристрої, кнопка "HUD" у правому верхньому куті екрана
 //   сканування.
@@ -192,11 +204,22 @@ export default function BtwScanPage() {
   const headingSamplesRef = useRef<number[]>([]);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScanRef = useRef<{ heading: number; lat: number; lng: number } | null>(null);
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "слишком долго подтягиваются камеры (до пяти
+  // минут)") — див. розгорнутий коментар біля setInterval() нижче: захист від накопичення
+  // ПЕРЕКРИТИХ тиков сканування, якщо один тик забарився.
+  const scanInFlightRef = useRef(false);
   // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "нужно сделать подсказки снизу
   // кликабельными") — тут зберігаємо САМЕ ТУ цільову точку, яку /btw/scan щойно порахував
   // (тепер приходить у result.target), щоб handleLock() передавав її в /btw/thumb замість
   // власної GPS-позиції користувача (детальний розбір — btw.service.ts::ScanResult).
   const scanTargetRef = useRef<{ lat: number; lng: number } | null>(null);
+  // §8.1/§4.7.5 ТЗ — локальний Worker-сканер. Ref (не useState) для самого інстансу — той
+  // самий принцип, що вже headingBiasRef/gyroZRef вище (нема сенсу в ре-рендері при кожній
+  // внутрішній зміні), а localScannerReady — окремий useState, бо ВІД нього залежить, який
+  // саме код виконує тик сканування нижче (реальна гілка поведінки, має тригерити ре-рендер
+  // ефекту).
+  const localScannerRef = useRef<BtwLocalScanner | null>(null);
+  const [localScannerReady, setLocalScannerReady] = useState(false);
   // За прямим запитом користувача — реальне трекування лічильників телеметрії сесії (раніше
   // ендпоінт /btw/telemetry існував на сервері, але клієнт його жодного разу не викликав!).
   // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — доданo fallbackOffered/fallbackUsed для
@@ -400,9 +423,37 @@ export default function BtwScanPage() {
     gyroZRef.current = rotationRate.alpha;
   }
 
+  // §8.1/§4.7.5 ТЗ — спроба ініціалізувати локальний Worker-сканер одразу при вході у фазу
+  // сканування. 'kyiv' — той самий дефолт міста, що вже BtwController::getManifest()
+  // (@Query('city') city ?? 'kyiv') — клієнт поки не має вибору міста в UI взагалі (весь MVP
+  // — один Telegram mini-app на Київ), тому хардкод тут відповідає вже наявному серверному.
+  // init() сам ловить БУДЬ-ЯКУ помилку (немає тайлів для міста, мережа, Worker не
+  // підтримується) і повертає false — саме тому нижче можна безумовно покладатись на
+  // localScannerReady, не обробляючи різні "чому саме не готово" тут.
+  useEffect(() => {
+    if (phase !== 'scanning') return;
+
+    const scanner = new BtwLocalScanner();
+    localScannerRef.current = scanner;
+    let cancelled = false;
+
+    scanner.init('kyiv').then((ok) => {
+      if (!cancelled) setLocalScannerReady(ok);
+    });
+
+    return () => {
+      cancelled = true;
+      scanner.dispose();
+      localScannerRef.current = null;
+      setLocalScannerReady(false);
+    };
+  }, [phase]);
+
   // Періодичне сканування — §8.4 ТЗ вказує "не частіше 8 Гц і лише при Δheading>3°/Δposition>10м"
-  // для локального Worker; тут — серверний виклик, тому свідомо РІДШЕ (раз на 2с), щоб не
-  // перевантажувати сервер запитами на кожен рух (AUDIT-btw.md).
+  // для локального Worker; коли localScannerReady — саме цей режим (нижче, гілка "локально"),
+  // з поки що ТИМ САМИМ інтервалом 2с (спрощення — не адаптивний §8.4, легко зменшити пізніше,
+  // адже тепер це дешево). Коли ready=false — старий серверний виклик, свідомо РІДШЕ (раз на
+  // 2с), щоб не перевантажувати сервер запитами на кожен рух (AUDIT-btw.md).
   useEffect(() => {
     if (phase !== 'scanning') return;
 
@@ -413,19 +464,66 @@ export default function BtwScanPage() {
       const posChanged = !last || Math.abs(last.lat - position.lat) > 0.0001 || Math.abs(last.lng - position.lng) > 0.0001;
       if (!headingChanged && !posChanged) return;
 
+      // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "слишком долго подтягиваются
+      // камеры (до пяти минут)"): раніше ТУТ не було ЖОДНОГО захисту від перекриття тиков —
+      // `setInterval` не чекає завершення попереднього async-колбека, тож якщо один тик
+      // забарився (серверний фолбек /api/scan усередині робить ЖИВІ Overpass-запити для
+      // ще не закешованих кандидатів — AzimuthHeuristicService/OcclusionService, §4.5 Ф3;
+      // Overpass fair-use slot-система, яку ми щойно обговорювали, може чекати до ~15с НА
+      // ЗАПИТ, перш ніж узагалі почати його обробляти), наступний тик через 2с стартував ЩЕ
+      // ОДИН такий самий повільний запит ПОВЕРХ першого, той — ще один за 2с, і так черга
+      // росте, а не спадає, аж доки найперший запит нарешті не відповість. П'ять хвилин —
+      // це якраз слушна оцінка для черги з кількох таких запитів, що накопичились.
+      // Тепер новий тик просто пропускається (без побічних ефектів), поки попередній ще в
+      // польоті — той самий anti-overlap принцип, що вже ScanSupersededError застосовує для
+      // локального Worker'а (btwLocalScanner.ts), тепер явно і для ОБОХ шляхів (сервер й
+      // локально) на рівні самого тика сканування.
+      if (scanInFlightRef.current) return;
+      scanInFlightRef.current = true;
+
       // У4 ТЗ — застосовуємо накопичену персональну поправку ПЕРЕД відправкою на сервер
       // (сервер потім ще й сам застосовує У3 snap до вулиці, поверх уже скоригованого
       // значення — обидва механізми коректно комбінуються, як описано в
       // btw-geometry.util.ts).
       const correctedHeading = applyHeadingBias(heading, headingBiasRef.current);
       try {
-        const res = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, heading: correctedHeading, headingSigma: 8 }),
-        });
-        if (res.ok) {
+        // §8.1/§4.7.5 ТЗ — гілка локального сканування. LocalScanResult (btwLocalScanner.ts)
+        // навмисно має ТУ САМУ форму {direct, fallback, target, debug}, що й JSON-відповідь
+        // /api/scan — тому вся обробка нижче СПІЛЬНА для обох шляхів, без дублювання.
+        let result: LocalScanResult | { direct?: Candidate[]; fallback?: Candidate[]; target?: { lat: number; lng: number }; debug?: ScanDebug } | undefined;
+        let superseded = false;
+
+        if (localScannerReady && localScannerRef.current) {
+          try {
+            result = await localScannerRef.current.scan({
+              lat: position.lat,
+              lng: position.lng,
+              accuracyM: position.accuracyM,
+              heading: correctedHeading,
+              headingSigma: 8,
+            });
+          } catch (err) {
+            if (err instanceof ScanSupersededError) {
+              // Новіший scan() уже в польоті (напр. дуже швидка зміна heading) — цей тик просто
+              // нічого не робить, БЕЗ інкременту scanErrors (це не збій, а очікуване витіснення,
+              // той самий сенс, що раніше мав невдалий /api/scan: наступний тик спробує знову).
+              superseded = true;
+            } else {
+              throw err;
+            }
+          }
+        } else {
+          const res = await fetch('/api/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, heading: correctedHeading, headingSigma: 8 }),
+          });
+          if (!res.ok) throw new Error(`scan failed: ${res.status}`);
+          result = await res.json();
+        }
+
+        if (!superseded && result) {
           // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "кандидатов то находит то не
           // находит" навіть коли на карті явно багато камер поруч): раніше lastScanRef
           // оновлювався ДО запиту, безумовно — тобто ОДНА невдала спроба (мережа/5xx) "застрявала"
@@ -434,7 +532,6 @@ export default function BtwScanPage() {
           // невдача просто пробується знову на наступному тику (кожні 2с), а не блокується.
           lastScanRef.current = { heading, lat: position.lat, lng: position.lng };
 
-          const result = await res.json();
           // М2 ТЗ — зберігаємо fallback окремо, і якщо в цьому скані знову з'явився хоча б
           // один direct-кандидат, а fallback до цього був розкритий користувачем — коректно
           // згортаємо його назад з коротким сповіщенням (§4 ТЗ, "Найден прямой ракурс").
@@ -463,13 +560,17 @@ export default function BtwScanPage() {
             t.coneSurvivorsLast = result.debug.coneSurvivors ?? 0;
             t.streetCandidatesFoundLast = result.debug.streetCandidatesFound ?? 0;
           }
-        } else {
-          telemetryRef.current.scanErrors += 1;
         }
       } catch {
         // мовчазно ігноруємо запуск наступного тика (не блокуємо UI), але лічильник помилок —
         // за прямим запитом користувача, щоб це було видно в адмінці, а не лише в HUD телефону
         telemetryRef.current.scanErrors += 1;
+      } finally {
+        // Звільняємо ЩОЙНО тут (не після sendTelemetry() нижче) — сам скан (важка частина,
+        // потенційно повільна через живий Overpass, див. коментар вище біля scanInFlightRef)
+        // уже повністю завершився; sendTelemetry() — легкий одиночний POST, паралельний виклик
+        // якого наступним тиком не створює тієї самої проблеми накопичення черги.
+        scanInFlightRef.current = false;
       }
 
       // ВИПРАВЛЕНО (за прямим запитом користувача — двічі поспіль "телеметрии маловато") —
@@ -484,7 +585,7 @@ export default function BtwScanPage() {
     return () => {
       if (scanTimerRef.current) clearInterval(scanTimerRef.current);
     };
-  }, [phase, position, heading, showFallback]);
+  }, [phase, position, heading, showFallback, localScannerReady]);
 
   // Надсилає накопичені лічильники й скидає їх — §6 ТЗ "агрегаты сессии, без координат"
   // (жодних lat/lng тут немає навмисно). Викликається періодично (раз на 3 скани) і при
@@ -820,6 +921,11 @@ export default function BtwScanPage() {
       {showHud && (
         <div className="absolute top-9 right-2 z-10 max-w-[220px] rounded bg-black/70 px-2 py-2 text-[10px] leading-snug text-gray-200">
           <div>GPS: {position ? `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)} (±${Math.round(position.accuracyM)}м)` : '—'}</div>
+          {/* §8.1/§4.7.5 ТЗ — видимість, який шлях сканування зараз активний: локальний
+              Worker (тайли завантажені для цього міста) чи серверний фолбек /api/scan
+              (типовий випадок у цьому середовищі — тайли ще не згенеровані, див.
+              doc/AUDIT-btw-radar-m1-m2.md). */}
+          <div>Режим скана: {localScannerReady ? '🟢 локально (Worker)' : '⚪ сервер (/api/scan)'}</div>
           {usedDevOverride && <div className="text-yellow-400">⚠️ используется подмена координат (dev)</div>}
           <div>Сырой азимут: {heading != null ? `${Math.round(heading)}°` : '—'}</div>
           <div>Гироскоп: {hasGyroRef.current ? 'активен' : 'нет данных'}</div>

@@ -39,6 +39,18 @@ export function angularTolerance(accuracyM: number, targetDistanceM: number, hea
   return Math.max(10, Math.min(35, raw));
 }
 
+// Верхня межа target.radiusM (див. computeTargetZone нижче) — ВИНЕСЕНО в іменовану експортовану
+// константу (за прямим запитом користувача, під час діагностики "Цель вне радиуса действия
+// камеры" попри "покрытие 100%" у списку сканування): раніше це число (120) було вписане
+// одразу у ДВОХ місцях — тут і в BtwService.assertWithinConeOfCamera() — як незалежні "магічні"
+// літерали. Ф2 (passesConeFilter нижче) дозволяє кандидату потрапити у список сканування, якщо
+// його дистанція в межах `camera.rangeMeters + target.radiusM`; assertWithinConeOfCamera()
+// раніше не мала жодного допуску взагалі, тож кандидат з дистанцією саме в цьому проміжку
+// коректно ПОКАЗУВАВСЯ, але ЗАВЖДИ провалював реальний тап. Спільна константа гарантує, що
+// обидві перевірки лишаться синхронізованими надалі, а не розійдуться знову при майбутній
+// правці однієї з них.
+export const MAX_TARGET_RADIUS_M = 120;
+
 // §4.3 ТЗ — ціль ставиться за замовчуванням на фіксовану дистанцію вздовж променя погляду.
 // ⚠️ Спрощення (див. AUDIT-btw.md): справжній findOccluder() (§4.2) потребує геометрії
 // будівель на промені — на сервері без завантажених тайлів це означало б Overpass-запит
@@ -54,7 +66,7 @@ export function computeTargetZone(observer: LatLng, heading: number, opts?: { ta
 
   const point = opts?.targetOverride ?? destinationPoint(observer, heading, distanceM);
   const actualDistance = opts?.targetOverride ? haversineDistance(observer, opts.targetOverride) : distanceM;
-  const radiusM = Math.max(25, Math.min(120, actualDistance * Math.tan((15 * Math.PI) / 180)));
+  const radiusM = Math.max(25, Math.min(MAX_TARGET_RADIUS_M, actualDistance * Math.tan((15 * Math.PI) / 180)));
 
   return { point, radiusM, distanceM: actualDistance, occluded: opts?.occluderDistanceM != null };
 }
