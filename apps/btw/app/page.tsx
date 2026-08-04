@@ -119,6 +119,11 @@ export default function BtwScanPage() {
   // /btw/thumb-image підтримує лише його — див. коментар у BtwService.fetchThumbImage), збій
   // VPN/проксі, чи камера все одно заблокувала навіть проксі-IP.
   const [thumbLoadFailed, setThumbLoadFailed] = useState(false);
+  // За прямим запитом користувача ("нужно сделать подсказки снизу кликабельными") — видимий
+  // стан тапу: яка саме картка зараз вантажиться (disabled + спінер) і людський текст
+  // помилки, якщо /thumb повернув не-200 — раніше тап просто нічого не показував.
+  const [lockingCameraId, setLockingCameraId] = useState<string | null>(null);
+  const [lockError, setLockError] = useState<string | null>(null);
   const [xrayOpacity, setXrayOpacity] = useState(70);
   // У5 ТЗ — стан vision-уточнення: клієнтський cooldown-таймер (додатково до серверного
   // rate-limit, який є реальною точкою контролю — клієнтський лише для UX, щоб не показувати
@@ -173,6 +178,11 @@ export default function BtwScanPage() {
   const headingSamplesRef = useRef<number[]>([]);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScanRef = useRef<{ heading: number; lat: number; lng: number } | null>(null);
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "нужно сделать подсказки снизу
+  // кликабельными") — тут зберігаємо САМЕ ТУ цільову точку, яку /btw/scan щойно порахував
+  // (тепер приходить у result.target), щоб handleLock() передавав її в /btw/thumb замість
+  // власної GPS-позиції користувача (детальний розбір — btw.service.ts::ScanResult).
+  const scanTargetRef = useRef<{ lat: number; lng: number } | null>(null);
   // За прямим запитом користувача — реальне трекування лічильників телеметрії сесії (раніше
   // ендпоінт /btw/telemetry існував на сервері, але клієнт його жодного разу не викликав!).
   // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — доданo fallbackOffered/fallbackUsed для
@@ -417,6 +427,9 @@ export default function BtwScanPage() {
           const newDirect: Candidate[] = result.direct ?? [];
           setCandidates(newDirect);
           setFallbackCandidates(result.fallback ?? []);
+          // ВИПРАВЛЕНО — саме ця точка (не власна GPS-позиція) тепер летить у /thumb при
+          // тапі на будь-якого з цих кандидатів (handleLock/handleRadarSelect).
+          if (result.target) scanTargetRef.current = result.target;
           if (newDirect.length > 0 && showFallback) {
             setShowFallback(false);
             setFallbackNotice('Найден прямой ракурс!');
@@ -513,13 +526,22 @@ export default function BtwScanPage() {
     const rawBias = computeHeadingBias(candidate.bearingToTarget, heading);
     headingBiasRef.current = blendHeadingBias(headingBiasRef.current, rawBias);
 
-    const targetLat = position.lat; // спрощено — сервер сам знає ціль по cameraId+bearingToTarget з попереднього /scan; тут для простоти MVP передаємо позицію+heading ще раз через thumb
+    // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "нужно сделать подсказки снизу
+    // кликабельными"): раніше тут стояла ВЛАСНА GPS-позиція користувача замість справжньої
+    // цільової точки — assertWithinConeOfCamera() на сервері рахує відстань КАМЕРА->ЦЯ_ТОЧКА,
+    // і для SIDE-кандидатів (де реальна ціль лежить осторонь від того, де фізично стоїть
+    // користувач) це часто перевищувало camera.rangeMeters -> тихий 400, тап виглядав
+    // "нежива кнопка". Тепер беремо ту саму точку, яку /btw/scan щойно порахував і повернув
+    // у result.target (scanTargetRef) — а не вигадуємо її заново.
+    const target = scanTargetRef.current ?? { lat: position.lat, lng: position.lng }; // фолбек на позицію користувача — лише якщо ще жодного scan-результату не було (не мало б траплятись, кандидати з'являються саме зі scan)
+    setLockingCameraId(candidate.cameraId);
+    setLockError(null);
     try {
       const res = await fetch('/api/thumb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ cameraId: candidate.cameraId, targetLat, targetLng: position.lng }),
+        body: JSON.stringify({ cameraId: candidate.cameraId, targetLat: target.lat, targetLng: target.lng }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -529,9 +551,17 @@ export default function BtwScanPage() {
         setPhase('locked');
         telemetryRef.current.locks += 1;
         if ((navigator as any).vibrate) (navigator as any).vibrate(40);
+      } else {
+        // ВИПРАВЛЕНО — раніше невдача тут не показувала АБСОЛЮТНО нічого (той самий клас
+        // проблеми, що вже виправлений для <img onError> нижче): бекенд віддає людський
+        // message (BadRequestException('Камера недоступна') тощо) — показуємо саме його.
+        const body = await res.json().catch(() => null);
+        setLockError(body?.message ?? `Камера не отвечает (${res.status})`);
       }
     } catch {
-      // тихо ігноруємо — MVP
+      setLockError('Нет соединения с сервером — попробуйте ещё раз');
+    } finally {
+      setLockingCameraId(null);
     }
   }
 
@@ -676,13 +706,32 @@ export default function BtwScanPage() {
             прокси) или недоступна даже через VPN.
           </div>
         )}
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between rounded-lg bg-black/50 px-3 py-2 text-sm">
-          <span>
-            {Math.round(lockedCandidate.distanceM)} м · {lockedCandidate.orientationFit === 'OPPOSING' && '⚠️ встречный ракурс'}
-          </span>
-          <button onClick={exitLock} className="rounded-full bg-white/20 px-3 py-1">
-            ✕
-          </button>
+        <div className="absolute top-4 left-4 right-4 rounded-lg bg-black/50 px-3 py-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span>
+              {Math.round(lockedCandidate.distanceM)} м · {lockedCandidate.orientationFit === 'OPPOSING' && '⚠️ встречный ракурс'}
+            </span>
+            <button onClick={exitLock} className="rounded-full bg-white/20 px-3 py-1">
+              ✕
+            </button>
+          </div>
+          {/* За прямим запитом користувача ("подсказывать при трансляции отличие ракурса
+              камеры от ракурса телефона") — точна категорія (ALIGNED/SIDE/OPPOSING) вже
+              порахована сервером із РЕАЛЬНОГО азимута камери (той самий orientationFit, що й
+              вище); тут — жива кількість градусів, що оновлюється разом із компасом, поки
+              триває перегляд. ⚠️ Наближення: точний азимут камери клієнту не передається —
+              використано bearingToTarget (та сама величина, що вже дала orientationFit; при
+              проходженні конуса вона близька до справжнього азимута камери, див.
+              btw-geometry.util.ts::passesConeFilter). */}
+          {heading != null && (
+            <p className="mt-1 text-xs text-gray-300">
+              Расхождение ракурса камеры и телефона: ~
+              {Math.round(Math.abs((((lockedCandidate.bearingToTarget + 180 - heading + 540) % 360) - 180)))}°{' '}
+              {lockedCandidate.orientationFit === 'ALIGNED' && '(почти совпадает)'}
+              {lockedCandidate.orientationFit === 'SIDE' && '(сбоку)'}
+              {lockedCandidate.orientationFit === 'OPPOSING' && '(встречный)'}
+            </p>
+          )}
         </div>
         <div className="absolute bottom-8 left-4 right-4 space-y-3">
           <div>
@@ -824,12 +873,20 @@ export default function BtwScanPage() {
           <button
             key={c.cameraId}
             onClick={() => handleLock(c)}
-            className="mb-2 flex w-full items-center justify-between rounded-lg bg-white/10 px-4 py-3 text-left"
+            disabled={lockingCameraId === c.cameraId}
+            className="mb-2 flex w-full items-center justify-between rounded-lg bg-white/10 px-4 py-3 text-left disabled:opacity-50"
           >
             <span>{Math.round(c.distanceM)} м</span>
-            <span className="text-xs text-gray-400">покрытие {Math.round(c.coverage * 100)}%</span>
+            <span className="text-xs text-gray-400">{lockingCameraId === c.cameraId ? 'Загрузка…' : `покрытие ${Math.round(c.coverage * 100)}%`}</span>
           </button>
         ))}
+
+        {/* ВИПРАВЛЕНО (за прямим запитом користувача — "нужно сделать подсказки снизу
+            кликабельными") — раніше невдалий тап на картку не показував НІЧОГО, виглядало,
+            наче кнопка "мертва". Тепер показуємо реальну причину з бекенда. */}
+        {lockError && (
+          <p className="mb-2 rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">⚠️ {lockError}</p>
+        )}
 
         {/* М2 ТЗ (doc/TZ-btw-side-reverse-view.md §2-4) — резервний рівень з'являється ЛИШЕ
             коли direct порожній, і розкривається ЛИШЕ явним тапом користувача, а не
@@ -852,11 +909,12 @@ export default function BtwScanPage() {
             <button
               key={c.cameraId}
               onClick={() => handleLock(c)}
-              className="mb-2 flex w-full flex-col items-start rounded-lg border border-yellow-500/30 bg-white/10 px-4 py-3 text-left"
+              disabled={lockingCameraId === c.cameraId}
+              className="mb-2 flex w-full flex-col items-start rounded-lg border border-yellow-500/30 bg-white/10 px-4 py-3 text-left disabled:opacity-50"
             >
               <div className="flex w-full items-center justify-between">
                 <span>{Math.round(c.distanceM)} м</span>
-                <span className="text-xs text-gray-400">покрытие {Math.round(c.coverage * 100)}%</span>
+                <span className="text-xs text-gray-400">{lockingCameraId === c.cameraId ? 'Загрузка…' : `покрытие ${Math.round(c.coverage * 100)}%`}</span>
               </div>
               {/* §4 ТЗ — явне попередження про приватність саме для OPPOSING (не нейтральна
                   мітка, а прямий текст "можете бути видні ви самі") — єдиний випадок у

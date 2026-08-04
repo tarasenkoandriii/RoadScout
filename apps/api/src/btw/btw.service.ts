@@ -28,6 +28,18 @@ import {
 export interface ScanResult {
   direct: RankedCandidate[];
   fallback: RankedCandidate[];
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "нужно сделать подсказки снизу
+  // кликабельными", деякі fallback-картки просто нічого не робили по тапу): клієнт
+  // (apps/btw/app/page.tsx::handleLock) раніше НЕ мав справжньої цільової точки для
+  // /btw/thumb і замість неї повторно слав ВЛАСНУ поточну GPS-позицію користувача —
+  // assertWithinConeOfCamera() тоді перевіряє відстань від КАМЕРИ до цієї (хибної) точки,
+  // а не до реальної цільової зони, яку щойно порахував /scan (та, що дала candidate.distanceM
+  // і пройшла Ф2/Ф3). Для SIDE-кандидатів (де ціль лежить осторонь від того, де фактично стоїть
+  // користувач) відстань камера->власна_позиція_юзера часто перевищує camera.rangeMeters,
+  // навіть коли відстань камера->справжня_ціль — ні -> 400 "Цель вне радиуса действия камеры"
+  // -> тап виглядає "нежива кнопка". Тепер сервер повертає саму цільову точку в відповіді
+  // /scan, і клієнт передає САМЕ ЇЇ назад у /thumb, а не власну позицію.
+  target: { lat: number; lng: number };
   debug: {
     rawHeading: number;
     effectiveHeading: number;
@@ -210,6 +222,7 @@ export class BtwService {
     return {
       direct,
       fallback,
+      target: { lat: target.point.lat, lng: target.point.lng },
       debug: {
         rawHeading: pose.heading,
         effectiveHeading,
