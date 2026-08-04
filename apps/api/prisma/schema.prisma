@@ -218,6 +218,10 @@ model Camera {
 
   @@index([cityId])
   @@index([deletedAt])
+  // За прямим запитом користувача — checkAll() (monitoring.service.ts) тепер сортує камери
+  // за lastCheckedAt (найдавніші/null — першими) на КОЖЕН прохід (раз на 15хв, весь реєстр);
+  // без індексу це full-table sort щоразу. Той самий принцип, що вже й для dashboard().
+  @@index([lastCheckedAt])
 }
 
 model CameraSourceRaw {

@@ -24,6 +24,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// За прямим запитом користувача — скільки камер перевіряти ОДНОЧАСНО в checkAll() (раніше
+// був один необмежений Promise.all на ВСІ камери одразу — див. коментар біля checkAll()
+// нижче). Той самий підхід "конфігурується env-змінною з розумним дефолтом", що вже
+// getContentCheckTimeBudgetMs()/getContentCheckDelayMs() вище.
+function getMonitoringConcurrency(): number {
+  const v = parseInt(process.env.MONITORING_CHECK_CONCURRENCY ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 20;
+}
+
 @Injectable()
 export class MonitoringService {
   private readonly logger = new Logger(MonitoringService.name);
@@ -84,15 +93,38 @@ export class MonitoringService {
     return { totalYoutubeCameras: cameras.length, checked, disabled, truncated };
   }
 
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "в первую очередь мониторить те камеры по
+  // которым еще не было мониторинга либо мониторинг был давнее всего"): раніше findMany() тут
+  // не мав ЖОДНОГО orderBy, а всі камери одразу летіли в ОДИН необмежений Promise.all — тобто
+  // порядок масиву не впливав НІ НА ЩО (усі мережеві проби стартують синхронно в одну мить).
+  // Якщо сам запит (cron/serverless) обривається таймаутом ДО завершення всіх проб, "виживають"
+  // довільні камери — залежно від того, чия мережева відповідь прийшла швидше, а не від того,
+  // як давно її перевіряли востаннє.
+  //
+  // Тепер: (1) камери БЕЗ жодної перевірки (lastCheckedAt=null) і найдавніше перевірені —
+  // сортуються НА ПОЧАТОК (той самий принцип "never-tried перед attempted", що вже є в
+  // cameras.service.ts::autoCalibrateBatch() для авто-калібрування); (2) обробляються ЧАНКАМИ
+  // з обмеженою паралельністю (getMonitoringConcurrency(), той самий принцип поступового
+  // прогресу, що вже checkContentAvailability() вище використовує через бюджет часу) — якщо
+  // прохід десь обірветься, вже оброблені (найсталіші) камери своє lastCheckedAt точно
+  // отримали, а не довільна підмножина. "Проверить все" (кнопка в адмінці) як і раніше
+  // проходить УСІ камери — просто в іншому порядку й не всі одночасно.
   async checkAll() {
     const cameras = await this.prisma.camera.findMany({
       where: { status: { not: 'DISABLED_SECURITY' }, deletedAt: null }, // manual security overrides are never auto-touched
+      orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }],
     });
 
+    const concurrency = getMonitoringConcurrency();
     // NOTE: checkOne() always catches its own errors internally and resolves with 'OFFLINE'
     // rather than rejecting — so Promise.allSettled would always report 0 rejections here.
     // Count outcomes by the returned status instead.
-    const statuses = await Promise.all(cameras.map((camera) => this.checkOne(camera)));
+    const statuses: Array<'ONLINE' | 'DELAYED' | 'OFFLINE'> = [];
+    for (let i = 0; i < cameras.length; i += concurrency) {
+      const chunk = cameras.slice(i, i + concurrency);
+      const chunkStatuses = await Promise.all(chunk.map((camera) => this.checkOne(camera)));
+      statuses.push(...chunkStatuses);
+    }
 
     return {
       checked: statuses.length,
