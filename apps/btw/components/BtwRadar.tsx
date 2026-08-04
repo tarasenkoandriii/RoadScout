@@ -9,17 +9,18 @@ import React, { useEffect, useRef } from 'react';
 // requestAnimationFrame-циклу — не грати батарею дарма під час активного GPS+компас
 // сканування, перемальовується лише коли міняються heading/candidates), БЕЗ Web Worker і
 // БЕЗ PMTiles/офлайн-геометрії (це лишається задокументованим у doc/AUDIT-btw.md як окремий
-// майбутній обсяг), і ВИКОРИСТОВУЄ ЛИШЕ ті дані, що вже приходять у відповіді /btw/scan для
-// компас-стрічки нижче (bearingToTarget, distanceM, orientationFit) — жодного нового
-// мережевого поля чи ендпоінту цей компонент не вимагає.
+// майбутній обсяг), і БЕЗ окремого ендпоінту — поверх тих самих полів, що вже приходять у
+// відповіді /btw/scan (bearingToTarget, distanceM, orientationFit).
 //
-// ⚠️ ЧЕСНО: "сектор" навколо кожної точки тут — СТИЛІЗОВАНЕ наближення напрямку, куди
-// дивиться камера, а НЕ її справжній азимут (cam.azimuth ніколи не передавався клієнту, і
-// користувач прямо попросив не чіпати мережевий шар для цього кроку). orientationFit
-// (ALIGNED/SIDE/OPPOSING) — це вже готова серверна класифікація "куди дивиться камера
-// відносно вас" (btw-geometry.util.ts::classifyOrientationFit), з неї сектор відновлюється
-// однозначно: ALIGNED — камера дивиться НА вас (вусик від камери до центру радара), OPPOSING
-// — камера дивиться ТУДИ Ж, куди й ви (вусик від центру), SIDE — упоперек променя.
+// ⚠️ ОНОВЛЕНО: спершу секторів тут узагалі не було реальних (cam.azimuth не передавався
+// клієнту) — нижче саме тому й описано, чому це довелось змінити.
+//
+// ВИПРАВЛЕНО (реальний баг, знайдений користувачем на скріні — locked-view показував "~84°"
+// поруч із міткою "почти совпадает", хоча ALIGNED вимагає delta≤45°): "сектор" тут раніше був
+// СТИЛІЗОВАНИМ наближенням з orientationFit, бо cam.azimuth не передавався клієнту. Сервер
+// тепер віддає справжній cameraAzimuth (btw.service.ts, той самий, що вже й
+// classifyOrientationFit() використовує) — сектор тепер малюється з РЕАЛЬНОГО азимута камери,
+// не з категорії.
 
 export interface BtwRadarCandidate {
   cameraId: string;
@@ -27,6 +28,7 @@ export interface BtwRadarCandidate {
   bearingToTarget: number;
   coverage: number;
   orientationFit: 'ALIGNED' | 'SIDE' | 'OPPOSING';
+  cameraAzimuth: number;
   isFallback: boolean;
 }
 
@@ -95,19 +97,27 @@ export default function BtwRadar({ heading, candidates, onSelect }: BtwRadarProp
     const hitAreas: { cameraId: string; x: number; y: number; r: number }[] = [];
 
     if (heading != null) {
+      const headingDeg = heading; // локальна звужена константа — heading: number|null, а
+      // замикання нижче фіксується один раз тут, TS звужує тип лише в цьому блоці.
+
+      // Переводить світовий азимут (0..360°, північ=0) у кут канваса в heading-up режимі —
+      // той самий розрахунок, що вже використовує компас-стрічка нижче (rel = bearing - heading),
+      // винесений сюди один раз, бо тепер застосовується і до позиції точки (bearingToTarget), і
+      // окремо до напрямку сектора (cameraAzimuth).
+      const worldBearingToCanvasAngle = (worldBearingDeg: number) => {
+        const rel = ((worldBearingDeg - headingDeg + 540) % 360) - 180;
+        return ((rel - 90) * Math.PI) / 180; // 0° (попереду) -> вгору канвасу
+      };
+
       for (const c of candidates) {
-        // Той самий розрахунок відносного напрямку, що вже використовує компас-стрічка
-        // нижче (rel = bearingToTarget - heading) — лише інша візуалізація тих самих даних.
-        const rel = ((c.bearingToTarget - heading + 540) % 360) - 180;
-        const angleRad = ((rel - 90) * Math.PI) / 180; // 0° (попереду) -> вгору канвасу
+        const angleRad = worldBearingToCanvasAngle(c.bearingToTarget);
         const clampedDist = Math.min(c.distanceM, MAX_RANGE_M);
         const r = (clampedDist / MAX_RANGE_M) * maxR;
         const x = cx + r * Math.cos(angleRad);
         const y = cy + r * Math.sin(angleRad);
 
-        let wedgeCenterRad = angleRad + Math.PI; // ALIGNED — вусик до центру (камера дивиться на вас)
-        if (c.orientationFit === 'OPPOSING') wedgeCenterRad = angleRad; // вусик від центру
-        if (c.orientationFit === 'SIDE') wedgeCenterRad = angleRad + Math.PI / 2; // упоперек
+        // Напрямок сектора — справжній азимут камери, переведений у ту саму систему координат.
+        const wedgeCenterRad = worldBearingToCanvasAngle(c.cameraAzimuth);
 
         const wedgeHalf = (28 * Math.PI) / 180;
         const wedgeLen = 13;

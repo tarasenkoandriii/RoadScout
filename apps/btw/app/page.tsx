@@ -71,6 +71,10 @@ interface Candidate {
   coverage: number;
   orientationFit: 'ALIGNED' | 'SIDE' | 'OPPOSING';
   score: number;
+  // ВИПРАВЛЕНО — раніше клієнт наближав азимут камери через bearingToTarget (похибка до
+  // fovAngle/2, реально спостережено ~84° розбіжності проти orientationFit на скріні
+  // користувача). Тепер сервер віддає справжній cam.azimuth напряму (btw.service.ts).
+  cameraAzimuth: number;
 }
 
 // За прямим запитом користувача — debug-інформація з /btw/scan, потрібна для HUD під час
@@ -84,6 +88,7 @@ interface ScanDebug {
   camerasInBbox: number;
   coneSurvivors: number;
   finalCandidates: number;
+  headingUncertaintyDeg: number;
 }
 
 type Phase = 'intro' | 'requesting' | 'scanning' | 'locked' | 'error';
@@ -719,14 +724,18 @@ export default function BtwScanPage() {
               камеры от ракурса телефона") — точна категорія (ALIGNED/SIDE/OPPOSING) вже
               порахована сервером із РЕАЛЬНОГО азимута камери (той самий orientationFit, що й
               вище); тут — жива кількість градусів, що оновлюється разом із компасом, поки
-              триває перегляд. ⚠️ Наближення: точний азимут камери клієнту не передається —
-              використано bearingToTarget (та сама величина, що вже дала orientationFit; при
-              проходженні конуса вона близька до справжнього азимута камери, див.
-              btw-geometry.util.ts::passesConeFilter). */}
+              триває перегляд.
+              ВИПРАВЛЕНО (реальний баг, знайдений користувачем на скріні — число тут
+              показувало ~84° одночасно з міткою "почти совпадает", хоча ALIGNED вимагає
+              delta≤45°): раніше тут наближали азимут камери через bearingToTarget (похибка до
+              fovAngle/2 — камери з широким FOV легко давали саме таку розбіжність). Тепер
+              рахуємо ТОЧНО ту саму формулу, що й classifyOrientationFit() на сервері
+              (btw-geometry.util.ts), але з РЕАЛЬНИМ cameraAzimuth — число завжди узгоджене з
+              міткою. */}
           {heading != null && (
             <p className="mt-1 text-xs text-gray-300">
               Расхождение ракурса камеры и телефона: ~
-              {Math.round(Math.abs((((lockedCandidate.bearingToTarget + 180 - heading + 540) % 360) - 180)))}°{' '}
+              {Math.round(Math.abs((((((lockedCandidate.cameraAzimuth + 180) % 360) - heading + 540) % 360) - 180)))}°{' '}
               {lockedCandidate.orientationFit === 'ALIGNED' && '(почти совпадает)'}
               {lockedCandidate.orientationFit === 'SIDE' && '(сбоку)'}
               {lockedCandidate.orientationFit === 'OPPOSING' && '(встречный)'}
@@ -802,6 +811,10 @@ export default function BtwScanPage() {
               <div>После snap (У3): {scanDebug.snapped ? `${Math.round(scanDebug.effectiveHeading)}° (притянуто)` : `${Math.round(scanDebug.effectiveHeading)}° (без snap)`}</div>
               <div>Уличных направлений рядом: {scanDebug.streetCandidatesFound}</div>
               <div>Камер в радиусе 2.5км: {scanDebug.camerasInBbox}</div>
+              {/* ВИПРАВЛЕНО — раніше цей запас узагалі не застосовувався (мертвий код,
+                  btw-geometry.util.ts::angularTolerance) — тепер видно, наскільки конус
+                  розширено проти шуму компаса на цьому скані. */}
+              <div>Допуск на шум компаса: ±{Math.round(scanDebug.headingUncertaintyDeg)}°</div>
               <div>Прошли конус (Ф2): {scanDebug.coneSurvivors}</div>
               <div>Итоговых кандидатов: {scanDebug.finalCandidates}</div>
             </>

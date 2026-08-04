@@ -49,6 +49,10 @@ export interface ScanResult {
     camerasInBbox: number;
     coneSurvivors: number;
     finalCandidates: number;
+    // За прямим запитом користувача — видимість того, наскільки зараз "розширено" конус
+    // проти шуму компаса (§4.4 ТЗ, раніше не застосовувалось узагалі — див. коментар біля
+    // passesConeFilter() у btw-geometry.util.ts).
+    headingUncertaintyDeg: number;
   };
 }
 
@@ -160,7 +164,15 @@ export class BtwService {
     });
 
     // Ф2 — конус без окклюзії (дешева перевірка, без мережевих викликів).
-    const coneSurvivors = roughCandidates.filter((cam) => passesConeFilter(cam, target));
+    //
+    // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "приложение часто пишет кандидатов
+    // не найдено, а рядом 10 камер"): angularTolerance() (§4.4 ТЗ) була написана, але
+    // ніколи не викликалася — конус не мав ЖОДНОГО запасу на headingSigma (похибку компаса).
+    // На пристроях без гироскопа (типовий випадок, судячи зі скрінів користувача — "Гироскоп:
+    // нет данных") звичайний шум магнітометра в кілька градусів був досить, щоб кандидат
+    // щотика "зникав/з'являвся". Тепер цей запас реально додається до допуску конуса.
+    const headingUncertaintyDeg = angularTolerance(pose.accuracyM, target.distanceM, pose.headingSigma);
+    const coneSurvivors = roughCandidates.filter((cam) => passesConeFilter(cam, target, headingUncertaintyDeg));
 
     // Ф3 — LOS-перевірка через уже наявний OcclusionService (реальний, живий запит до
     // Overpass — на відміну від ТЗ, де це локальний R-tree-пошук по завантажених тайлах;
@@ -198,6 +210,7 @@ export class BtwService {
         coverage,
         orientationFit,
         score,
+        cameraAzimuth: cam.azimuth,
       });
     }
 
@@ -232,6 +245,7 @@ export class BtwService {
         camerasInBbox: roughCandidates.length,
         coneSurvivors: coneSurvivors.length,
         finalCandidates: direct.length + fallback.length,
+        headingUncertaintyDeg,
       },
     };
   }

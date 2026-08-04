@@ -83,17 +83,35 @@ export interface RankedCandidate {
   coverage: number;
   orientationFit: OrientationFitLabel;
   score: number;
+  // За прямим запитом користувача — раніше клієнт (apps/btw/app/page.tsx, "ракурс camera vs
+  // телефона" підказка в locked-view, і components/BtwRadar.tsx, сектори на радарі)
+  // НЕ мав справжнього азимута камери й наближав його через bearingToTarget — похибка цього
+  // наближення сягає fovAngle/2 (реально спостережено ~84° розбіжності на камері, чий
+  // orientationFit сервер класифікував як ALIGNED — суперечність, яку користувач помітив на
+  // скріні). Тепер віддаємо cam.azimuth напряму — той самий, що вже й classifyOrientationFit()
+  // використовує, тож візуалізації клієнта завжди узгоджені з категорією.
+  cameraAzimuth: number;
 }
 
 // §4.5 ТЗ, Ф2 — геометрія конуса без окклюзії. cameraSeesPoint() з common/geometry.util.ts
 // вже реалізує саме цю перевірку (дистанція ≤ range І кут ≤ fov/2) — тут лише додаємо запас
 // на радіус цільової зони r_T, як у формулі ТЗ (`|Δaz| ≤ fov_h/2 + atan2(r_T, d_ct)`).
-export function passesConeFilter(cam: CameraSector, target: TargetZone): boolean {
+//
+// ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "приложение часто пишет кандидатов не
+// найдено, а рядом 10 камер"): angularTolerance() (§4.4 ТЗ, нижче) — "чим гірший GPS і чим
+// ближче ціль, тим ширший конус" — була написана, але НІКОЛИ фактично не викликалася звідси
+// (мертвий код, перевірено grep по всьому apps/api). Через це конус узагалі не мав запасу на
+// headingSigma (похибку компаса, яку клієнт сам і рахує та шле у /scan) — на пристроях БЕЗ
+// гироскопа (всі скріни користувача показують "Гироскоп: нет данных", лише медіанний фільтр
+// по 5 відліках без ф'южна) звичайний шум магнітометра в кілька градусів був досить, щоб
+// кандидат щотика "зникав/з'являвся" — саме симптом "то находит то не находит". Тепер
+// headingUncertaintyDeg (з angularTolerance()) реально додається до допуску конуса.
+export function passesConeFilter(cam: CameraSector, target: TargetZone, headingUncertaintyDeg = 0): boolean {
   const distanceM = haversineDistance(cam, target.point);
   if (distanceM > cam.rangeMeters + target.radiusM) return false;
   const bearingToTarget = bearing(cam, target.point);
   const toleranceExtra = (Math.atan2(target.radiusM, Math.max(1, distanceM)) * 180) / Math.PI;
-  return angularDiff(bearingToTarget, cam.azimuth) <= cam.fovAngle / 2 + toleranceExtra;
+  return angularDiff(bearingToTarget, cam.azimuth) <= cam.fovAngle / 2 + toleranceExtra + headingUncertaintyDeg;
 }
 
 // §4.6 ТЗ — скоринг і ранжування. Ваги узяті прямо з ТЗ.
