@@ -124,6 +124,15 @@ export default function BtwScanPage() {
   // /btw/thumb-image підтримує лише його — див. коментар у BtwService.fetchThumbImage), збій
   // VPN/проксі, чи камера все одно заблокувала навіть проксі-IP.
   const [thumbLoadFailed, setThumbLoadFailed] = useState(false);
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "в основном это камеры которые отдают поток
+  // периодических снимков - в админке мы уже решали эту проблему"): раніше <img src={thumbUrl}>
+  // запитувався ОДИН РАЗ при заході в locked-фазу й більше ніколи — для камери, що сама себе
+  // оновлює десь раз на ~2с (NYC DOT, nyctmc.adapter.ts), це давало один-єдиний (можливо,
+  // застарілий на момент показу) кадр назавжди. Той самий підхід, що вже працює в адмінці
+  // (apps/admin/app/embed/[id]/page.tsx — snapshotRefreshTick, 3000мс, cache-bust `_t=`):
+  // періодично міняємо query-параметр в src, змушуючи браузер перезапитати /btw/thumb-image
+  // (який тепер сам теж додає cache-bust до запиту ДО камери, див. btw.service.ts).
+  const [thumbRefreshTick, setThumbRefreshTick] = useState(0);
   // За прямим запитом користувача ("нужно сделать подсказки снизу кликабельными") — видимий
   // стан тапу: яка саме картка зараз вантажиться (disabled + спінер) і людський текст
   // помилки, якщо /thumb повернув не-200 — раніше тап просто нічого не показував.
@@ -552,6 +561,7 @@ export default function BtwScanPage() {
         const data = await res.json();
         setThumbUrl(data.url);
         setThumbLoadFailed(false);
+        setThumbRefreshTick(0);
         setLockedCandidate(candidate);
         setPhase('locked');
         telemetryRef.current.locks += 1;
@@ -650,6 +660,17 @@ export default function BtwScanPage() {
     setPhase('scanning');
   }
 
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "в основном это камеры которые отдают поток
+  // периодических снимков - в админке мы уже решали эту проблему"): той самий 3000мс
+  // cache-bust-polling, що вже в апробований в адмінці (embed/[id]/page.tsx,
+  // cameras/[id]/calibrate/page.tsx) — тут той самий інтервал, лише скинутий у 0 при кожному
+  // новому замку, і зупинений, щойно locked-фаза закінчується (exitLock/новий скан).
+  useEffect(() => {
+    if (phase !== 'locked') return;
+    const interval = setInterval(() => setThumbRefreshTick((t) => t + 1), 3000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
   if (phase === 'intro') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-6 text-white text-center">
@@ -696,13 +717,19 @@ export default function BtwScanPage() {
     return (
       <div className="relative min-h-screen bg-black text-white">
         {hasCamera && <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />}
-        {thumbUrl && !thumbLoadFailed && (
+        {/* ВИПРАВЛЕНО — раніше <img> взагалі НЕ рендерився після invalid onError (умова була
+            thumbUrl && !thumbLoadFailed), тож наступний cache-bust тик src нижче не мав на
+            чому спрацювати — елемент просто не існував у DOM, і кадр ніколи не міг
+            "самовилікуватись" на наступному успішному опитуванні. Тепер <img> лишається
+            змонтованим завжди (просто прозорим під час збою), а onLoad повертає видимість. */}
+        {thumbUrl && (
           <img
-            src={thumbUrl}
+            src={`${thumbUrl}${thumbUrl.includes('?') ? '&' : '?'}_t=${thumbRefreshTick}`}
             alt="Camera feed"
             className="absolute inset-0 h-full w-full object-cover"
-            style={{ opacity: xrayOpacity / 100, mixBlendMode: 'screen' }}
+            style={{ opacity: thumbLoadFailed ? 0 : xrayOpacity / 100, mixBlendMode: 'screen' }}
             onError={() => setThumbLoadFailed(true)}
+            onLoad={() => setThumbLoadFailed(false)}
           />
         )}
         {thumbLoadFailed && (
