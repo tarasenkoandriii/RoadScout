@@ -118,14 +118,93 @@ const OVERPASS_QUERY_TIMEOUT_S = 90;
 // geocoding.service.ts).
 const OVERPASS_USER_AGENT = 'RoadScout-BTW-TileGenerator/1.0 (+https://roadscout.example/bot; tile generation for offline radar scanning)';
 
+// ВИПРАВЛЕНО (реальний, відтворюваний інцидент — скріншот користувача з /admin/btw-tiles:
+// генерація для New York двічі поспіль провалилась з `Overpass HTTP 406`, обидва рази менш
+// ніж за секунду — надто швидко для реального таймауту чи "живого" rate-limit черги). Пошук
+// (community.openstreetmap.org/t/overpass-api-error-406, cadshift.com/blog/qgis-overpass-406)
+// підтверджує: це НЕ пов'язано з відсутністю User-Agent (він уже є вище, попередній крок
+// цього самого запиту користувача) чи з нашим запитом — головний інстанс overpass-api.de
+// останнім часом застосовує "request-shape"-фільтри проти AI-скрейперів, що інколи блокують
+// і легітимних клієнтів так само. Офіційна рекомендація спільноти в такому разі — "не
+// ретраїти той самий ендпоінт (запит не змінюється), перемкнутись на дзеркало". Список
+// дзеркал — ті самі публічні інстанси, що вже досліджені й названі користувачу в цій сесії
+// раніше ("как настроить Overpass"), тепер нарешті реалізовані як fallback-ланцюжок, а не
+// просто перелічені текстом. OVERPASS_ENDPOINTS дозволяє адміну перевизначити список/порядок
+// через env, не чіпаючи код (той самий принцип конфігурованості, що вже в
+// OVERPASS_QUERY_TIMEOUT_S/getContentCheckTimeBudgetMs() тощо по проєкту).
+const DEFAULT_OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+function getOverpassEndpoints(): string[] {
+  const fromEnv = process.env.OVERPASS_ENDPOINTS?.split(',').map((s) => s.trim()).filter(Boolean);
+  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_OVERPASS_ENDPOINTS;
+}
+
+// 406/429/502/503/504 — сигнали "САМЕ ЦЕЙ ендпоінт зараз відмовляє" (бан-фільтр, перевантаження,
+// проксі впав) — варто спробувати дзеркало. Мережевий виняток (fetch кинув, DNS/timeout) —
+// той самий випадок, теж переходимо до наступного дзеркала. Будь-який ІНШИЙ статус (напр. 400
+// — синтаксична помилка в самому Overpass QL-запиті) НЕ ретраїмо на дзеркалах: та сама
+// помилка повториться всюди (запит однаковий), а спроби лише даремно з'їдять секунди з
+// Vercel Hobby-бюджету (doc/AUDIT-vercel-hobby.md).
+const OVERPASS_RETRYABLE_STATUSES = new Set([406, 429, 502, 503, 504]);
+
+// Клієнтський таймаут — трохи більше за [timeout:N] у самому Overpass QL-запиті
+// (OVERPASS_QUERY_TIMEOUT_S вище), бо той таймаут — це ліміт ВИКОНАННЯ запиту НА СЕРВЕРІ
+// Overpass, а не ліміт мережевого round-trip до нього; без власного AbortSignal зависший (не
+// відповідає, але й не рве з'єднання) ендпоінт міг би заблокувати спробу назавжди.
+const OVERPASS_SINGLE_ATTEMPT_TIMEOUT_MS = OVERPASS_QUERY_TIMEOUT_S * 1000 + 15000;
+
+// Спільний бюджет часу на ВЕСЬ ланцюжок спроб (усі дзеркала разом), не на кожну окремо — той
+// самий принцип "startedAt + часовий бюджет", що вже MonitoringService.checkAll()/
+// checkYoutubeAndVisionAvailability() застосовують до перевірки камер (і саме він надихнув цей
+// запит користувача: "мониторинг времени - как уже делали с камерами"). БЕЗ цієї спільної межі
+// цикл по 4 дзеркалах міг би витратити до 4×105с ≈ 420с лише на ОДИН з двох (buildings/streets)
+// запитів, самостійно перевищивши весь ліміт Vercel Hobby (300с) — навіть попри те, що
+// buildings/streets виконуються паралельно (ВИПРАВЛЕНО-коментар біля OVERPASS_QUERY_TIMEOUT_S
+// вище). Коли бюджет вичерпано — зупиняємось і повертаємо останню відому помилку; сам запуск
+// уже ідемпотентний на рівні BtwService.generateTiles()/BtwTileGenerationRun, тож "спробувати
+// ще раз" безпечно, а не тупик.
+const OVERPASS_TOTAL_BUDGET_MS = 120_000;
+
 async function fetchOverpass(query: string): Promise<any> {
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: query,
-    headers: { 'User-Agent': OVERPASS_USER_AGENT },
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  return res.json();
+  const deadline = Date.now() + OVERPASS_TOTAL_BUDGET_MS;
+  let lastError: Error = new Error('Overpass: список эндпоинтов пуст (OVERPASS_ENDPOINTS)');
+  for (const endpoint of getOverpassEndpoints()) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      lastError = new Error(`${lastError.message} (общий бюджет ${OVERPASS_TOTAL_BUDGET_MS / 1000}с на все дзеркала вичерпано)`);
+      break;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: 'POST',
+        body: query,
+        headers: { 'User-Agent': OVERPASS_USER_AGENT },
+        signal: AbortSignal.timeout(Math.min(remainingMs, OVERPASS_SINGLE_ATTEMPT_TIMEOUT_MS)),
+      });
+    } catch (err) {
+      // Мережевий збій самого запиту (DNS/з'єднання скинуто/наш AbortSignal.timeout спрацював)
+      // — той самий випадок, що ретрайний статус нижче: пробуємо наступне дзеркало (якщо
+      // спільний бюджет ще дозволяє).
+      lastError = err instanceof Error ? err : new Error(String(err));
+      continue;
+    }
+    if (res.ok) return res.json();
+
+    lastError = new Error(`Overpass HTTP ${res.status} (${endpoint})`);
+    if (!OVERPASS_RETRYABLE_STATUSES.has(res.status)) {
+      // Не-ретрайний статус (напр. 400 — синтаксична помилка запиту) — та сама помилка
+      // повториться на будь-якому дзеркалі, тож зупиняємось одразу замість марних спроб.
+      throw lastError;
+    }
+    // ретрайний статус (406/429/5xx) — пробуємо наступне дзеркало.
+  }
+  throw lastError;
 }
 
 // Дослівно та сама конструкція запиту, що occlusion.service.ts::fetchNearbyBuildings() вже

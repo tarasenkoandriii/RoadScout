@@ -315,6 +315,11 @@ export default function BtwTilesPage() {
           <code>npx ts-node scripts/generate-btw-tiles.ts {selectedSlug || '<slug>'}</code>. Повторный клик по кнопке безопасен —
           сервер не запустит вторую генерацию параллельно (см. блок выше, если запуск уже идёт).
         </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Ошибка вида <code>Overpass HTTP 406</code> — не сбой запроса и не таймаут, а фильтр против ботов на основном сервере
+          Overpass (реальный случай, поймали на New York) — сервер теперь сам пробует резервные зеркала
+          (<code>tile-generation.util.ts::getOverpassEndpoints()</code>), повторно жать кнопку из-за этой ошибки не нужно.
+        </p>
       </div>
 
       {result && (
