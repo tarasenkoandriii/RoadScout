@@ -16,6 +16,17 @@ import { encodeBuildingsTile } from './tile-format';
 import type { DecodedBuilding, CamerasTile, CamerasTileEntry, StreetsTile, StreetsTileEntry } from './tile-format';
 import * as fs from 'fs';
 import * as path from 'path';
+import axios from 'axios';
+import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
+
+// RegistryProxyService — той самий проксі ("VPN проекту"), яким уже ходять fetchThumbImage()
+// (btw.service.ts) і fetchStreamImageProxy() (cameras.service.ts) в обхід гео-блокувань.
+// Інстанційовано ТУТ напряму (`new`, не Nest DI) — клас не має власних залежностей у
+// конструкторі (лише lazy-побудова http(s)-proxy-agent за потреби), тож окремий екземпляр
+// повністю безпечний і не порушує "чиста логіка без DI" з коментаря на початку файлу — той
+// самий принцип, що вже BtwModule/CamerasModule застосовують ("RegistryProxyService
+// зареєстровано ЯК ОКРЕМИЙ провайдер", див. коментарі там).
+const registryProxy = new RegistryProxyService();
 
 const METERS_PER_DEG_LAT = 111320;
 
@@ -100,11 +111,13 @@ export function computeBboxFromCameras(cameras: { lat: number; lng: number }[], 
 // жорсткий ліміт 300с на функцію (doc/AUDIT-vercel-hobby.md). CLI-скрипт (запускається на
 // власній машині користувача) не має цього обмеження, але НОВИЙ адмінський шлях
 // (BtwService.generateTiles(), викликається з HTTP-запиту адмінки) — має. Тому: (1) обидва
-// запити тепер ідуть ПАРАЛЕЛЬНО (Promise.all), (2) внутрішній Overpass-таймаут зменшено до 90с
-// — разом дає запас під 300с навіть з накладними витратами Prisma/кодування/диску. Для дуже
-// великих/щільних міст цього однаково може не вистачити — у такому разі рекомендація (в UI
-// адмінки) — запустити CLI-скрипт локально, де такого обмеження немає.
-const OVERPASS_QUERY_TIMEOUT_S = 90;
+// запити тепер ідуть ПАРАЛЕЛЬНО (Promise.all), (2) внутрішній Overpass-таймаут зменшено (§ нижче
+// — тепер 55с, трохи менше за клієнтський OVERPASS_ATTEMPT_TIMEOUT_MS, щоб сервер встиг
+// відповісти власним graceful-таймаутом ДО того, як клієнт сам обірве з'єднання) — разом дає
+// запас під 300с навіть з накладними витратами Prisma/кодування/диску. Для дуже великих/щільних
+// міст цього однаково може не вистачити — у такому разі рекомендація (в UI адмінки) —
+// запустити CLI-скрипт локально, де такого обмеження немає.
+const OVERPASS_QUERY_TIMEOUT_S = 55;
 
 // За прямим запитом користувача ("свой User-Agent в запросах (хороший тон, который сейчас у
 // нас отсутствует)") — той самий принцип, що вже geocoding.service.ts застосовує для Nominatim
@@ -125,13 +138,11 @@ const OVERPASS_USER_AGENT = 'RoadScout-BTW-TileGenerator/1.0 (+https://roadscout
 // підтверджує: це НЕ пов'язано з відсутністю User-Agent (він уже є вище, попередній крок
 // цього самого запиту користувача) чи з нашим запитом — головний інстанс overpass-api.de
 // останнім часом застосовує "request-shape"-фільтри проти AI-скрейперів, що інколи блокують
-// і легітимних клієнтів так само. Офіційна рекомендація спільноти в такому разі — "не
-// ретраїти той самий ендпоінт (запит не змінюється), перемкнутись на дзеркало". Список
-// дзеркал — ті самі публічні інстанси, що вже досліджені й названі користувачу в цій сесії
-// раніше ("как настроить Overpass"), тепер нарешті реалізовані як fallback-ланцюжок, а не
-// просто перелічені текстом. OVERPASS_ENDPOINTS дозволяє адміну перевизначити список/порядок
-// через env, не чіпаючи код (той самий принцип конфігурованості, що вже в
-// OVERPASS_QUERY_TIMEOUT_S/getContentCheckTimeBudgetMs() тощо по проєкту).
+// і легітимних клієнтів так само. Список дзеркал — ті самі публічні інстанси, що вже досліджені
+// й названі користувачу в цій сесії раніше ("как настроить Overpass"). OVERPASS_ENDPOINTS
+// дозволяє адміну перевизначити список/порядок через env, не чіпаючи код (той самий принцип
+// конфігурованості, що вже в OVERPASS_QUERY_TIMEOUT_S/getContentCheckTimeBudgetMs() тощо по
+// проєкту).
 const DEFAULT_OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
@@ -143,68 +154,90 @@ function getOverpassEndpoints(): string[] {
   return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_OVERPASS_ENDPOINTS;
 }
 
-// 406/429/502/503/504 — сигнали "САМЕ ЦЕЙ ендпоінт зараз відмовляє" (бан-фільтр, перевантаження,
-// проксі впав) — варто спробувати дзеркало. Мережевий виняток (fetch кинув, DNS/timeout) —
-// той самий випадок, теж переходимо до наступного дзеркала. Будь-який ІНШИЙ статус (напр. 400
-// — синтаксична помилка в самому Overpass QL-запиті) НЕ ретраїмо на дзеркалах: та сама
-// помилка повториться всюди (запит однаковий), а спроби лише даремно з'їдять секунди з
-// Vercel Hobby-бюджету (doc/AUDIT-vercel-hobby.md).
-const OVERPASS_RETRYABLE_STATUSES = new Set([406, 429, 502, 503, 504]);
+// ПЕРЕРОБЛЕНО (за прямим запитом користувача — наступний скріншот після впровадження дзеркал
+// вище показав, що ПОСЛІДОВНИЙ перебір сам створює нову проблему: перший ендпоінт просто
+// ЗАВИС — не відповів швидкою 406, а мовчав аж до власного AbortSignal ("The operation was
+// aborted due to timeout", 1м46с), з'ївши майже весь тодішній бюджет 120с на ОДНУ спробу з
+// чотирьох). Дослівні вимоги користувача: "добавь тайм менеджмент = максимум 60 секунд",
+// "добавь кокурентность - 5 запросов одновременно", "вторую группу запросов параллельно через
+// впн проекта". Реалізовано так:
+//
+// 1) Часовий менеджмент — 60с. Оскільки ВСІ спроби нижче тепер ідуть ОДНОЧАСНО (не по черзі),
+//    один спільний таймаут на кожну спробу (OVERPASS_ATTEMPT_TIMEOUT_MS) автоматично і є
+//    фактичним лімітом часу на весь виклик — не сума по спробах, як у попередній послідовній
+//    версії, а їхній max (усі стартують разом).
+// 2) Конкурентність — до 5 запитів одночасно: по одному прямому запиту на кожне дзеркало
+//    (MAX_CONCURRENT_OVERPASS_REQUESTS обмежує зверху) + друга група нижче.
+// 3) Друга група — той самий головний ендпоінт, але через VPN проекту (RegistryProxyService,
+//    той самий проксі, що вже fetchThumbImage()/fetchStreamImageProxy() використовують для
+//    обходу гео-блокувань) — паралельно з прямими спробами, а не замість них: інша вихідна IP-
+//    адреса іноді обходить саме той "request-shape"-фільтр, що спричиняє 406 (VPN — інший
+//    патерн трафіку, не обов'язково інша причина блокування, тож про запас, а не замість).
+//
+// Перемагає та спроба, що відповість першою успішно (Promise.any) — решта просто ігноруються
+// (без явного скасування "запізнілих" запитів, вони самі згаснуть по AbortSignal). Якщо
+// провалились УСІ — кидається агрегована помилка з причиною кожної спроби (видно в історії
+// запусків адмінки, BtwTileGenerationRun.error).
+const OVERPASS_ATTEMPT_TIMEOUT_MS = 60_000;
+const MAX_CONCURRENT_OVERPASS_REQUESTS = 5;
 
-// Клієнтський таймаут — трохи більше за [timeout:N] у самому Overpass QL-запиті
-// (OVERPASS_QUERY_TIMEOUT_S вище), бо той таймаут — це ліміт ВИКОНАННЯ запиту НА СЕРВЕРІ
-// Overpass, а не ліміт мережевого round-trip до нього; без власного AbortSignal зависший (не
-// відповідає, але й не рве з'єднання) ендпоінт міг би заблокувати спробу назавжди.
-const OVERPASS_SINGLE_ATTEMPT_TIMEOUT_MS = OVERPASS_QUERY_TIMEOUT_S * 1000 + 15000;
+interface OverpassAttempt {
+  label: string;
+  run: () => Promise<any>;
+}
 
-// Спільний бюджет часу на ВЕСЬ ланцюжок спроб (усі дзеркала разом), не на кожну окремо — той
-// самий принцип "startedAt + часовий бюджет", що вже MonitoringService.checkAll()/
-// checkYoutubeAndVisionAvailability() застосовують до перевірки камер (і саме він надихнув цей
-// запит користувача: "мониторинг времени - как уже делали с камерами"). БЕЗ цієї спільної межі
-// цикл по 4 дзеркалах міг би витратити до 4×105с ≈ 420с лише на ОДИН з двох (buildings/streets)
-// запитів, самостійно перевищивши весь ліміт Vercel Hobby (300с) — навіть попри те, що
-// buildings/streets виконуються паралельно (ВИПРАВЛЕНО-коментар біля OVERPASS_QUERY_TIMEOUT_S
-// вище). Коли бюджет вичерпано — зупиняємось і повертаємо останню відому помилку; сам запуск
-// уже ідемпотентний на рівні BtwService.generateTiles()/BtwTileGenerationRun, тож "спробувати
-// ще раз" безпечно, а не тупик.
-const OVERPASS_TOTAL_BUDGET_MS = 120_000;
+function buildOverpassAttempts(query: string): OverpassAttempt[] {
+  const endpoints = getOverpassEndpoints().slice(0, MAX_CONCURRENT_OVERPASS_REQUESTS);
+  const attempts: OverpassAttempt[] = endpoints.map((endpoint) => ({
+    label: endpoint,
+    run: () =>
+      axios
+        .post(endpoint, query, {
+          headers: { 'User-Agent': OVERPASS_USER_AGENT, 'Content-Type': 'text/plain' },
+          timeout: OVERPASS_ATTEMPT_TIMEOUT_MS,
+          validateStatus: (s) => s >= 200 && s < 300,
+        })
+        .then((res) => res.data),
+  }));
+
+  // Друга група (п.3 вище) — лише якщо VPN реально налаштований і лишилось місце в лімiтi
+  // конкурентності; інакше registryProxy.request() сам виродився б у ще один прямий запит до
+  // того самого ендпоінту — жодної додаткової користі, лише зайвий дубль.
+  if (attempts.length < MAX_CONCURRENT_OVERPASS_REQUESTS && endpoints.length > 0 && registryProxy.isConfigured()) {
+    const viaVpnEndpoint = endpoints[0];
+    attempts.push({
+      label: `${viaVpnEndpoint} (через VPN проекту)`,
+      run: () =>
+        registryProxy
+          .request((axiosConfig) =>
+            axios.post(viaVpnEndpoint, query, {
+              ...axiosConfig,
+              headers: { 'User-Agent': OVERPASS_USER_AGENT, 'Content-Type': 'text/plain' },
+              timeout: OVERPASS_ATTEMPT_TIMEOUT_MS,
+              validateStatus: (s) => s >= 200 && s < 300,
+            }),
+          )
+          .then((result) => result.data.data),
+    });
+  }
+
+  return attempts;
+}
 
 async function fetchOverpass(query: string): Promise<any> {
-  const deadline = Date.now() + OVERPASS_TOTAL_BUDGET_MS;
-  let lastError: Error = new Error('Overpass: список эндпоинтов пуст (OVERPASS_ENDPOINTS)');
-  for (const endpoint of getOverpassEndpoints()) {
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      lastError = new Error(`${lastError.message} (общий бюджет ${OVERPASS_TOTAL_BUDGET_MS / 1000}с на все дзеркала вичерпано)`);
-      break;
-    }
-
-    let res: Response;
-    try {
-      res = await fetch(endpoint, {
-        method: 'POST',
-        body: query,
-        headers: { 'User-Agent': OVERPASS_USER_AGENT },
-        signal: AbortSignal.timeout(Math.min(remainingMs, OVERPASS_SINGLE_ATTEMPT_TIMEOUT_MS)),
-      });
-    } catch (err) {
-      // Мережевий збій самого запиту (DNS/з'єднання скинуто/наш AbortSignal.timeout спрацював)
-      // — той самий випадок, що ретрайний статус нижче: пробуємо наступне дзеркало (якщо
-      // спільний бюджет ще дозволяє).
-      lastError = err instanceof Error ? err : new Error(String(err));
-      continue;
-    }
-    if (res.ok) return res.json();
-
-    lastError = new Error(`Overpass HTTP ${res.status} (${endpoint})`);
-    if (!OVERPASS_RETRYABLE_STATUSES.has(res.status)) {
-      // Не-ретрайний статус (напр. 400 — синтаксична помилка запиту) — та сама помилка
-      // повториться на будь-якому дзеркалі, тож зупиняємось одразу замість марних спроб.
-      throw lastError;
-    }
-    // ретрайний статус (406/429/5xx) — пробуємо наступне дзеркало.
+  const attempts = buildOverpassAttempts(query);
+  if (attempts.length === 0) {
+    throw new Error('Overpass: нет доступных эндпоинтов (OVERPASS_ENDPOINTS пуст)');
   }
-  throw lastError;
+
+  try {
+    return await Promise.any(attempts.map((a) => a.run()));
+  } catch (err) {
+    // AggregateError, коли ВСІ спроби відхилені — err.errors у тому самому порядку, що attempts.
+    const reasons = err instanceof AggregateError ? err.errors : [err];
+    const details = reasons.map((e: any, i: number) => `${attempts[i]?.label ?? '?'}: ${e?.response?.status ? `HTTP ${e.response.status}` : e?.message ?? e}`).join('; ');
+    throw new Error(`Overpass: все ${attempts.length} параллельных попытки провалились — ${details}`);
+  }
 }
 
 // Дослівно та сама конструкція запиту, що occlusion.service.ts::fetchNearbyBuildings() вже
