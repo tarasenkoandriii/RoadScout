@@ -27,6 +27,7 @@
 //
 //   cd apps/api
 //   npm i -D ts-node          # якщо ще не встановлено — не входить у поточні devDependencies
+//   vercel env pull           # ОБОВ'ЯЗКОВО (§ нижче) — без цього запис піде в помилку
 //   npx ts-node scripts/generate-btw-tiles.ts kyiv
 //
 // (альтернатива без ts-node: скомпілювати окремо —
@@ -39,7 +40,19 @@
 // напис, наприклад "Київ") — див. ВИПРАВЛЕНО-коментар у btw.service.ts::generateTiles() щодо
 // того, чому це важливо.
 //
-// Результат — файли в BTW_TILES_DIR (за замовчуванням `<apps/api cwd>/btw-tiles/<slug>/`):
+// ВИПРАВЛЕНО (реальний, живий інцидент на проді — § детальний розбір у tile-generation.util.ts
+// біля BLOB_PATH_PREFIX і в doc/AUDIT-btw-radar-m1-m2.md): сховище тайлів більше НЕ локальний
+// диск (`BTW_TILES_DIR`) — тепер Vercel Blob, той самий, що читає деплойнутий апі-сервер. Це
+// ЗМІНЮЄ вимоги до запуску: потрібен `BLOB_READ_WRITE_TOKEN` (або `VERCEL_OIDC_TOKEN`+
+// `BLOB_STORE_ID`) у ЛОКАЛЬНОМУ середовищі — інакше `@vercel/blob` кине помилку авторизації.
+// Найпростіше — `vercel env pull` у корені `apps/api` (підтягне `.env.local` з тими самими
+// значеннями, що вже налаштовані в проєкті на Vercel, за умови що ви залоговані в тому самому
+// Vercel-акаунті через `vercel login`). Це РЕАЛЬНЕ покращення порівняно з попередньою версією
+// цього скрипта: раніше запис ішов на ЛОКАЛЬНИЙ диск розробника, який деплойнутий апі-сервер
+// узагалі не бачив (підказка "запустіть CLI локально" в адмінці була, по суті, марною для
+// продакшн-використання) — тепер CLI і кнопка в адмінці пишуть у ТЕ САМЕ сховище.
+//
+// Результат — записується у Vercel Blob під префіксом `btw-tiles/<slug>/`:
 //   buildings.bin, cameras.json, streets.json
 // Той самий формат/шлях, що читає GET /btw/tiles/:city/:layer (btw.service.ts::streamTile) і
 // генерує/перевіряє apps/btw/lib/tile-format.ts (канонічне джерело байт-формату — обидві копії
@@ -48,7 +61,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import { generateTilesForCity } from '../src/btw/tile-generation.util';
-import * as path from 'path';
 
 async function main() {
   const citySlug = process.argv[2];
@@ -75,14 +87,27 @@ async function main() {
     }
     console.log(`[generate-btw-tiles] ${cameras.length} cameras found.`);
 
-    const tilesDir = process.env.BTW_TILES_DIR ?? path.join(process.cwd(), 'btw-tiles');
-    const result = await generateTilesForCity(citySlug, cameras, tilesDir);
+    if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.VERCEL_OIDC_TOKEN) {
+      console.warn(
+        '[generate-btw-tiles] ⚠️ ні BLOB_READ_WRITE_TOKEN, ні VERCEL_OIDC_TOKEN не задані локально — запис у Vercel Blob, ' +
+          'скоріш за все, провалиться з помилкою авторизації. Запустіть "vercel env pull" у apps/api й повторіть.',
+      );
+    }
+
+    const result = await generateTilesForCity(citySlug, cameras);
+
+    if (!result.complete) {
+      console.log(
+        `[generate-btw-tiles] частково готово: ${result.cellsDone}/${result.cellsTotal} комірок сітки — запустіть цей самий скрипт ще раз, щоб продовжити (кеш комірок у Vercel Blob уже зберігає прогрес).`,
+      );
+      return;
+    }
 
     console.log(
       `[generate-btw-tiles] done. buildings=${result.buildingCount} (${result.buildingBytes} bytes), cameras=${result.cameraCount}, streets=${result.streetCount}`,
     );
     console.log(`[generate-btw-tiles] bbox: ${JSON.stringify(result.bbox)}`);
-    console.log(`[generate-btw-tiles] written to ${result.cityDir}`);
+    console.log(`[generate-btw-tiles] written to Vercel Blob, prefix ${result.cityBlobPrefix}`);
     console.log(`[generate-btw-tiles] GET /btw/manifest?city=${citySlug} should now report scanMode:"local-worker".`);
   } finally {
     await prisma.$disconnect();

@@ -45,7 +45,7 @@ interface Manifest {
 
 interface GenerateResult {
   citySlug: string;
-  cityDir: string;
+  cityBlobPrefix: string;
   bbox: { south: number; west: number; north: number; east: number };
   cameraCount: number;
   buildingCount: number;
@@ -367,7 +367,7 @@ export default function BtwTilesPage() {
           <div>Камеры: {result.cameraCount}</div>
           <div>Улицы (сегменты): {result.streetCount}</div>
           <div className="mt-1 text-xs text-green-700">
-            Записано в {result.cityDir}. GET /btw/manifest?city={result.citySlug} теперь вернёт scanMode: &quot;local-worker&quot;.
+            Записано в Vercel Blob (префикс {result.cityBlobPrefix}). GET /btw/manifest?city={result.citySlug} теперь вернёт scanMode: &quot;local-worker&quot;.
           </div>
         </div>
       )}

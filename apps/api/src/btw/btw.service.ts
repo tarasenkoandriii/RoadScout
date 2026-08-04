@@ -1,7 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { OcclusionService } from '../occlusion/occlusion.service';
@@ -22,7 +20,7 @@ import {
   RankedCandidate,
   MAX_TARGET_RADIUS_M,
 } from './btw-geometry.util';
-import { generateTilesForCity } from './tile-generation.util';
+import { generateTilesForCity, getCityBlobPrefix, listBlobsByPrefix, fetchBlobBuffer } from './tile-generation.util';
 
 // generateTiles()/getGenerationStatus() нижче — за прямим запитом користувача ("сделай
 // возможность идемпотентного мнгоразового запуска с мониторингом времени - как уже делали с
@@ -120,13 +118,14 @@ export class BtwService {
   // Якщо тайлів немає — точно той самий 'server-fallback-only', що й раніше, БЕЗ регресії.
   //
   // ЧЕСНО (§7.1 ТЗ): "формат — один файл PMTiles на місто в об'єктному сховищі (R2/Supabase
-  // Storage)" — тут замість цього звичайні файли на локальному диску апі-сервера, роздані через
-  // GET /btw/tiles/:city/:layer із СПРАВЖНЬОЮ підтримкою HTTP Range (streamTile нижче) — тому
-  // що (перевірено прямо в цьому сеансі): немає credentials для R2/Supabase Storage
-  // (.env.example не містить жодних), і `npm view pmtiles version` повертає 403 Forbidden від
-  // registry.npmjs.org (мережа для встановлення нових пакетів недоступна). Сама PMTiles-логіка
-  // (одна карта тайлів z15-піраміди на місто) також не реалізована — замість неї ОДИН тайл на
-  // все місто (спрощення, задокументоване в новому doc/AUDIT-btw-radar-m1-m2.md).
+  // Storage)" — тут замість справжньої PMTiles-піраміди (z15, тайл спостерігача + 8 сусідів)
+  // ОДИН тайл на все місто, роздається через GET /btw/tiles/:city/:layer з Range-підтримкою
+  // (streamTile нижче) — `npm view pmtiles version` повертав 403 в цьому сеансі. Саме СХОВИЩЕ
+  // (об'єктне, не локальний диск) — ОНОВЛЕНО: спочатку тут був локальний диск апі-сервера через
+  // брак credentials до R2/Supabase Storage; ЖИВИЙ інцидент на проді (Vercel serverless — диск
+  // read-only поза /tmp, § детальний розбір біля getLocalTileLayers() нижче) змусив перенести
+  // на Vercel Blob, credentials до якого вже були — той самий пакет, що вже реально працює в
+  // home-verification/receipt-storage.service.ts. R2/Supabase Storage й досі не підключені.
   // `cityName` тут — САМЕ `City.slug` (напр. "kyiv"), коли йдеться про пошук тайлів
   // (getLocalTileLayers нижче) — контролер передає `city ?? 'kyiv'`, тобто дефолт сам по собі
   // вже узгоджений зі slug-форматом. Для решти цього методу (declination) значення параметра
@@ -139,7 +138,7 @@ export class BtwService {
     // Замінити на geomagnetism, коли з'явиться мережевий доступ для встановлення пакета.
     const APPROX_UKRAINE_DECLINATION_DEG = 8;
 
-    const layers = this.getLocalTileLayers(cityName);
+    const layers = await this.getLocalTileLayers(cityName);
 
     return {
       city: cityName,
@@ -149,75 +148,77 @@ export class BtwService {
     };
   }
 
-  // Директорія тайлів на диску апі-сервера — конфігурована env-змінною (той самий принцип
-  // "env-змінна з розумним дефолтом", що вже getMonitoringConcurrency() у monitoring.service.ts
-  // цього ж кроку), за замовчуванням `<cwd>/btw-tiles/<citySlug>/<layer>.<ext>`. Скрипт
-  // генерації (apps/api/scripts/generate-btw-tiles.ts) і generateTiles() нижче пишуть сюди ж
-  // (обидва — через спільну generateTilesForCity(), tile-generation.util.ts).
-  private getTilesDir(): string {
-    return process.env.BTW_TILES_DIR ?? path.join(process.cwd(), 'btw-tiles');
-  }
-
-  // ВИПРАВЛЕНО термінологію (за прямим запитом користувача — адмінська вкладка генерації
-  // тайлів виявила реальну плутанину): параметр тут і нижче — САМЕ `City.slug` (наприклад
-  // "kyiv"), НЕ `City.name` (український відображуваний напис, наприклад "Київ", див.
-  // schema.prisma). Ці два методи самі по собі DB-агностичні (просто складають шлях на диску з
-  // рядка) — плутанина була у ВИКЛИКАЧІВ (generateTiles() нижче, до фіксу, і CLI-скрипт),
-  // які фільтрували камери в БД через `city: { name: citySlug }` — тобто буквальний рядок
-  // "kyiv" ніколи не збігався б із жодним `City.name` (там завжди українська назва). Тепер
-  // всюди узгоджено — `slug`.
-  private getTileFilePath(citySlug: string, layer: 'buildings' | 'cameras' | 'streets'): string {
-    const ext = layer === 'buildings' ? 'bin' : 'json';
-    // path.basename() — захист від directory traversal через city/layer з query/param (обидва
-    // приходять від клієнта як @Query('city')/@Param('layer')); той самий принцип обережності,
-    // що вже застосовується в проєкті для будь-якого шляху, похідного від користувацького вводу.
-    return path.join(this.getTilesDir(), path.basename(citySlug), `${path.basename(layer)}.${ext}`);
-  }
-
-  private getLocalTileLayers(
+  // ВИПРАВЛЕНО (реальний, живий інцидент на проді — 500 на GET /btw/manifest І GET
+  // /btw/admin/generation-status одразу після того, як grid-checkpoint-фіча вперше дійшла до
+  // запису на диск): "директорія тайлів на диску апі-сервера" більше не існує — Vercel
+  // serverless-функції мають READ-ONLY файлову систему поза `/tmp`, а `/tmp` не переживає між
+  // окремими HTTP-викликами. Сховище тепер — Vercel Blob (tile-generation.util.ts,
+  // getCityBlobPrefix()/listBlobsByPrefix()/fetchBlobBuffer() — та сама логіка, що
+  // generateTilesForCity() вже використовує для запису, тепер читання дзеркалить її).
+  private async getLocalTileLayers(
     citySlug: string,
-  ): { buildings: { url: string; version: number }; cameras: { url: string; version: number }; streets: { url: string; version: number } } | null {
-    const buildingsPath = this.getTileFilePath(citySlug, 'buildings');
-    const camerasPath = this.getTileFilePath(citySlug, 'cameras');
-    const streetsPath = this.getTileFilePath(citySlug, 'streets');
+  ): Promise<{ buildings: { url: string; version: number }; cameras: { url: string; version: number }; streets: { url: string; version: number } } | null> {
+    const prefix = getCityBlobPrefix(citySlug);
+    const blobs = await listBlobsByPrefix(`${prefix}/`);
+    // Виключаємо все під `.cellcache/` — це проміжний кеш комірок сітки (§ tile-generation.
+    // util.ts), не готові тайли; без цього фільтра будь-який частковий прогрес помилково
+    // задовольняв би перевірку "усі 3 файли є" за збігом імен усередині .cellcache/.
+    const byName = new Map(
+      blobs.filter((b) => !b.pathname.includes('/.cellcache/')).map((b) => [b.pathname.slice(prefix.length + 1), b]),
+    );
 
-    if (!fs.existsSync(buildingsPath) || !fs.existsSync(camerasPath) || !fs.existsSync(streetsPath)) {
-      return null;
-    }
+    const buildings = byName.get('buildings.bin');
+    const cameras = byName.get('cameras.json');
+    const streets = byName.get('streets.json');
+    if (!buildings || !cameras || !streets) return null;
 
-    // mtime файлу як версія/cache-bust токен — грубий, але чесний субститут справжнього ETag
-    // з вмісту (§4.7.1 ТЗ: "Кэш: 30 сут, ETag" / "24 ч, ETag") — той самий рівень точності, що
-    // й streamTile() нижче вже реально віддає в заголовку ETag.
+    // uploadedAt блоба як версія/cache-bust токен — той самий рівень точності, що раніше давав
+    // mtime файлу на диску (§4.7.1 ТЗ: "Кэш: 30 сут, ETag" / "24 ч, ETag").
     return {
-      buildings: { url: `/api/tiles/${encodeURIComponent(citySlug)}/buildings`, version: Math.round(fs.statSync(buildingsPath).mtimeMs) },
-      cameras: { url: `/api/tiles/${encodeURIComponent(citySlug)}/cameras`, version: Math.round(fs.statSync(camerasPath).mtimeMs) },
-      streets: { url: `/api/tiles/${encodeURIComponent(citySlug)}/streets`, version: Math.round(fs.statSync(streetsPath).mtimeMs) },
+      buildings: { url: `/api/tiles/${encodeURIComponent(citySlug)}/buildings`, version: new Date(buildings.uploadedAt).getTime() },
+      cameras: { url: `/api/tiles/${encodeURIComponent(citySlug)}/cameras`, version: new Date(cameras.uploadedAt).getTime() },
+      streets: { url: `/api/tiles/${encodeURIComponent(citySlug)}/streets`, version: new Date(streets.uploadedAt).getTime() },
     };
   }
 
-  // §4.7.1 ТЗ — "запити через HTTP Range". СПРАВЖНЯ підтримка Range тут реалізована (206 Partial
-  // Content, Content-Range) — це не спрощено, попри те що самé сховище (локальний диск
-  // апі-сервера, не PMTiles-контейнер в об'єктному сховищі) є задокументованою відмінністю
-  // (див. коментар біля getManifest() вище). Викликається з контролера — сам метод керує
-  // response напряму (той самий підхід, що вже fetchThumbImage()/thumbImage() у контролері).
+  // §4.7.1 ТЗ — "запити через HTTP Range". Раніше — СПРАВЖНІЙ byte-range читав напряму з
+  // локального диска (fs.createReadStream({start,end})). ВИПРАВЛЕНО (перенесення на Vercel Blob,
+  // § детальний розбір біля getLocalTileLayers() вище): ця версія SDK (`@vercel/blob@^0.27.1`)
+  // не має `get()` зі стрімінгом і НЕВІДОМО, чи прямий HTTP GET до публічного blob URL реально
+  // підтримує Range на рівні сховища (не задокументовано для цієї версії) — тому свідомо
+  // спрощено: весь вміст блоба зчитується в пам'ять ОДИН раз (fetchBlobBuffer), а Range (якщо
+  // запитаний) нарізається вручну з уже отриманого буфера. Дає коректну поведінку 206/
+  // Content-Range НЕЗАЛЕЖНО від того, чи сховище саме підтримує Range, ціною зайвого мережевого
+  // трафіку апі-сервер↔Blob при частих часткових запитах великих файлів — прийнятний компроміс
+  // для розміру тайлів цього кроку (§4.7.1 — "ОДИН тайл на місто", не піраміда).
   async streamTile(cityName: string, layer: string, rangeHeader: string | undefined, res: Response): Promise<void> {
     if (layer !== 'buildings' && layer !== 'cameras' && layer !== 'streets') {
       res.status(404).send('unknown tile layer');
       return;
     }
 
-    const filePath = this.getTileFilePath(cityName, layer);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).send('tile not found — run generate-btw-tiles.ts for this city first');
+    const ext = layer === 'buildings' ? 'bin' : 'json';
+    const pathname = `${getCityBlobPrefix(cityName)}/${layer}.${ext}`;
+    const found = (await listBlobsByPrefix(pathname))[0];
+    if (!found) {
+      res.status(404).send('tile not found — run generate-btw-tiles.ts for this city first (or "Сгенерировать тайлы" в адмінці)');
       return;
     }
 
-    const stat = fs.statSync(filePath);
+    let buffer: Buffer;
+    try {
+      buffer = await fetchBlobBuffer(found.url);
+    } catch (err) {
+      this.logger.warn(`[streamTile] не вдалось прочитати blob для ${pathname}: ${(err as Error).message}`);
+      res.status(502).send('tile storage temporarily unavailable');
+      return;
+    }
+
     const contentType = layer === 'buildings' ? 'application/octet-stream' : 'application/json';
     // §4.7.1 ТЗ: buildings/streets — 30 діб кешу, cameras — 24 год (статус камер змінюється
     // частіше, тому окремий короткий /btw/status покриває свіжість між перезбірками тайлу).
     const cacheControl = layer === 'cameras' ? 'public, max-age=86400' : 'public, max-age=2592000';
-    const etag = `"${Math.round(stat.mtimeMs)}-${stat.size}"`;
+    const etag = `"${new Date(found.uploadedAt).getTime()}-${buffer.byteLength}"`;
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', cacheControl);
@@ -227,23 +228,23 @@ export class BtwService {
     const rangeMatch = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader) : null;
     if (rangeMatch) {
       const start = rangeMatch[1] ? parseInt(rangeMatch[1], 10) : 0;
-      const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : stat.size - 1;
+      const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : buffer.byteLength - 1;
 
-      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stat.size) {
-        res.status(416).setHeader('Content-Range', `bytes */${stat.size}`).end();
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= buffer.byteLength) {
+        res.status(416).setHeader('Content-Range', `bytes */${buffer.byteLength}`).end();
         return;
       }
 
-      const clampedEnd = Math.min(end, stat.size - 1);
+      const clampedEnd = Math.min(end, buffer.byteLength - 1);
       res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${clampedEnd}/${stat.size}`);
+      res.setHeader('Content-Range', `bytes ${start}-${clampedEnd}/${buffer.byteLength}`);
       res.setHeader('Content-Length', String(clampedEnd - start + 1));
-      fs.createReadStream(filePath, { start, end: clampedEnd }).pipe(res);
+      res.end(buffer.subarray(start, clampedEnd + 1));
       return;
     }
 
-    res.setHeader('Content-Length', String(stat.size));
-    fs.createReadStream(filePath).pipe(res);
+    res.setHeader('Content-Length', String(buffer.byteLength));
+    res.end(buffer);
   }
 
   // За прямим запитом користувача — "сделай новую вкладку в админке для запуска скрипта...
@@ -330,7 +331,7 @@ export class BtwService {
     }
 
     try {
-      const result = await generateTilesForCity(citySlug, cameras, this.getTilesDir());
+      const result = await generateTilesForCity(citySlug, cameras);
 
       // ДОПОВНЕНО (за прямим запитом користувача — "сделай запуски из вкладки идемпотентными -
       // несколько запусков подряд до исчерпания списка ячеек"): `complete: false` — НЕ помилка.
@@ -385,7 +386,7 @@ export class BtwService {
         data: { status: 'failed', finishedAt: new Date(), durationMs: Date.now() - run.startedAt.getTime(), error: message },
       });
       throw new BadRequestException(
-        `Не удалось сгенерировать тайлы для "${citySlug}": ${message}. Для больших городов (риск таймаута serverless-функции) запустите тот же скрипт локально: npx ts-node scripts/generate-btw-tiles.ts ${citySlug}`,
+        `Не удалось сгенерировать тайлы для "${citySlug}": ${message}. Для больших городов (риск таймаута serverless-функции) запустите тот же скрипт локально: npx ts-node scripts/generate-btw-tiles.ts ${citySlug} (нужен BLOB_READ_WRITE_TOKEN локально — "vercel env pull" — скрипт пишет в тот же Vercel Blob, что и эта кнопка).`,
       );
     }
   }

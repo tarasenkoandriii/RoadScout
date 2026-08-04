@@ -14,8 +14,6 @@
 
 import { encodeBuildingsTile } from './tile-format';
 import type { DecodedBuilding, CamerasTile, CamerasTileEntry, StreetsTile, StreetsTileEntry } from './tile-format';
-import * as fs from 'fs';
-import * as path from 'path';
 import axios from 'axios';
 import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
 
@@ -27,6 +25,93 @@ import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
 // самий принцип, що вже BtwModule/CamerasModule застосовують ("RegistryProxyService
 // зареєстровано ЯК ОКРЕМИЙ провайдер", див. коментарі там).
 const registryProxy = new RegistryProxyService();
+
+// ==== Сховище тайлів — Vercel Blob (§ детальний розбір нижче) ====
+//
+// ВИПРАВЛЕНО (реальний, живий інцидент на проді — адмін отримав
+// `ENOENT: no such file or directory, mkdir '/var/task/btw-tiles/new-york-us/.cellcache'`
+// одразу після того, як Overpass-запити нарешті почали проходити): на Vercel serverless-
+// функціях файлова система ПОЗА `/tmp` — READ-ONLY (`/var/task` — це розгорнутий бандл коду), а
+// `/tmp` хоч і доступний на запис, НЕ гарантовано переживає МІЖ окремими HTTP-викликами (кожен
+// клік на кнопку в адмінці може потрапити на інший інстанс функції з чистим `/tmp`). §4.7.1 ТЗ
+// від самого початку вимагав саме об'єктне сховище (R2/Supabase Storage) — на момент першої
+// реалізації цього кроку не було credentials до жодного з них (doc/AUDIT-btw-radar-m1-m2.md,
+// розділ "Спрощення"). Тепер credentials Є — `@vercel/blob` вже є залежністю проєкту
+// (package.json: `^0.27.1`) і вже реально працює в продакшені для
+// home-verification/receipt-storage.service.ts::store() — переносимо сховище тайлів (і кеш
+// комірок сітки) туди, той самий пакет, той самий принцип доступу.
+//
+// ⚠️ ЧЕСНО, версія SDK: `^0.27.1` — СТАРА версія (перевірено проти реального .d.ts саме цієї
+// версії через unpkg.com, а не проти найновішої документації) БЕЗ `get()`, БЕЗ
+// `access:'private'` (єдине прийняте значення в цій версії — `'public'`), БЕЗ `allowOverwrite`
+// (з'явились лише в 2.x). Тому нижче свідомо використовуються ЛИШЕ `put`/`list`/`del` (усі є в
+// 0.27.1) з `access:'public'` — той самий рівень доступу, що вже receipt-storage.service.ts
+// використовує, прийнятний тут із тієї самої причини, що вже задокументовано в контролері для
+// `/btw/tiles/*` (geometрічні дані тайлів не чутливі, guard на цьому шляху не стояв і раніше).
+// Читання вмісту — звичайний `axios.get(blob.url)` замість SDK-методу `get()` (якого в цій
+// версії немає) — блоб публічний, тому пряме HTTP GET без токена працює.
+const BLOB_PATH_PREFIX = 'btw-tiles';
+
+// Захист від конструювання "дивних" blob-шляхів із чужого/невалідного `citySlug` (приходить від
+// клієнта як @Query('city')/@Body().city/@Param — той самий принцип обережності, що раніше
+// застосовував path.basename() для локальних шляхів). Vercel Blob API прямо забороняє символи
+// `#`, `?`, `//` у pathname — sanitize тут про запас, а не тому що це колись реально стрілило.
+function sanitizeSlug(raw: string): string {
+  const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return cleaned || '_';
+}
+
+export function getCityBlobPrefix(citySlug: string): string {
+  return `${BLOB_PATH_PREFIX}/${sanitizeSlug(citySlug)}`;
+}
+
+// Мінімальний зріз ListBlobResultBlob (0.27.1) — саме ці поля реально повертає list().
+export interface BlobListEntry {
+  url: string;
+  pathname: string;
+  size: number;
+  uploadedAt: Date;
+}
+
+export async function listBlobsByPrefix(prefix: string): Promise<BlobListEntry[]> {
+  const { list } = await import('@vercel/blob');
+  // ⚠️ ЧЕСНО: ліміт 1000 записів на сторінку, БЕЗ пагінації (курсор ігнорується навмисно) —
+  // для реалістичного розміру міста (сітка з десятків комірок × 2 шари + 1 bbox.json + 3
+  // фінальні файли) це на порядки більше, ніж коли-небудь знадобиться в межах ОДНОГО міста.
+  const result = await list({ prefix, limit: 1000 });
+  return result.blobs;
+}
+
+async function putBlob(pathname: string, body: string | Buffer, contentType: string): Promise<string> {
+  const { put } = await import('@vercel/blob');
+  const blob = await put(pathname, body, { access: 'public', addRandomSuffix: false, contentType });
+  return blob.url;
+}
+
+async function deleteBlobsByPrefix(prefix: string): Promise<void> {
+  const blobs = await listBlobsByPrefix(prefix);
+  if (blobs.length === 0) return;
+  const { del } = await import('@vercel/blob');
+  await del(blobs.map((b) => b.url));
+}
+
+// Немає allowOverwrite у цій версії SDK (§ коментар вище) — тому для файлів, які МОЖУТЬ
+// перезаписуватись (фінальні тайли при повторній генерації того самого міста), явно видаляємо
+// перед записом замість покладання на невідому поведінку put() при колізії pathname.
+async function putBlobOverwrite(pathname: string, body: string | Buffer, contentType: string): Promise<string> {
+  await deleteBlobsByPrefix(pathname);
+  return putBlob(pathname, body, contentType);
+}
+
+export async function fetchBlobJson(url: string): Promise<any> {
+  const res = await axios.get(url);
+  return res.data;
+}
+
+export async function fetchBlobBuffer(url: string): Promise<Buffer> {
+  const res = await axios.get(url, { responseType: 'arraybuffer' });
+  return Buffer.from(res.data);
+}
 
 const METERS_PER_DEG_LAT = 111320;
 
@@ -80,7 +165,10 @@ export interface CameraForTiling {
 
 export interface GenerateTilesResult {
   citySlug: string;
-  cityDir: string;
+  // Було `cityDir` (шлях на локальному диску) — перейменовано на `cityBlobPrefix` при переносі
+  // сховища на Vercel Blob (§ коментар біля BLOB_PATH_PREFIX вище): це більше не директорія на
+  // диску, а префікс pathname у Blob-сховищі (`btw-tiles/<slug>/...`).
+  cityBlobPrefix: string;
   bbox: Bbox;
   cameraCount: number;
   buildingCount: number;
@@ -318,47 +406,57 @@ function dedupeElementsById(elements: any[]): any[] {
 // запусков подряд до исчерпания списка ячеек": для дуже великого міста (Нью-Йорк — кілька
 // десятків комірок сітки, § вище) один HTTP-виклик адмінки (Vercel Hobby, 300с) або навіть
 // одне термінальне очікування CLI фізично не встигне обробити ВСІ комірки за раз. Замість
-// "усе за один прохід або нічого" — кожна комірка, щойно отримана, ОДРАЗУ пишеться на диск
-// (кеш-файл `<cityDir>/.cellcache/<layer>/<cellIndex>.json`), а НАСТУПНИЙ виклик
-// generateTilesForCity() для того самого міста (наступний клік на кнопку в адмінці — та сама
-// ідемпотентність, що вже в BtwService.generateTiles()/BtwTileGenerationRun, чи наступний
-// запуск CLI-скрипта локально) перевіряє, які комірки вже готові на диску, і довантажує ЛИШЕ
-// відсутні — доки список комірок не вичерпається. Остаточні тайли (buildings.bin/cameras.json/
-// streets.json) пишуться ЛИШЕ коли комірки ОБОХ шарів (buildings+streets) повністю готові —
-// інакше манфест (`getLocalTileLayers()`) продовжує чесно показувати "тайлів немає" замість
-// видачі напівготових даних як завершених.
-//
-// ⚠️ ЧЕСНО: кеш комірок на диску — те саме припущення про стійкість файлової системи
-// BTW_TILES_DIR між окремими HTTP-викликами адмінки на Vercel, що вже неявно закладено в
-// існуючий механізм видачі готових тайлів (getTilesDir()/getLocalTileLayers()) — я не вводжу
-// новий клас ризику, лише покладаюсь на той самий, вже наявний. Якщо серверless-інстанси
-// Vercel НЕ поділяють диск між викликами насправді — кеш комірок (і сама видача готових
-// тайлів) однаково не працює вже сьогодні, до цього кроку.
+// "усе за один прохід або нічого" — кожна комірка, щойно отримана, ОДРАЗУ пишеться окремим
+// blob'ом (`<cityBlobPrefix>/.cellcache/<layer>/<cellIndex>.json`, § BLOB_PATH_PREFIX вище), а
+// НАСТУПНИЙ виклик generateTilesForCity() для того самого міста (наступний клік на кнопку в
+// адмінці — та сама ідемпотентність, що вже в BtwService.generateTiles()/
+// BtwTileGenerationRun, чи наступний запуск CLI-скрипта локально) перевіряє, які комірки вже
+// готові в сховищі, і довантажує ЛИШЕ відсутні — доки список комірок не вичерпається.
+// Остаточні тайли (buildings.bin/cameras.json/streets.json) пишуться ЛИШЕ коли комірки ОБОХ
+// шарів (buildings+streets) повністю готові — інакше манфест (getLocalTileLayers()) продовжує
+// чесно показувати "тайлів немає" замість видачі напівготових даних як завершених.
 const GENERATION_TIME_BUDGET_MS = 220_000; // з запасом під 300с Vercel Hobby — лишає час на Prisma/кодування/фіналізацію
 
-interface LayerGridResult {
-  elements: any[];
+interface LayerProgress {
   cellsDone: number;
+  complete: boolean;
+}
+
+function cellPathname(layerPrefix: string, i: number): string {
+  return `${layerPrefix}/${i}.json`;
+}
+
+function parseCellIndexFromPathname(pathname: string): number {
+  const m = /\/(\d+)\.json$/.exec(pathname);
+  return m ? parseInt(m[1], 10) : -1;
 }
 
 // Перевіряє/скидає кеш комірок, якщо bbox змінився з попереднього запуску (склад камер міста
 // змінився між двома кліками на кнопку — реальна, хоч і рідкісна ситуація) — довіряти кешу
 // комірок, порахованому для ІНШОЇ географії, небезпечно (дало б неправильні дані без жодної
 // помітної ознаки браку).
-function ensureCellCacheValidForBbox(cacheDir: string, bbox: Bbox): void {
-  const bboxFile = path.join(cacheDir, 'bbox.json');
+async function ensureCellCacheValidForBbox(cellCachePrefix: string, bbox: Bbox): Promise<void> {
+  const bboxPathname = `${cellCachePrefix}/bbox.json`;
   const bboxJson = JSON.stringify(bbox);
-  let cachedBboxJson: string | null = null;
-  try {
-    cachedBboxJson = fs.readFileSync(bboxFile, 'utf-8');
-  } catch {
-    cachedBboxJson = null;
+
+  const existing = await listBlobsByPrefix(bboxPathname);
+  if (existing.length > 0) {
+    let cachedBboxJson: string | null = null;
+    try {
+      const data = await fetchBlobJson(existing[0].url);
+      // axios сам розпарсить application/json у JS-значення — повторно серіалізуємо, щоб
+      // порівняння не залежало від того, повернувся рядок чи вже розпарсений об'єкт.
+      cachedBboxJson = JSON.stringify(data);
+    } catch {
+      cachedBboxJson = null;
+    }
+    if (cachedBboxJson === bboxJson) return; // кеш валідний — нічого не робимо
   }
-  if (cachedBboxJson !== bboxJson) {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(bboxFile, bboxJson);
-  }
+
+  // bbox не збігається (або кеш ще порожній, або читання не вдалось) — краще безпечно почати
+  // "з нуля", ніж ризикнути змішати комірки різної географії без жодної помітної ознаки браку.
+  await deleteBlobsByPrefix(`${cellCachePrefix}/`);
+  await putBlob(bboxPathname, bboxJson, 'application/json');
 }
 
 // Одна комірка, що впала (мережа/усі 5 спроб провалились) — НЕ обриває решту: просто лишається
@@ -366,19 +464,26 @@ function ensureCellCacheValidForBbox(cacheDir: string, bbox: Bbox): void {
 // Набагато стійкіше за попередню версію (де будь-яка провалена комірка валила ВЕСЬ прогін) —
 // саме цього бракувало, коли Overpass реально ненадійний (живі 406/504/timeout зі скріншотів
 // користувача цієї сесії).
-async function fetchLayerGridResumable(
+//
+// Свідомо ДВОФАЗНО (тут — лише прогрес, без вмісту комірок): при частковому прогресі (велике
+// місто, ще не всі комірки готові) НЕМАЄ сенсу щоразу перечитувати вміст УЖЕ готових комірок —
+// він однаково не використовується, доки НЕ готові ОБИДВА шари (§ generateTilesForCity нижче).
+// Рахунок готових комірок (`cellsDone`) бере лише КІЛЬКІСТЬ blob'ів з list() — без жодного
+// додаткового читання вмісту.
+async function processLayerGridResumable(
   layer: 'buildings' | 'streets',
   cells: Bbox[],
-  cacheDir: string,
+  cellCachePrefix: string,
   buildQuery: (cell: Bbox) => string,
   filterElement: (el: any) => boolean,
   deadline: number,
-): Promise<LayerGridResult> {
-  const layerCacheDir = path.join(cacheDir, layer);
-  fs.mkdirSync(layerCacheDir, { recursive: true });
+): Promise<LayerProgress> {
+  const layerPrefix = `${cellCachePrefix}/${layer}`;
 
-  const cellFile = (i: number) => path.join(layerCacheDir, `${i}.json`);
-  const pending = cells.map((_, i) => i).filter((i) => !fs.existsSync(cellFile(i)));
+  const existing = await listBlobsByPrefix(`${layerPrefix}/`);
+  const doneIndices = new Set(existing.map((b) => parseCellIndexFromPathname(b.pathname)).filter((i) => i >= 0));
+
+  const pending = cells.map((_, i) => i).filter((i) => !doneIndices.has(i));
 
   if (pending.length > 0) {
     await mapWithConcurrency(pending, GRID_QUERY_CONCURRENCY, async (cellIndex) => {
@@ -386,7 +491,8 @@ async function fetchLayerGridResumable(
       try {
         const data = await fetchOverpass(buildQuery(cells[cellIndex]));
         const elements = ((data.elements ?? []) as any[]).filter(filterElement);
-        fs.writeFileSync(cellFile(cellIndex), JSON.stringify(elements));
+        await putBlob(cellPathname(layerPrefix, cellIndex), JSON.stringify(elements), 'application/json');
+        doneIndices.add(cellIndex);
         if (cells.length > 1) {
           console.log(`[tile-generation] ${layer}: комірка ${cellIndex + 1}/${cells.length} готова (${elements.length} елементів)`);
         }
@@ -396,20 +502,35 @@ async function fetchLayerGridResumable(
     });
   }
 
-  // Джерело істини — файлова система (а не лічильник у пам'яті цього виклику): так наступний
-  // запуск бачить прогрес попереднього незалежно від того, ЯКИЙ саме виклик записав кожен файл.
-  const allElements: any[] = [];
-  let cellsDone = 0;
-  for (let i = 0; i < cells.length; i++) {
-    try {
-      allElements.push(...JSON.parse(fs.readFileSync(cellFile(i), 'utf-8')));
-      cellsDone += 1;
-    } catch {
-      // файлу ще немає — комірка досі pending
-    }
-  }
+  return { cellsDone: doneIndices.size, complete: doneIndices.size === cells.length };
+}
 
-  return { elements: dedupeElementsById(allElements), cellsDone };
+// Фаза 2 — викликається ЛИШЕ коли ОБИДВА шари вже complete (§ generateTilesForCity нижче):
+// зчитує вміст УСІХ комірок шару й зливає в один список елементів з дедуплікацією по `id`
+// (одна OSM way може мати вузли в кількох сусідніх комірках і тому потрапити в результати
+// більш ніж однієї — Overpass повертає way, якщо ХОЧА Б один її вузол потрапляє в bbox).
+async function collectLayerGridElements(layer: 'buildings' | 'streets', cells: Bbox[], cellCachePrefix: string): Promise<any[]> {
+  const layerPrefix = `${cellCachePrefix}/${layer}`;
+  const blobs = await listBlobsByPrefix(`${layerPrefix}/`);
+  const urlByIndex = new Map(blobs.map((b) => [parseCellIndexFromPathname(b.pathname), b.url]));
+
+  const allElements: any[] = [];
+  await mapWithConcurrency(
+    Array.from({ length: cells.length }, (_, i) => i),
+    GRID_QUERY_CONCURRENCY,
+    async (i) => {
+      const url = urlByIndex.get(i);
+      if (!url) return; // не мало б статись, якщо complete===true — про всяк випадок не валимось
+      try {
+        const elements = await fetchBlobJson(url);
+        if (Array.isArray(elements)) allElements.push(...elements);
+      } catch (err) {
+        console.warn(`[tile-generation] ${layer}: не вдалось прочитати кеш комірки ${i} — ${(err as Error).message}`);
+      }
+    },
+  );
+
+  return dedupeElementsById(allElements);
 }
 
 // ⚠️ ЧЕСНО: жоден наявний сервіс проєкту досі не парсив висоту будівель з OSM
@@ -434,17 +555,17 @@ export function estimateHeightM(tags: Record<string, string> | undefined): numbe
 // вкладки идемпотентными - несколько запусков подряд до исчерпания списка ячеек", § детальний
 // коментар біля GENERATION_TIME_BUDGET_MS вище): функція тепер може повернутись, НЕ дописавши
 // фінальні тайли — `result.complete === false` — якщо не встигла обробити всі комірки сітки
-// за свій часовий бюджет. Виклик просто ПОВТОРЮЄТЬСЯ (той самий citySlug/cameras/tilesDir) —
-// кеш комірок на диску сам підхоплює прогрес з попереднього разу.
-export async function generateTilesForCity(citySlug: string, cameras: CameraForTiling[], tilesDir: string): Promise<GenerateTilesResult> {
+// за свій часовий бюджет. Виклик просто ПОВТОРЮЄТЬСЯ (той самий citySlug/cameras) — кеш
+// комірок у Vercel Blob сам підхоплює прогрес з попереднього разу.
+export async function generateTilesForCity(citySlug: string, cameras: CameraForTiling[]): Promise<GenerateTilesResult> {
   if (cameras.length === 0) {
     throw new Error(`no VERIFIED/OUTDOOR/ONLINE cameras found for city slug="${citySlug}" — nothing to tile`);
   }
 
   const bbox = computeBboxFromCameras(cameras);
-  const cityDir = path.join(tilesDir, citySlug);
-  const cellCacheDir = path.join(cityDir, '.cellcache');
-  ensureCellCacheValidForBbox(cellCacheDir, bbox);
+  const cityBlobPrefix = getCityBlobPrefix(citySlug);
+  const cellCachePrefix = `${cityBlobPrefix}/.cellcache`;
+  await ensureCellCacheValidForBbox(cellCachePrefix, bbox);
 
   const cells = splitBboxIntoGrid(bbox);
   const deadline = Date.now() + GENERATION_TIME_BUDGET_MS;
@@ -453,10 +574,10 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
   // прогресу: buildings спершу забирають свою частку бюджету, streets — те, що лишилось.
   // Кожен шар усередині себе однаково паралелить комірки (GRID_QUERY_CONCURRENCY), тож
   // конкурентність не втрачається, лише координація між двома шарами спрощена.
-  const buildingsResult = await fetchLayerGridResumable(
+  const buildingsProgress = await processLayerGridResumable(
     'buildings',
     cells,
-    cellCacheDir,
+    cellCachePrefix,
     (cell) => `
       [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
       way["building"](${cell.south},${cell.west},${cell.north},${cell.east});
@@ -465,10 +586,10 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
     (el) => el.geometry?.length >= 3,
     deadline,
   );
-  const streetsResult = await fetchLayerGridResumable(
+  const streetsProgress = await processLayerGridResumable(
     'streets',
     cells,
-    cellCacheDir,
+    cellCachePrefix,
     (cell) => `
       [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
       way["highway"](${cell.south},${cell.west},${cell.north},${cell.east});
@@ -479,18 +600,22 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
   );
 
   const cellsTotal = cells.length * 2; // buildings + streets — той самий grid, дві незалежні прогрес-доріжки
-  const cellsDone = buildingsResult.cellsDone + streetsResult.cellsDone;
-  const complete = buildingsResult.cellsDone === cells.length && streetsResult.cellsDone === cells.length;
+  const cellsDone = buildingsProgress.cellsDone + streetsProgress.cellsDone;
+  const complete = buildingsProgress.complete && streetsProgress.complete;
 
   if (!complete) {
     // НЕ пишемо buildings.bin/cameras.json/streets.json — манфест (getLocalTileLayers()) має
-    // й далі чесно показувати "тайлів немає", доки дані справді не повні. Кеш комірок на диску
-    // вже зберігає все, що встигли забрати цим викликом — наступний виклик продовжить звідси.
-    return { citySlug, cityDir, bbox, cameraCount: cameras.length, buildingCount: buildingsResult.elements.length, buildingBytes: 0, streetCount: streetsResult.elements.length, cellsTotal, cellsDone, complete: false };
+    // й далі чесно показувати "тайлів немає", доки дані справді не повні. Кеш комірок у Blob
+    // уже зберігає все, що встигли забрати цим викликом — наступний виклик продовжить звідси.
+    // buildingCount/streetCount тут навмисно 0 — фаза 2 (collectLayerGridElements) ще НЕ
+    // викликалась (§ коментар біля неї — немає сенсу читати вміст комірок до завершення ОБОХ
+    // шарів), тож справжня кількість елементів поки невідома; адмінка показує лише
+    // cellsDone/cellsTotal для 'partial', ці два поля тут ні на що не впливають.
+    return { citySlug, cityBlobPrefix, bbox, cameraCount: cameras.length, buildingCount: 0, buildingBytes: 0, streetCount: 0, cellsTotal, cellsDone, complete: false };
   }
 
-  const buildingElements = buildingsResult.elements;
-  const streetElements = streetsResult.elements;
+  const buildingElements = await collectLayerGridElements('buildings', cells, cellCachePrefix);
+  const streetElements = await collectLayerGridElements('streets', cells, cellCachePrefix);
 
   // Origin — центр bbox, той самий tileOrigin, який клієнтський toLocalXY()/fromLocalXY()
   // (btw-geometry-engine.ts) використовує для проекції camera/building координат у локальні
@@ -547,18 +672,18 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
   }
   const streetsTile: StreetsTile = { version: 1, streets };
 
-  fs.mkdirSync(cityDir, { recursive: true });
+  // putBlobOverwrite (не звичайний put) — місто може генеруватись ПОВТОРНО пізніше (склад камер
+  // змінився), а ця версія SDK (§ коментар біля BLOB_PATH_PREFIX вище) не має allowOverwrite.
+  await putBlobOverwrite(`${cityBlobPrefix}/buildings.bin`, Buffer.from(buildingsBuf), 'application/octet-stream');
+  await putBlobOverwrite(`${cityBlobPrefix}/cameras.json`, JSON.stringify(camerasTile), 'application/json');
+  await putBlobOverwrite(`${cityBlobPrefix}/streets.json`, JSON.stringify(streetsTile), 'application/json');
 
-  fs.writeFileSync(path.join(cityDir, 'buildings.bin'), Buffer.from(buildingsBuf));
-  fs.writeFileSync(path.join(cityDir, 'cameras.json'), JSON.stringify(camerasTile));
-  fs.writeFileSync(path.join(cityDir, 'streets.json'), JSON.stringify(streetsTile));
-
-  // Успішно завершено — кеш комірок більше не потрібен (не накопичуємо диск між містами).
-  fs.rmSync(cellCacheDir, { recursive: true, force: true });
+  // Успішно завершено — кеш комірок більше не потрібен (не накопичуємо зайве в сховищі).
+  await deleteBlobsByPrefix(`${cellCachePrefix}/`);
 
   return {
     citySlug,
-    cityDir,
+    cityBlobPrefix,
     bbox,
     cameraCount: cameras.length,
     buildingCount: buildings.length,
