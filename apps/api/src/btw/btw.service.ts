@@ -260,6 +260,35 @@ export class BtwService {
   // це як "используется в запросах фронтенда/URL"). Виклик `getManifest('kyiv')` (дефолт
   // контролера) ніколи не знайшов би жодного міста при фільтрі по `name`. Адмінська вкладка
   // передає `slug` із listCitiesWithCameraDensity() (тепер теж повертає `slug`, див. вище).
+  // ВИПРАВЛЕНО (реальний, знайдений користувачем інцидент — скріншот з живим таймером
+  // "⏳ Генерация уже выполняется — 8м 18с" і заблокованою кнопкою, хоча запуск мав вважатись
+  // завислим ще на 6-й хвилині): перевірка "чи не застарів running-запис" раніше жила ЛИШЕ
+  // всередині generateTiles() — а її викликає ЛИШЕ клік на кнопку "Сгенерировать тайлы", яка
+  // ЗАБЛОКОВАНА, поки latest.status === 'running'. Виходило замкнене коло: єдиний спосіб
+  // позначити завислий запуск як failed — викликати generateTiles(), а єдиний спосіб
+  // викликати generateTiles() — щоб latest.status уже НЕ був 'running'. getGenerationStatus()
+  // (яку UI опитує кожні 4с, поки йде "живий" запуск) сама ніколи не позначала застарілі
+  // записи — просто повертала їх як є, тож таймер рахував нескінченно, а кнопка лишалась
+  // заблокованою назавжди. Тепер обидва методи ділять ОДНУ реконсиляцію нижче — опитування
+  // статусу саме "лікує" завислі записи, без потреби чекати на клік по кнопці.
+  private async reconcileStaleRunningRun(citySlug: string): Promise<void> {
+    const staleMs = getTileGenerationStaleRunMs();
+    const existingRunning = await this.prisma.btwTileGenerationRun.findFirst({
+      where: { citySlug, status: 'running' },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (!existingRunning) return;
+
+    const ageMs = Date.now() - existingRunning.startedAt.getTime();
+    if (ageMs < staleMs) return; // ще живий (у межах staleMs) — не чіпаємо
+
+    this.logger.warn(`[btw-tiles] city=${citySlug}: запуск ${existingRunning.id} завис на ${Math.round(ageMs / 1000)}с — помечаю failed`);
+    await this.prisma.btwTileGenerationRun.update({
+      where: { id: existingRunning.id },
+      data: { status: 'failed', finishedAt: new Date(), durationMs: ageMs, error: 'Запуск считается зависшим (не завершился за отведённое время) — вероятно, инстанс упал по таймауту.' },
+    });
+  }
+
   async generateTiles(citySlug: string) {
     if (!citySlug?.trim()) {
       throw new BadRequestException('Не указан город (slug)');
@@ -269,27 +298,19 @@ export class BtwService {
     // getTileGenerationStaleRunMs() вище): якщо для цього міста вже є "running"-запис — не
     // вважаємо це автоматично помилкою. Свіжий (молодший за staleMs) — справді ще виконується
     // десь-в-іншому виклику, повторний паралельний запуск лише марно б'є по тому самому
-    // Overpass другий раз одночасно -> ConflictException з чіткою підказкою. Застарілий
-    // (старший за staleMs) — той інстанс, найімовірніше, просто впав/був вбитий serverless-
-    // таймаутом, не встигнувши сам себе позначити failed; помічаємо це заднім числом і
-    // дозволяємо новий запуск, а не блокуємо адміна назавжди "живим", що насправді вже мертвий.
-    const staleMs = getTileGenerationStaleRunMs();
+    // Overpass другий раз одночасно -> ConflictException з чіткою підказкою. Застарілий уже
+    // позначено failed через reconcileStaleRunningRun() вище (може статись і тут ПЕРШИЙ раз,
+    // якщо ніхто не опитував статус, поки запуск висів) — новий запуск дозволяється.
+    await this.reconcileStaleRunningRun(citySlug);
     const existingRunning = await this.prisma.btwTileGenerationRun.findFirst({
       where: { citySlug, status: 'running' },
       orderBy: { startedAt: 'desc' },
     });
     if (existingRunning) {
       const ageMs = Date.now() - existingRunning.startedAt.getTime();
-      if (ageMs < staleMs) {
-        throw new ConflictException(
-          `Генерация тайлов для "${citySlug}" уже выполняется (запущена ${Math.round(ageMs / 1000)}с назад) — дождитесь завершения или повторите позже.`,
-        );
-      }
-      this.logger.warn(`[generateTiles] city=${citySlug}: предыдущий запуск ${existingRunning.id} завис на ${Math.round(ageMs / 1000)}с — помечаю failed и начинаю новый`);
-      await this.prisma.btwTileGenerationRun.update({
-        where: { id: existingRunning.id },
-        data: { status: 'failed', finishedAt: new Date(), durationMs: ageMs, error: 'Запуск считается зависшим (не завершился за отведённое время) — вероятно, инстанс упал по таймауту.' },
-      });
+      throw new ConflictException(
+        `Генерация тайлов для "${citySlug}" уже выполняется (запущена ${Math.round(ageMs / 1000)}с назад) — дождитесь завершения или повторите позже.`,
+      );
     }
 
     const run = await this.prisma.btwTileGenerationRun.create({ data: { citySlug, status: 'running' } });
@@ -347,10 +368,16 @@ export class BtwService {
   // просто заблоковану кнопку без пояснень) + коротка історія останніх спроб (тривалість,
   // причина провалу) — та сама ідея, що вже "previousAttempt" у suggestAzimuthFovForCamera()
   // вище (показати результат ПОПЕРЕДНЬОЇ спроби, а не лише "зараз щось відбувається").
+  //
+  // ВИПРАВЛЕНО (реальний баг зі скріншота — див. довгий коментар біля reconcileStaleRunningRun()
+  // вище): опитування статусу тепер САМЕ реконсилює застарілі "running"-записи, а не лише
+  // покладається на клік по кнопці (яка якраз заблокована, поки статус "running" — інакше
+  // замкнене коло).
   async getGenerationStatus(citySlug: string) {
     if (!citySlug?.trim()) {
       throw new BadRequestException('Не указан город (slug)');
     }
+    await this.reconcileStaleRunningRun(citySlug);
     const runs = await this.prisma.btwTileGenerationRun.findMany({
       where: { citySlug },
       orderBy: { startedAt: 'desc' },
