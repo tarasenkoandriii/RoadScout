@@ -423,31 +423,68 @@ export default function BtwScanPage() {
     gyroZRef.current = rotationRate.alpha;
   }
 
-  // §8.1/§4.7.5 ТЗ — спроба ініціалізувати локальний Worker-сканер одразу при вході у фазу
-  // сканування. 'kyiv' — той самий дефолт міста, що вже BtwController::getManifest()
-  // (@Query('city') city ?? 'kyiv') — клієнт поки не має вибору міста в UI взагалі (весь MVP
-  // — один Telegram mini-app на Київ), тому хардкод тут відповідає вже наявному серверному.
-  // init() сам ловить БУДЬ-ЯКУ помилку (немає тайлів для міста, мережа, Worker не
-  // підтримується) і повертає false — саме тому нижче можна безумовно покладатись на
-  // localScannerReady, не обробляючи різні "чому саме не готово" тут.
+  // §8.1/§4.7.5 ТЗ — спроба ініціалізувати локальний Worker-сканер. 'kyiv' — той самий дефолт
+  // міста, що вже BtwController::getManifest() (@Query('city') city ?? 'kyiv') — клієнт поки
+  // не має вибору міста в UI взагалі (весь MVP — один Telegram mini-app на Київ), тому хардкод
+  // тут відповідає вже наявному серверному. init() сам ловить БУДЬ-ЯКУ помилку (немає тайлів
+  // для міста, мережа, Worker не підтримується) і повертає false — саме тому нижче можна
+  // безумовно покладатись на localScannerReady, не обробляючи різні "чому саме не готово" тут.
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "почему при старте так медленно ищет
+  // кандидатов сначала"): раніше цей ефект стартував завантаження ЛИШЕ при `phase ===
+  // 'scanning'` — тобто ПІСЛЯ того, як requestPermissions() уже послідовно пройшла геолокацію
+  // (getCurrentPosition — до 8с сам таймаут!), дозвіл на орієнтацію/гироскоп (iOS-жест-діалоги)
+  // і камеру (getUserMedia). Увесь цей час (реально — кілька секунд) tiles навіть НЕ починали
+  // завантажуватись, і перші тики сканування (кожні 2с, поки localScannerReady не стане true)
+  // ішли ПОВІЛЬНИМ серверним шляхом (`/api/scan` -> живі Overpass-запити на кожного кандидата,
+  // §4.5 Ф3, доки не спрацює кеш) — саме це й відчувалось як "довго шукає кандидатов сначала".
+  // Тепер тригер — `phase === 'requesting' АБО 'scanning'` (а не лише 'scanning') — завантаження
+  // тайлів (manifest + buildings.bin/cameras.json/streets.json, § btwLocalScanner.ts::init())
+  // стартує ОДРАЗУ, щойно користувач натиснув "почати" (setPhase('requesting') — самий
+  // початок requestPermissions()), і йде ПАРАЛЕЛЬНО з усім ланцюжком дозволів, а не ПІСЛЯ
+  // нього — до моменту, коли користувач нарешті дозволить усе й фаза стане 'scanning', тайли
+  // здебільшого вже встигають довантажитись, і локальний (швидкий) шлях активний з самого
+  // початку сканування, а не через кілька секунд після нього.
+  //
+  // `if (localScannerRef.current) return;` — КРИТИЧНО: без цієї перевірки перехід
+  // 'requesting' -> 'scanning' (обидві "активні" фази) знову спрацював би як зміна `phase` у
+  // масиві залежностей і, за старою логікою нижче (створити новий сканер + `cancelled` у
+  // closure), ПЕРЕЗАПУСТИВ би саме те завантаження, яке щойно почалось — тобто звів би цю
+  // зміну нанівець. Порівняння за ІДЕНТИЧНІСТЮ інстансу в `.then()` (`localScannerRef.current
+  // === scanner`), а не прапорцем `cancelled`, зав'язаним на ОДИН виклик ефекту — з тієї самої
+  // причини: сам виклик `init()` продовжує "летіти" через перехід 'requesting' -> 'scanning'
+  // (це той самий інстанс сканера, що обидва рази проходить через `if (localScannerRef.current)
+  // return;` вище), і прапорець-closure старого стилю хибно позначив би його "скасованим" на
+  // цьому переході, назавжди залишаючи localScannerReady=false для всієї сесії.
   useEffect(() => {
-    if (phase !== 'scanning') return;
+    const active = phase === 'requesting' || phase === 'scanning';
+    if (!active) {
+      if (localScannerRef.current) {
+        localScannerRef.current.dispose();
+        localScannerRef.current = null;
+        setLocalScannerReady(false);
+      }
+      return;
+    }
+    if (localScannerRef.current) return; // вже створено й завантажується/завантажено цього сеансу
 
     const scanner = new BtwLocalScanner();
     localScannerRef.current = scanner;
-    let cancelled = false;
 
     scanner.init('kyiv').then((ok) => {
-      if (!cancelled) setLocalScannerReady(ok);
+      if (localScannerRef.current === scanner) setLocalScannerReady(ok);
     });
-
-    return () => {
-      cancelled = true;
-      scanner.dispose();
-      localScannerRef.current = null;
-      setLocalScannerReady(false);
-    };
   }, [phase]);
+
+  // Гарантія звільнення Worker'а при розмонтуванні сторінки НЕЗАЛЕЖНО від того, якою була
+  // фаза в момент розмонтування (ефект вище звільняє лише при ПЕРЕХОДІ у неактивну фазу, не
+  // при самому unmount — React не гарантує виклик того самого cleanup для цього випадку, якщо
+  // останній рендер був в активній фазі).
+  useEffect(() => {
+    return () => {
+      localScannerRef.current?.dispose();
+    };
+  }, []);
 
   // Періодичне сканування — §8.4 ТЗ вказує "не частіше 8 Гц і лише при Δheading>3°/Δposition>10м"
   // для локального Worker; коли localScannerReady — саме цей режим (нижче, гілка "локально"),
