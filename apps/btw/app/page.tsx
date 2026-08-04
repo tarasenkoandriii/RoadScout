@@ -103,6 +103,13 @@ export default function BtwScanPage() {
   const [usedDevOverride, setUsedDevOverride] = useState(false);
   const [lockedCandidate, setLockedCandidate] = useState<Candidate | null>(null);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "при встречном ракурсе нет видео с камеры",
+  // діагностика показала: раніше <img> просто мовчки не завантажувалась, без жодного
+  // повідомлення — користувач не міг відрізнити "камера справді недоступна" від "щось зламалось
+  // технічно"). Можливі реальні причини збою: тип потоку не MJPEG_SNAPSHOT (проксі
+  // /btw/thumb-image підтримує лише його — див. коментар у BtwService.fetchThumbImage), збій
+  // VPN/проксі, чи камера все одно заблокувала навіть проксі-IP.
+  const [thumbLoadFailed, setThumbLoadFailed] = useState(false);
   const [xrayOpacity, setXrayOpacity] = useState(70);
   // У5 ТЗ — стан vision-уточнення: клієнтський cooldown-таймер (додатково до серверного
   // rate-limit, який є реальною точкою контролю — клієнтський лише для UX, щоб не показувати
@@ -187,6 +194,23 @@ export default function BtwScanPage() {
   // окремі копії тут через відсутність спільного @btw/geometry-пакета між двома Next.js-
   // застосунками (див. doc/AUDIT-btw.md).
   const headingBiasRef = useRef(0);
+  // ВИПРАВЛЕНО (за прямим запитом користувача, під час діагностики "мало кандидатов" з
+  // "Поправка (У4/У5): -96°" на скріншоті) — ПРИЧИНА: калібрування У4 порівнює РЕАЛЬНИЙ азимут
+  // компаса з тим, куди "мав би" дивитись телефон до кандидата — а при dev-подмене координат
+  // (GPS підмінено, компас — НІ, свідомо, див. коментар вище про приватність) ці два світи не
+  // пов'язані: людина фізично стоїть десь-інде, а не там, де підмінена точка. Один тап "Захватить"
+  // під час такого тестування — і калібрування "вивчає" повністю сміттєвий зсув (тут -96°), який
+  // потім псує ВСІ наступні скани цієї сесії. Це не баг самого алгоритму (в реальному
+  // використанні без підміни GPS такого розсинхрону немає) — просто дев-тестування навмисно
+  // ламає одну з його вихідних передумов. Кнопка "Сбросить калибровку" нижче — щоб не
+  // перезапускати весь застосунок заради цього. biasResetTick — лише щоб форсувати ре-рендер
+  // (сам headingBiasRef — навмисно НЕ useState, див. коментар вище), бо HUD читає
+  // headingBiasRef.current напряму.
+  const [biasResetTick, setBiasResetTick] = useState(0);
+  function resetCalibration() {
+    headingBiasRef.current = 0;
+    setBiasResetTick((v) => v + 1);
+  }
   // У2 ТЗ — стан комплементарного фільтра. gyroZRef оновлюється окремим слухачем
   // 'devicemotion' (readGyroZ нижче), lastFilterTsRef потрібен для обчислення dt між
   // кроками (гироскоп дає кутову швидкість, °/с — потрібен реальний час між вимірами, щоб
@@ -412,16 +436,13 @@ export default function BtwScanPage() {
         telemetryRef.current.scanErrors += 1;
       }
 
-      // ВИПРАВЛЕНО (за прямим запитом користувача — "телеметрии маловато") — раніше було раз
-      // на 10 УСПІШНИХ сканів (~20с при інтервалі скана 2с): для короткого тестового сеансу це
-      // означало НУЛЬ проміжних відправок, лише один фінальний "хвіст" при виході з екрана
-      // (sendTelemetry() у cleanup useEffect). Тепер — раз на 3 СПРОБИ (успішні чи ні), дані
-      // видно в адмінці майже в реальному часі під час самого тестування, а не лише
-      // постфактум. Рахуємо і невдалі спроби теж — інакше сесія, де КОЖЕН скан падає, ніколи
-      // не досягла б порогу відправки взагалі (scanErrors без scans так і лишився б непобаченим
-      // до самого виходу з екрана).
-      const t = telemetryRef.current;
-      if ((t.scans + t.scanErrors) % 3 === 0) sendTelemetry();
+      // ВИПРАВЛЕНО (за прямим запитом користувача — двічі поспіль "телеметрии маловато") —
+      // раніше було раз на 10 успішних сканів, потім раз на 3 спроби (batched); тепер — ПІСЛЯ
+      // КОЖНОЇ спроби (успішної чи ні). Це найпростіший спосіб зробити дані видимими в адмінці
+      // в реальному часі без подальших суперечок про "яке число часто достатньо" — при цьому
+      // одна відправка = один POST /telemetry раз на ~2с під час активного сканування, для
+      // debug-інструменту це прийнятне навантаження.
+      await sendTelemetry();
     }, 2000);
 
     return () => {
@@ -438,16 +459,16 @@ export default function BtwScanPage() {
     // спроба скана падає (мережа/5xx), scans так і лишиться 0 назавжди — і саме цей випадок
     // scanErrors має показати в адмінці, а не мовчати разом з усім іншим.
     if (t.scans === 0 && t.scanErrors === 0) return;
-    try {
-      await fetch('/api/telemetry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(t),
-      });
-    } catch {
-      // не критично — телеметрія втрачається мовчки, не блокує основний UX
-    }
+
+    // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — телеметрія в адмінці показувала
+    // "Сканы: 0" поряд з непорожнім "Последний скан", тобто дані виглядали "битими"): скидання
+    // лічильника раніше відбувалось ПІСЛЯ `await fetch(...)`. `setInterval` не чекає на
+    // завершення попереднього тика — поки цей fetch летить (особливо повільний бекенд/холодний
+    // старт), наступний тик МІГ уже встигнути мутувати ТОЙ САМИЙ об'єкт `telemetryRef.current`
+    // (`t.scans += 1` тощо, той самий reference!), а потім цей виклик, дочекавшись fetch,
+    // затирав його свіжими нулями — щойно накопичені (і НІКОЛИ не надіслані) дані просто
+    // зникали. Тепер знімок і скидання відбуваються синхронно, ДО await — наступний тик під час
+    // очікування мережі вже працює зі свіжим, окремим об'єктом, нічого не втрачається.
     telemetryRef.current = {
       scans: 0,
       withCandidates: 0,
@@ -460,6 +481,16 @@ export default function BtwScanPage() {
       coneSurvivorsLast: 0,
       streetCandidatesFoundLast: 0,
     };
+    try {
+      await fetch('/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(t),
+      });
+    } catch {
+      // не критично — телеметрія втрачається мовчки, не блокує основний UX
+    }
   }
 
   async function handleLock(candidate: Candidate) {
@@ -484,6 +515,7 @@ export default function BtwScanPage() {
       if (res.ok) {
         const data = await res.json();
         setThumbUrl(data.url);
+        setThumbLoadFailed(false);
         setLockedCandidate(candidate);
         setPhase('locked');
         telemetryRef.current.locks += 1;
@@ -610,13 +642,20 @@ export default function BtwScanPage() {
     return (
       <div className="relative min-h-screen bg-black text-white">
         {hasCamera && <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />}
-        {thumbUrl && (
+        {thumbUrl && !thumbLoadFailed && (
           <img
             src={thumbUrl}
             alt="Camera feed"
             className="absolute inset-0 h-full w-full object-cover"
             style={{ opacity: xrayOpacity / 100, mixBlendMode: 'screen' }}
+            onError={() => setThumbLoadFailed(true)}
           />
+        )}
+        {thumbLoadFailed && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 px-6 text-center text-sm text-yellow-300">
+            ⚠️ Не удалось загрузить кадр с камеры — возможно, эта камера отдаёт не статичный снимок (нужен другой тип
+            прокси) или недоступна даже через VPN.
+          </div>
         )}
         <div className="absolute top-4 left-4 right-4 flex items-center justify-between rounded-lg bg-black/50 px-3 py-2 text-sm">
           <span>
@@ -673,6 +712,15 @@ export default function BtwScanPage() {
           <div>Сырой азимут: {heading != null ? `${Math.round(heading)}°` : '—'}</div>
           <div>Гироскоп: {hasGyroRef.current ? 'активен' : 'нет данных'}</div>
           <div>Поправка (У4/У5): {headingBiasRef.current > 0 ? '+' : ''}{Math.round(headingBiasRef.current)}°</div>
+          {/* За прямим запитом користувача — калібрування "по кандидату" (У4) при
+              dev-подмене координат може "вивчити" сміттєвий зсув (компас реальний, GPS
+              підмінений — це різні світи), і зіпсувати всі наступні скани сесії. Кнопка нижче
+              скидає накопичену поправку без перезапуску застосунку. */}
+          {Math.abs(headingBiasRef.current) > 3 && (
+            <button onClick={resetCalibration} className="mt-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] text-white">
+              Сбросить калибровку
+            </button>
+          )}
           {scanDebug && (
             <>
               <div>После snap (У3): {scanDebug.snapped ? `${Math.round(scanDebug.effectiveHeading)}° (притянуто)` : `${Math.round(scanDebug.effectiveHeading)}° (без snap)`}</div>
