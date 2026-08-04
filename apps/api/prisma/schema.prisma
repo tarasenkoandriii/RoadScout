@@ -781,12 +781,24 @@ model BtwTelemetryEvent {
 // Overpass timeout і адмін тисне ще раз, не знаючи, що перший ще живий); (2) видима історія
 // спроб із тривалістю й причиною провалу (напр. Overpass HTTP 406 — реальний випадок зі
 // скріншота користувача), щоб не тикати кнопку наосліп.
+// ДОПОВНЕНО (за прямим запитом користувача — "сделай запуски из вкладки идемпотентными -
+// несколько запусков подряд до исчерпания списка ячеек", після живого тесту на New York, чий
+// bbox розбивається на кілька десятків комірок сітки — doc/AUDIT-btw-radar-m1-m2.md): один
+// виклик generateTiles() тепер РЕАЛЬНО може бути циклом по багатьох записах (комірках), не
+// одним Overpass-проходом, як у коментарі нижче написано історично — тому додано `partial`,
+// проміжний статус між `running` і `completed`/`failed`: виклик ЗАВЕРШИВСЯ (не завис і не
+// впав), але не всі комірки сітки встигли обробитись за свій часовий бюджет
+// (GENERATION_TIME_BUDGET_MS, tile-generation.util.ts). cellsTotal/cellsDone — знімок
+// прогресу САМЕ ЦЬОГО запуску (джерело істини для продовження — кеш комірок на диску,
+// `<cityDir>/.cellcache/`, а не ці поля — вони лише для показу в адмінці).
 model BtwTileGenerationRun {
   id         String    @id @default(cuid())
   citySlug   String
-  // running -> completed | failed. "running" довше за STALE_RUN_MS (btw.service.ts) вважається
-  // завислим (serverless-інстанс міг просто померти, не встигнувши оновити статус) — новий
-  // запуск дозволяється, а зависла спроба позначається failed заднім числом.
+  // running -> completed | failed | partial. "running" довше за STALE_RUN_MS (btw.service.ts)
+  // вважається завислим (serverless-інстанс міг просто померти, не встигнувши оновити статус)
+  // — новий запуск дозволяється, а зависла спроба позначається failed заднім числом. `partial`
+  // — НЕ помилка (див. коментар вище) — кнопка в адмінці одразу розблокована, без очікування
+  // на STALE_RUN_MS, наступний клік просто продовжує з того самого місця.
   status     String    @default("running")
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
@@ -795,6 +807,8 @@ model BtwTileGenerationRun {
   cameraCount   Int?
   buildingCount Int?
   streetCount   Int?
+  cellsTotal    Int?
+  cellsDone     Int?
 
   @@index([citySlug, startedAt])
 }

@@ -51,12 +51,19 @@ interface GenerateResult {
   buildingCount: number;
   buildingBytes: number;
   streetCount: number;
+  // ДОПОВНЕНО (за прямим запитом користувача — "сделай запуски из вкладки идемпотентными -
+  // несколько запусков подряд до исчерпания списка ячеек"): generateTilesForCity() тепер може
+  // повернутись ДО завершення всієї сітки комірок (великий часовий бюджет вичерпано, кеш на
+  // диску вже зберігає прогрес) — complete: false відрізняє це від справжнього "Готово".
+  complete: boolean;
+  cellsTotal: number;
+  cellsDone: number;
 }
 
 interface GenerationRun {
   id: string;
   citySlug: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'partial';
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
@@ -64,6 +71,8 @@ interface GenerationRun {
   cameraCount: number | null;
   buildingCount: number | null;
   streetCount: number | null;
+  cellsTotal: number | null;
+  cellsDone: number | null;
   elapsedMs?: number | null; // заповнено сервером ЛИШЕ для latest.status === 'running'
 }
 
@@ -90,6 +99,9 @@ function formatDuration(ms: number): string {
 function runStatusLabel(status: GenerationRun['status']): string {
   if (status === 'running') return '⏳ выполняется';
   if (status === 'completed') return '✅ успешно';
+  // 'partial' — НЕ ошибка (см. комментарий у BtwService.generateTiles()): часовий бюджет
+  // одного виклику вичерпано, прогрес по комірках збережено на диску, потрібен ще клік.
+  if (status === 'partial') return '🟡 частично готово';
   return '❌ ошибка';
 }
 
@@ -230,6 +242,11 @@ export default function BtwTilesPage() {
   const selectedCity = cities.find((c) => c.slug === selectedSlug);
   const latestRun = genStatus?.latest ?? null;
   const isRunningRemotely = latestRun?.status === 'running';
+  // 'partial' — НЕ блокирует кнопку (в отличие от 'running'): это результат ЗАВЕРШИВШЕГОСЯ
+  // вызова, который просто не успел обработать все ячейки сетки за свой часовой бюджет —
+  // прогресс уже сохранён на диске (см. tile-generation.util.ts::fetchLayerGridResumable()),
+  // следующий клик по кнопке продолжит именно с этого места (идемпотентно).
+  const isPartial = latestRun?.status === 'partial';
   // elapsedMs — снимок с сервера на момент последнего fetchStatus(); nowTick лишь заставляет
   // React перерисовать между опросами, реальное число всегда считаем от startedAt заново —
   // так таймер не "залипает" на устаревшем значении между STATUS_POLL_MS.
@@ -297,6 +314,20 @@ export default function BtwTilesPage() {
           </div>
         )}
 
+        {isPartial && latestRun && (
+          <div className="mb-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            <div className="font-medium">
+              🟡 Частично готово — {latestRun.cellsDone ?? '?'}/{latestRun.cellsTotal ?? '?'} ячеек сетки
+              {latestRun.durationMs != null ? ` (за ${formatDuration(latestRun.durationMs)})` : ''}
+            </div>
+            <div className="mt-0.5 text-amber-700">
+              Город большой — Overpass не успевает отдать все ячейки за один вызов (лимит ~220с на попытку). Прогресс уже
+              сохранён на диске: нажмите кнопку ещё раз, чтобы продолжить с того же места — так до исчерпания списка ячеек.
+              Ничего не потеряется, если закрыть вкладку между попытками.
+            </div>
+          </div>
+        )}
+
         <button
           onClick={handleGenerate}
           disabled={!selectedSlug || !selectedCity?.slug || generating || isRunningRemotely}
@@ -306,7 +337,9 @@ export default function BtwTilesPage() {
             ? 'Генерация… (до 1-2 минут, не закрывайте вкладку)'
             : isRunningRemotely
               ? 'Уже выполняется…'
-              : 'Сгенерировать тайлы'}
+              : isPartial
+                ? 'Продолжить генерацию'
+                : 'Сгенерировать тайлы'}
         </button>
 
         <p className="mt-2 text-xs text-gray-500">
@@ -320,9 +353,14 @@ export default function BtwTilesPage() {
           Overpass (реальный случай, поймали на New York) — сервер теперь сам пробует резервные зеркала
           (<code>tile-generation.util.ts::getOverpassEndpoints()</code>), повторно жать кнопку из-за этой ошибки не нужно.
         </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Для очень больших городов (сотни камер, сетка из десятков ячеек) один клик может не успеть обработать всё — тогда
+          статус станет «🟡 частично готово», и нужно будет нажать кнопку ещё раз (и, возможно, ещё раз), пока ячейки не
+          закончатся. Это ожидаемо и безопасно — уже готовые ячейки не запрашиваются повторно.
+        </p>
       </div>
 
-      {result && (
+      {result && result.complete && (
         <div className="rounded border border-green-200 bg-green-50 p-4 text-sm text-green-800">
           <h2 className="mb-2 font-medium">Готово</h2>
           <div>Здания: {result.buildingCount} ({(result.buildingBytes / 1024).toFixed(1)} КБ)</div>
@@ -333,6 +371,12 @@ export default function BtwTilesPage() {
           </div>
         </div>
       )}
+
+      {/* result.complete === false — это тот же самый успешный ответ сервера, просто сітка
+          комірок обробилась не повністю за один виклик; фінальні файли тайлів ще НЕ записані
+          (див. generateTilesForCity() — вони пишуться лише коли complete === true), тому "Готово"
+          вище тут не показуємо — натомість блок "🟡 частично готово" вище кнопки вже пояснює, що
+          робити далі (нажать кнопку ещё раз). */}
 
       {genStatus && (genStatus.latest || genStatus.history.length > 0) && (
         <div className="mt-6 rounded border p-4">
@@ -361,7 +405,9 @@ export default function BtwTilesPage() {
                   <td className="py-1 text-gray-600">
                     {run.status === 'completed'
                       ? `здания: ${run.buildingCount ?? '?'}, камеры: ${run.cameraCount ?? '?'}, улицы: ${run.streetCount ?? '?'}`
-                      : run.error ?? '—'}
+                      : run.status === 'partial'
+                        ? `${run.cellsDone ?? '?'}/${run.cellsTotal ?? '?'} ячеек — нажмите «Продолжить генерацию» выше`
+                        : run.error ?? '—'}
                   </td>
                 </tr>
               ))}

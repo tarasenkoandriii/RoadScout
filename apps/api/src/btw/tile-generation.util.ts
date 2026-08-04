@@ -86,6 +86,16 @@ export interface GenerateTilesResult {
   buildingCount: number;
   buildingBytes: number;
   streetCount: number;
+  // За прямим запитом користувача — "сделай запуски из вкладки идемпотентными - несколько
+  // запусков подряд до исчерпания списка ячеек" (§ коментар біля GENERATION_TIME_BUDGET_MS
+  // нижче). cellsTotal/cellsDone — сумарно по ОБОХ шарах (buildings+streets, той самий grid).
+  // complete=false означає "цей виклик вичерпав свій часовий бюджет, не діставши всі комірки
+  // Overpass — buildings.bin/cameras.json/streets.json ЩЕ НЕ записані (щоб не видати
+  // напівготові тайли як готові), просто повторіть виклик (та сама кнопка/CLI-команда) — він
+  // сам продовжить з того місця, де кеш комірок на диску зупинився".
+  cellsTotal: number;
+  cellsDone: number;
+  complete: boolean;
 }
 
 // Bbox міста — з екстремумів позицій УЖЕ наявних камер (той самий підхід, що
@@ -240,29 +250,166 @@ async function fetchOverpass(query: string): Promise<any> {
   }
 }
 
-// Дослівно та сама конструкція запиту, що occlusion.service.ts::fetchNearbyBuildings() вже
-// використовує в проді (`way["building"]`) — тут bbox-варіант замість `around:radius,lat,lng`,
-// бо потрібне ЦІЛЕ місто одразу, а не околиця однієї точки.
-export async function fetchBuildings(bbox: Bbox): Promise<any[]> {
-  const query = `
-    [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
-    way["building"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-    out geom;
-  `;
-  const data = await fetchOverpass(query);
-  return (data.elements ?? []).filter((el: any) => el.geometry?.length >= 3);
+// ВИПРАВЛЕНО (за прямим запитом користувача — "разбей bbox на сетку", після того як живий тест
+// на New York (692 камери, bbox — практично весь округ) показав, що навіть 5 конкурентних
+// спроб/дзеркал/VPN (§ вище) не рятують: VPN обійшов бан-фільтр overpass-api.de (замість 406
+// отримали 504 — Gateway Timeout: запит ДІЙШОВ, але сервер не встиг його порахувати за 60с), а
+// незалежні дзеркала просто зависали без відповіді. Це вже не питання блокування конкретного
+// ендпоінту — сам ОДИН величезний запит для всього міста структурно завеликий для Overpass,
+// скільки дзеркал не перебирай). Тепер bbox розбивається на сітку менших комірок
+// (GRID_CELL_SIZE_M, за замовчуванням 4×4 км) — кожна комірка йде ОКРЕМИМ Overpass-запитом
+// (через ту саму 5-конкурентну гонку дзеркал+VPN вище), результати об'єднуються з дедуплікацією
+// по id (одна OSM way може мати вузли в кількох сусідніх комірках і тому потрапити в
+// результати більш ніж однієї комірки — Overpass повертає way, якщо ХОЧА Б один її вузол
+// потрапляє в bbox). Для міст, чий bbox МЕНШИЙ за одну комірку (типовий випадок — Київ і
+// подібні), сітка вироджується в ОДНУ комірку, що дорівнює всьому bbox — поведінка НЕ
+// змінюється порівняно з попередньою версією.
+const GRID_CELL_SIZE_M = 4000;
+// Скільки комірок обробляти ОДНОЧАСНО — кожна комірка сама по собі вже до 5 конкурентних
+// HTTP-запитів (§ вище), тож занадто високе число тут помножило б навантаження на й так
+// перевантажені публічні дзеркала Overpass. Для дуже великого міста (десятки комірок) це
+// свідомий компроміс "довше, але надійніше", а не "якнайшвидше" —§ AUDIT-btw-radar-m1-m2.md.
+const GRID_QUERY_CONCURRENCY = 3;
+
+export function splitBboxIntoGrid(bbox: Bbox, cellSizeM = GRID_CELL_SIZE_M): Bbox[] {
+  const refLat = Math.max(Math.abs(bbox.south), Math.abs(bbox.north));
+  const latStep = cellSizeM / METERS_PER_DEG_LAT;
+  const lngStep = cellSizeM / (METERS_PER_DEG_LAT * Math.cos(toRad(refLat)));
+
+  const cells: Bbox[] = [];
+  for (let south = bbox.south; south < bbox.north; south += latStep) {
+    const north = Math.min(south + latStep, bbox.north);
+    for (let west = bbox.west; west < bbox.east; west += lngStep) {
+      const east = Math.min(west + lngStep, bbox.east);
+      cells.push({ south, west, north, east });
+    }
+  }
+  return cells;
 }
 
-// Дослівно та сама конструкція запиту, що azimuth-heuristic.service.ts вже використовує в
-// проді (`way["highway"]`) — bbox-варіант з тієї самої причини, що й для будівель вище.
-export async function fetchStreets(bbox: Bbox): Promise<any[]> {
-  const query = `
-    [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
-    way["highway"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-    out geom;
-  `;
-  const data = await fetchOverpass(query);
-  return (data.elements ?? []).filter((el: any) => el.geometry?.length >= 2);
+// Обмежена конкурентність без залежності від сторонніх бібліотек (p-limit тощо — той самий
+// принцип "без зайвих npm-залежностей заради однієї функції", що вже bearing()/toLocalXY() тут
+// же копіюють замість імпорту спільного пакета).
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+function dedupeElementsById(elements: any[]): any[] {
+  const seen = new Set<number>();
+  const result: any[] = [];
+  for (const el of elements) {
+    if (seen.has(el.id)) continue;
+    seen.add(el.id);
+    result.push(el);
+  }
+  return result;
+}
+
+// За прямим запитом користувача — "сделай запуски из вкладки идемпотентными - несколько
+// запусков подряд до исчерпания списка ячеек": для дуже великого міста (Нью-Йорк — кілька
+// десятків комірок сітки, § вище) один HTTP-виклик адмінки (Vercel Hobby, 300с) або навіть
+// одне термінальне очікування CLI фізично не встигне обробити ВСІ комірки за раз. Замість
+// "усе за один прохід або нічого" — кожна комірка, щойно отримана, ОДРАЗУ пишеться на диск
+// (кеш-файл `<cityDir>/.cellcache/<layer>/<cellIndex>.json`), а НАСТУПНИЙ виклик
+// generateTilesForCity() для того самого міста (наступний клік на кнопку в адмінці — та сама
+// ідемпотентність, що вже в BtwService.generateTiles()/BtwTileGenerationRun, чи наступний
+// запуск CLI-скрипта локально) перевіряє, які комірки вже готові на диску, і довантажує ЛИШЕ
+// відсутні — доки список комірок не вичерпається. Остаточні тайли (buildings.bin/cameras.json/
+// streets.json) пишуться ЛИШЕ коли комірки ОБОХ шарів (buildings+streets) повністю готові —
+// інакше манфест (`getLocalTileLayers()`) продовжує чесно показувати "тайлів немає" замість
+// видачі напівготових даних як завершених.
+//
+// ⚠️ ЧЕСНО: кеш комірок на диску — те саме припущення про стійкість файлової системи
+// BTW_TILES_DIR між окремими HTTP-викликами адмінки на Vercel, що вже неявно закладено в
+// існуючий механізм видачі готових тайлів (getTilesDir()/getLocalTileLayers()) — я не вводжу
+// новий клас ризику, лише покладаюсь на той самий, вже наявний. Якщо серверless-інстанси
+// Vercel НЕ поділяють диск між викликами насправді — кеш комірок (і сама видача готових
+// тайлів) однаково не працює вже сьогодні, до цього кроку.
+const GENERATION_TIME_BUDGET_MS = 220_000; // з запасом під 300с Vercel Hobby — лишає час на Prisma/кодування/фіналізацію
+
+interface LayerGridResult {
+  elements: any[];
+  cellsDone: number;
+}
+
+// Перевіряє/скидає кеш комірок, якщо bbox змінився з попереднього запуску (склад камер міста
+// змінився між двома кліками на кнопку — реальна, хоч і рідкісна ситуація) — довіряти кешу
+// комірок, порахованому для ІНШОЇ географії, небезпечно (дало б неправильні дані без жодної
+// помітної ознаки браку).
+function ensureCellCacheValidForBbox(cacheDir: string, bbox: Bbox): void {
+  const bboxFile = path.join(cacheDir, 'bbox.json');
+  const bboxJson = JSON.stringify(bbox);
+  let cachedBboxJson: string | null = null;
+  try {
+    cachedBboxJson = fs.readFileSync(bboxFile, 'utf-8');
+  } catch {
+    cachedBboxJson = null;
+  }
+  if (cachedBboxJson !== bboxJson) {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(bboxFile, bboxJson);
+  }
+}
+
+// Одна комірка, що впала (мережа/усі 5 спроб провалились) — НЕ обриває решту: просто лишається
+// pending і буде повторно спробувана наступним викликом, разом з рештою недороблених комірок.
+// Набагато стійкіше за попередню версію (де будь-яка провалена комірка валила ВЕСЬ прогін) —
+// саме цього бракувало, коли Overpass реально ненадійний (живі 406/504/timeout зі скріншотів
+// користувача цієї сесії).
+async function fetchLayerGridResumable(
+  layer: 'buildings' | 'streets',
+  cells: Bbox[],
+  cacheDir: string,
+  buildQuery: (cell: Bbox) => string,
+  filterElement: (el: any) => boolean,
+  deadline: number,
+): Promise<LayerGridResult> {
+  const layerCacheDir = path.join(cacheDir, layer);
+  fs.mkdirSync(layerCacheDir, { recursive: true });
+
+  const cellFile = (i: number) => path.join(layerCacheDir, `${i}.json`);
+  const pending = cells.map((_, i) => i).filter((i) => !fs.existsSync(cellFile(i)));
+
+  if (pending.length > 0) {
+    await mapWithConcurrency(pending, GRID_QUERY_CONCURRENCY, async (cellIndex) => {
+      if (Date.now() >= deadline) return; // бюджет вичерпано — лишаємо комірку pending для наступного виклику
+      try {
+        const data = await fetchOverpass(buildQuery(cells[cellIndex]));
+        const elements = ((data.elements ?? []) as any[]).filter(filterElement);
+        fs.writeFileSync(cellFile(cellIndex), JSON.stringify(elements));
+        if (cells.length > 1) {
+          console.log(`[tile-generation] ${layer}: комірка ${cellIndex + 1}/${cells.length} готова (${elements.length} елементів)`);
+        }
+      } catch (err) {
+        console.warn(`[tile-generation] ${layer}: комірка ${cellIndex + 1}/${cells.length} провалилась — ${(err as Error).message} (спробуємо в наступному запуску)`);
+      }
+    });
+  }
+
+  // Джерело істини — файлова система (а не лічильник у пам'яті цього виклику): так наступний
+  // запуск бачить прогрес попереднього незалежно від того, ЯКИЙ саме виклик записав кожен файл.
+  const allElements: any[] = [];
+  let cellsDone = 0;
+  for (let i = 0; i < cells.length; i++) {
+    try {
+      allElements.push(...JSON.parse(fs.readFileSync(cellFile(i), 'utf-8')));
+      cellsDone += 1;
+    } catch {
+      // файлу ще немає — комірка досі pending
+    }
+  }
+
+  return { elements: dedupeElementsById(allElements), cellsDone };
 }
 
 // ⚠️ ЧЕСНО: жоден наявний сервіс проєкту досі не парсив висоту будівель з OSM
@@ -282,15 +429,68 @@ export function estimateHeightM(tags: Record<string, string> | undefined): numbe
 // Уся "важка" робота — Overpass-запити, кодування, запис на диск. Викликач відповідає лише за
 // отримання `cameras` (звідки завгодно) і `citySlug` (§ нижче — навмисно `slug`, не
 // відображуване `City.name`, див. ВИПРАВЛЕНО-коментар у btw.service.ts::generateTiles()).
+//
+// ІДЕМПОТЕНТНІ БАГАТОРАЗОВІ ЗАПУСКИ (за прямим запитом користувача — "сделай запуски из
+// вкладки идемпотентными - несколько запусков подряд до исчерпания списка ячеек", § детальний
+// коментар біля GENERATION_TIME_BUDGET_MS вище): функція тепер може повернутись, НЕ дописавши
+// фінальні тайли — `result.complete === false` — якщо не встигла обробити всі комірки сітки
+// за свій часовий бюджет. Виклик просто ПОВТОРЮЄТЬСЯ (той самий citySlug/cameras/tilesDir) —
+// кеш комірок на диску сам підхоплює прогрес з попереднього разу.
 export async function generateTilesForCity(citySlug: string, cameras: CameraForTiling[], tilesDir: string): Promise<GenerateTilesResult> {
   if (cameras.length === 0) {
     throw new Error(`no VERIFIED/OUTDOOR/ONLINE cameras found for city slug="${citySlug}" — nothing to tile`);
   }
 
   const bbox = computeBboxFromCameras(cameras);
+  const cityDir = path.join(tilesDir, citySlug);
+  const cellCacheDir = path.join(cityDir, '.cellcache');
+  ensureCellCacheValidForBbox(cellCacheDir, bbox);
 
-  // Паралельно — див. ВИПРАВЛЕНО-коментар біля OVERPASS_QUERY_TIMEOUT_S вище.
-  const [buildingElements, streetElements] = await Promise.all([fetchBuildings(bbox), fetchStreets(bbox)]);
+  const cells = splitBboxIntoGrid(bbox);
+  const deadline = Date.now() + GENERATION_TIME_BUDGET_MS;
+
+  // Послідовно (не Promise.all, як у попередній версії) — свідомо, для простоти й чіткості
+  // прогресу: buildings спершу забирають свою частку бюджету, streets — те, що лишилось.
+  // Кожен шар усередині себе однаково паралелить комірки (GRID_QUERY_CONCURRENCY), тож
+  // конкурентність не втрачається, лише координація між двома шарами спрощена.
+  const buildingsResult = await fetchLayerGridResumable(
+    'buildings',
+    cells,
+    cellCacheDir,
+    (cell) => `
+      [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
+      way["building"](${cell.south},${cell.west},${cell.north},${cell.east});
+      out geom;
+    `,
+    (el) => el.geometry?.length >= 3,
+    deadline,
+  );
+  const streetsResult = await fetchLayerGridResumable(
+    'streets',
+    cells,
+    cellCacheDir,
+    (cell) => `
+      [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
+      way["highway"](${cell.south},${cell.west},${cell.north},${cell.east});
+      out geom;
+    `,
+    (el) => el.geometry?.length >= 2,
+    deadline,
+  );
+
+  const cellsTotal = cells.length * 2; // buildings + streets — той самий grid, дві незалежні прогрес-доріжки
+  const cellsDone = buildingsResult.cellsDone + streetsResult.cellsDone;
+  const complete = buildingsResult.cellsDone === cells.length && streetsResult.cellsDone === cells.length;
+
+  if (!complete) {
+    // НЕ пишемо buildings.bin/cameras.json/streets.json — манфест (getLocalTileLayers()) має
+    // й далі чесно показувати "тайлів немає", доки дані справді не повні. Кеш комірок на диску
+    // вже зберігає все, що встигли забрати цим викликом — наступний виклик продовжить звідси.
+    return { citySlug, cityDir, bbox, cameraCount: cameras.length, buildingCount: buildingsResult.elements.length, buildingBytes: 0, streetCount: streetsResult.elements.length, cellsTotal, cellsDone, complete: false };
+  }
+
+  const buildingElements = buildingsResult.elements;
+  const streetElements = streetsResult.elements;
 
   // Origin — центр bbox, той самий tileOrigin, який клієнтський toLocalXY()/fromLocalXY()
   // (btw-geometry-engine.ts) використовує для проекції camera/building координат у локальні
@@ -347,12 +547,14 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
   }
   const streetsTile: StreetsTile = { version: 1, streets };
 
-  const cityDir = path.join(tilesDir, citySlug);
   fs.mkdirSync(cityDir, { recursive: true });
 
   fs.writeFileSync(path.join(cityDir, 'buildings.bin'), Buffer.from(buildingsBuf));
   fs.writeFileSync(path.join(cityDir, 'cameras.json'), JSON.stringify(camerasTile));
   fs.writeFileSync(path.join(cityDir, 'streets.json'), JSON.stringify(streetsTile));
+
+  // Успішно завершено — кеш комірок більше не потрібен (не накопичуємо диск між містами).
+  fs.rmSync(cellCacheDir, { recursive: true, force: true });
 
   return {
     citySlug,
@@ -362,5 +564,8 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
     buildingCount: buildings.length,
     buildingBytes: buildingsBuf.byteLength,
     streetCount: streets.length,
+    cellsTotal,
+    cellsDone,
+    complete: true,
   };
 }

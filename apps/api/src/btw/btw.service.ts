@@ -331,6 +331,31 @@ export class BtwService {
 
     try {
       const result = await generateTilesForCity(citySlug, cameras, this.getTilesDir());
+
+      // ДОПОВНЕНО (за прямим запитом користувача — "сделай запуски из вкладки идемпотентными -
+      // несколько запусков подряд до исчерпания списка ячеек"): `complete: false` — НЕ помилка.
+      // generateTilesForCity() сітка обробилась лише частково за свій часовий бюджет (велике
+      // місто на кшталт New York, десятки комірок) — кеш комірок на диску вже зберігає прогрес,
+      // наступний виклик (наступний клік на ту саму кнопку в адмінці, чи повторний запуск
+      // CLI-скрипта) продовжить звідти. Тому `partial`, а не `failed` — і жодного throw: адмін
+      // бачить прогрес і чітку підказку тиснути кнопку ще раз, а не текст червоної помилки.
+      if (!result.complete) {
+        this.logger.log(
+          `[generateTiles] city=${citySlug}: частково готово (${result.cellsDone}/${result.cellsTotal} комірок) — потрібен ще один запуск`,
+        );
+        await this.prisma.btwTileGenerationRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'partial',
+            finishedAt: new Date(),
+            durationMs: Date.now() - run.startedAt.getTime(),
+            cellsTotal: result.cellsTotal,
+            cellsDone: result.cellsDone,
+          },
+        });
+        return result;
+      }
+
       this.logger.log(
         `[generateTiles] city=${citySlug}: buildings=${result.buildingCount} (${result.buildingBytes}B), cameras=${result.cameraCount}, streets=${result.streetCount}`,
       );
@@ -343,6 +368,8 @@ export class BtwService {
           cameraCount: result.cameraCount,
           buildingCount: result.buildingCount,
           streetCount: result.streetCount,
+          cellsTotal: result.cellsTotal,
+          cellsDone: result.cellsDone,
         },
       });
       return result;
