@@ -534,7 +534,25 @@ export class BtwService {
     return this.prisma.btwReport.create({ data: { telegramId, cameraId, reason } });
   }
 
-  async telemetry(telegramId: string, aggregates: { scans: number; withCandidates: number; locks: number; snapUsed: boolean; fallbackOffered?: number; fallbackUsed?: number }) {
+  async telemetry(
+    telegramId: string,
+    aggregates: {
+      scans: number;
+      withCandidates: number;
+      locks: number;
+      snapUsed: boolean;
+      fallbackOffered?: number;
+      fallbackUsed?: number;
+      // ВИПРАВЛЕНО (за прямим запитом користувача — "нужно больше полей телеметрии", під час
+      // діагностики "кандидатов то находит то не находит") — усі опціональні, з тієї ж
+      // причини, що fallbackOffered/fallbackUsed вище: старіший клієнт без цих полів не
+      // повинен ламати запис телеметрії.
+      scanErrors?: number;
+      camerasInBboxLast?: number;
+      coneSurvivorsLast?: number;
+      streetCandidatesFoundLast?: number;
+    },
+  ) {
     // §6 ТЗ — "агрегаты сессии, без координат". За прямим запитом користувача — тепер реально
     // зберігається (раніше лише логувалось і пропадало), щоб ПІСЛЯ польового тесту можна було
     // подивитись через адмінку, а не покладатись на пам'ять.
@@ -551,6 +569,10 @@ export class BtwService {
         snapUsed: aggregates.snapUsed,
         fallbackOffered: aggregates.fallbackOffered ?? 0,
         fallbackUsed: aggregates.fallbackUsed ?? 0,
+        scanErrors: aggregates.scanErrors ?? 0,
+        camerasInBboxLast: aggregates.camerasInBboxLast ?? 0,
+        coneSurvivorsLast: aggregates.coneSurvivorsLast ?? 0,
+        streetCandidatesFoundLast: aggregates.streetCandidatesFoundLast ?? 0,
       },
     });
     return { ok: true };

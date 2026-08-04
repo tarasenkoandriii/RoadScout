@@ -126,7 +126,22 @@ export class BtwController {
 
   @UseGuards(TelegramAuthGuard)
   @Post('telemetry')
-  telemetry(@Req() req: any, @Body() body: { scans: number; withCandidates: number; locks: number; snapUsed: boolean; fallbackOffered?: number; fallbackUsed?: number }) {
+  telemetry(
+    @Req() req: any,
+    @Body()
+    body: {
+      scans: number;
+      withCandidates: number;
+      locks: number;
+      snapUsed: boolean;
+      fallbackOffered?: number;
+      fallbackUsed?: number;
+      scanErrors?: number;
+      camerasInBboxLast?: number;
+      coneSurvivorsLast?: number;
+      streetCandidatesFoundLast?: number;
+    },
+  ) {
     return this.btwService.telemetry(req.telegramId, body);
   }
 

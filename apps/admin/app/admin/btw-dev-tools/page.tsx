@@ -20,6 +20,15 @@ interface TelemetryEvent {
   // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — conversion rate резервного рівня.
   fallbackOffered: number;
   fallbackUsed: number;
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "нужно больше полей телеметрии", під час
+  // діагностики "кандидатов то находит то не находит") — scanErrors: скільки спроб скана
+  // впало (мережа/5xx), а не просто "камер немає в цьому напрямку". *Last — знімок
+  // діагностики ОСТАННЬОГО успішного скана в сесії (те саме, що видно в HUD телефону, але
+  // лишається тут і після того, як тестувальник закрив застосунок).
+  scanErrors: number;
+  camerasInBboxLast: number;
+  coneSurvivorsLast: number;
+  streetCandidatesFoundLast: number;
   createdAt: string;
 }
 
@@ -258,22 +267,28 @@ export default function BtwDevToolsPage() {
           польового тесту (М0-спайк) можна було подивитись цифри тут, а не покладатись на
           пам'ять "здається, спрацювало". */}
       <h2 className="mt-8 mb-2 font-medium">Телеметрия сессий (последние 200)</h2>
+      {/* ВИПРАВЛЕНО (за прямим запитом користувача — "нужно больше полей телеметрии", під час
+          діагностики "кандидатов то находит то не находит") — Ошибки/Последний скан нижче:
+          раніше з цієї таблиці неможливо було відрізнити "камер немає в цьому напрямку" від
+          "запит до /btw/scan просто впав" — обидва випадки виглядали як 0 кандидатів. */}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="border-b text-left">
             <th className="py-2">Telegram ID</th>
             <th>Сканы</th>
             <th>С кандидатами</th>
+            <th>Ошибки сканов</th>
             <th>Захваты</th>
             <th>Snap сработал</th>
             <th>Fallback (использовано/предложено)</th>
+            <th>Последний скан (камер в bbox / прошли конус / улиц рядом)</th>
             <th>Когда</th>
           </tr>
         </thead>
         <tbody>
           {telemetry.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-4 text-center text-gray-400">
+              <td colSpan={9} className="py-4 text-center text-gray-400">
                 Нет данных телеметрии — запустите скан на реальном устройстве
               </td>
             </tr>
@@ -285,12 +300,16 @@ export default function BtwDevToolsPage() {
               <td>
                 {t.withCandidates} ({t.scans > 0 ? Math.round((t.withCandidates / t.scans) * 100) : 0}%)
               </td>
+              <td className={t.scanErrors > 0 ? 'text-red-600' : undefined}>{t.scanErrors > 0 ? t.scanErrors : '—'}</td>
               <td>{t.locks}</td>
               <td>{t.snapUsed ? '✅' : '—'}</td>
               <td>
                 {t.fallbackOffered > 0
                   ? `${t.fallbackUsed}/${t.fallbackOffered} (${Math.round((t.fallbackUsed / t.fallbackOffered) * 100)}%)`
                   : '—'}
+              </td>
+              <td>
+                {t.camerasInBboxLast} / {t.coneSurvivorsLast} / {t.streetCandidatesFoundLast}
               </td>
               <td>{new Date(t.createdAt).toLocaleString('ru-RU')}</td>
             </tr>

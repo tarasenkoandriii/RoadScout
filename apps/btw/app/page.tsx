@@ -162,7 +162,23 @@ export default function BtwScanPage() {
   // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — доданo fallbackOffered/fallbackUsed для
   // conversion rate (за прямим запитом користувача — раніше цих полів не було в
   // BtwTelemetryEvent взагалі).
-  const telemetryRef = useRef({ scans: 0, withCandidates: 0, locks: 0, snapUsed: false, fallbackOffered: 0, fallbackUsed: 0 });
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "нужно больше полей телеметрии", під час
+  // діагностики "кандидатов то находит то не находит") — scanErrors і три *Last-поля. Раніше
+  // НЕВДАЛІ спроби скана взагалі ніде не рахувались — з адмінки неможливо було відрізнити
+  // "камер немає в цьому напрямку" від "запит просто впав" (мережа/5xx).
+  const telemetryRef = useRef({
+    scans: 0,
+    withCandidates: 0,
+    locks: 0,
+    snapUsed: false,
+    fallbackOffered: 0,
+    fallbackUsed: 0,
+    scanErrors: 0,
+    camerasInBboxLast: 0,
+    coneSurvivorsLast: 0,
+    streetCandidatesFoundLast: 0,
+  });
   // У4 ТЗ (§5) — "калибровка по кандидату". Свідомо client-side, useRef (не useState) — це
   // "сессия" за задумом ТЗ (ефемерний стан, зникає при перезавантаженні застосунку), і не
   // потребує ре-рендеру щоразу при оновленні (лише впливає на майбутні виклики /api/scan).
@@ -340,7 +356,6 @@ export default function BtwScanPage() {
       const posChanged = !last || Math.abs(last.lat - position.lat) > 0.0001 || Math.abs(last.lng - position.lng) > 0.0001;
       if (!headingChanged && !posChanged) return;
 
-      lastScanRef.current = { heading, lat: position.lat, lng: position.lng };
       // У4 ТЗ — застосовуємо накопичену персональну поправку ПЕРЕД відправкою на сервер
       // (сервер потім ще й сам застосовує У3 snap до вулиці, поверх уже скоригованого
       // значення — обидва механізми коректно комбінуються, як описано в
@@ -354,6 +369,14 @@ export default function BtwScanPage() {
           body: JSON.stringify({ lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, heading: correctedHeading, headingSigma: 8 }),
         });
         if (res.ok) {
+          // ВИПРАВЛЕНО (реальний баг, знайдений користувачем — "кандидатов то находит то не
+          // находит" навіть коли на карті явно багато камер поруч): раніше lastScanRef
+          // оновлювався ДО запиту, безумовно — тобто ОДНА невдала спроба (мережа/5xx) "застрявала"
+          // тут назавжди, доки хтось не поверне телефон на >3°, бо headingChanged/posChanged
+          // порівнюють з lastScanRef, а не з фактом успіху. Тепер оновлюємо лише ПІСЛЯ успіху —
+          // невдача просто пробується знову на наступному тику (кожні 2с), а не блокується.
+          lastScanRef.current = { heading, lat: position.lat, lng: position.lng };
+
           const result = await res.json();
           // М2 ТЗ — зберігаємо fallback окремо, і якщо в цьому скані знову з'явився хоча б
           // один direct-кандидат, а fallback до цього був розкритий користувачем — коректно
@@ -375,16 +398,30 @@ export default function BtwScanPage() {
           // часто ситуація взагалі актуальна).
           if (newDirect.length === 0 && (result.fallback ?? []).length > 0) t.fallbackOffered += 1;
           if (result.debug?.snapped) t.snapUsed = true;
-          // ВИПРАВЛЕНО (за прямим запитом користувача — "телеметрии маловато") — раніше було
-          // раз на 10 сканів (~20с при інтервалі скана 2с): для короткого тестового сеансу це
-          // означало НУЛЬ проміжних відправок, лише один фінальний "хвіст" при виході з екрана
-          // (sendTelemetry() у cleanup useEffect). Раз на 3 скани (~6с) — дані видно в адмінці
-          // майже в реальному часі під час самого тестування, не лише постфактум.
-          if (t.scans % 3 === 0) sendTelemetry();
+          if (result.debug) {
+            t.camerasInBboxLast = result.debug.camerasInBbox ?? 0;
+            t.coneSurvivorsLast = result.debug.coneSurvivors ?? 0;
+            t.streetCandidatesFoundLast = result.debug.streetCandidatesFound ?? 0;
+          }
+        } else {
+          telemetryRef.current.scanErrors += 1;
         }
       } catch {
-        // мовчазно ігноруємо — наступний тик спробує знову
+        // мовчазно ігноруємо запуск наступного тика (не блокуємо UI), але лічильник помилок —
+        // за прямим запитом користувача, щоб це було видно в адмінці, а не лише в HUD телефону
+        telemetryRef.current.scanErrors += 1;
       }
+
+      // ВИПРАВЛЕНО (за прямим запитом користувача — "телеметрии маловато") — раніше було раз
+      // на 10 УСПІШНИХ сканів (~20с при інтервалі скана 2с): для короткого тестового сеансу це
+      // означало НУЛЬ проміжних відправок, лише один фінальний "хвіст" при виході з екрана
+      // (sendTelemetry() у cleanup useEffect). Тепер — раз на 3 СПРОБИ (успішні чи ні), дані
+      // видно в адмінці майже в реальному часі під час самого тестування, а не лише
+      // постфактум. Рахуємо і невдалі спроби теж — інакше сесія, де КОЖЕН скан падає, ніколи
+      // не досягла б порогу відправки взагалі (scanErrors без scans так і лишився б непобаченим
+      // до самого виходу з екрана).
+      const t = telemetryRef.current;
+      if ((t.scans + t.scanErrors) % 3 === 0) sendTelemetry();
     }, 2000);
 
     return () => {
@@ -397,7 +434,10 @@ export default function BtwScanPage() {
   // виході з екрана сканування (exitLock/beforeunload), щоб не втратити "хвіст" сесії.
   async function sendTelemetry() {
     const t = telemetryRef.current;
-    if (t.scans === 0) return;
+    // ВИПРАВЛЕНО — раніше `t.scans === 0` саме собою пропускало відправку. Але якщо КОЖНА
+    // спроба скана падає (мережа/5xx), scans так і лишиться 0 назавжди — і саме цей випадок
+    // scanErrors має показати в адмінці, а не мовчати разом з усім іншим.
+    if (t.scans === 0 && t.scanErrors === 0) return;
     try {
       await fetch('/api/telemetry', {
         method: 'POST',
@@ -408,7 +448,18 @@ export default function BtwScanPage() {
     } catch {
       // не критично — телеметрія втрачається мовчки, не блокує основний UX
     }
-    telemetryRef.current = { scans: 0, withCandidates: 0, locks: 0, snapUsed: false, fallbackOffered: 0, fallbackUsed: 0 };
+    telemetryRef.current = {
+      scans: 0,
+      withCandidates: 0,
+      locks: 0,
+      snapUsed: false,
+      fallbackOffered: 0,
+      fallbackUsed: 0,
+      scanErrors: 0,
+      camerasInBboxLast: 0,
+      coneSurvivorsLast: 0,
+      streetCandidatesFoundLast: 0,
+    };
   }
 
   async function handleLock(candidate: Candidate) {

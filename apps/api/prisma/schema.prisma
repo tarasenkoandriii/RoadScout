@@ -748,6 +748,18 @@ model BtwTelemetryEvent {
   // РЕАЛЬНО тапнув кнопку розкриття (conversion rate = fallbackUsed/fallbackOffered).
   fallbackOffered Int     @default(0)
   fallbackUsed    Int     @default(0)
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "нужно больше полей телеметрии", під час
+  // діагностики "кандидатов то находит то не находит"): раніше лічильники ловили лише УСПІШНІ
+  // скани (scans += 1 лише всередині `if (res.ok)`) — жодного сліду від НЕВДАЛИХ спроб
+  // (мережева помилка чи !res.ok) не лишалось узагалі, тож з адмінки неможливо було
+  // відрізнити "камер справді немає в цьому напрямку" від "запит просто впав". scanErrors —
+  // лічильник других випадків. *Last-поля — знімок ДІАГНОСТИКИ останнього УСПІШНОГО скана
+  // сесії (те саме, що вже видно в телефонному HUD, але тепер лишається в адмінці й після
+  // того, як тестувальник закрив застосунок).
+  scanErrors                Int @default(0)
+  camerasInBboxLast         Int @default(0)
+  coneSurvivorsLast         Int @default(0)
+  streetCandidatesFoundLast Int @default(0)
   createdAt      DateTime @default(now())
 
   @@index([telegramId])
