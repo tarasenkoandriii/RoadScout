@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeocodingService } from '../common/geocoding.service';
 import { GrokCameraAssistService } from '../common/grok-camera-assist.service';
@@ -11,6 +12,7 @@ import { FixedRoutePositionService } from '../route-position/fixed-route-positio
 import { LookAheadService } from '../lookahead/lookahead.service';
 import { toFixedRouteCamera } from '../route-position/camera-route.mapper';
 import { CitiesService } from '../cities/cities.service';
+import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
 
 const COMPASS = ['С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ', 'Ю', 'ЮЮЗ', 'ЮЗ', 'ЗЮЗ', 'З', 'ЗСЗ', 'СЗ', 'ССЗ'];
 
@@ -98,6 +100,7 @@ export class CamerasService {
     private readonly lookAhead: LookAheadService,
     private readonly cities: CitiesService,
     private readonly grokAssist: GrokCameraAssistService,
+    private readonly registryProxy: RegistryProxyService,
   ) {}
 
   // Soft delete (див. doc/AUDIT-camera-soft-delete.md) — список активних камер, видалені
@@ -878,6 +881,59 @@ export class CamerasService {
   async checkAvailabilityForCamera(id: string) {
     const camera = await this.findOne(id);
     return this.grokAssist.checkStreamAvailability(camera.streamUrl, camera.streamType);
+  }
+
+  // Проксі кадру для превью в адмінці (за прямим запитом користувача — "та же проблема с
+  // показом видео в админке", той самий кейс, що вже виправлено для BTW через
+  // BtwService.fetchThumbImage() / RegistryProxyService: гео-заблоковані камери (напр. NYC DOT
+  // — віддають знімок лише US-IP) завжди провалювались, бо сторінка калібрування раніше робила
+  // <img src={camera.streamUrl}> НАПРЯМУ з браузера користувача, минаючи будь-який VPN/проксі.
+  //
+  // НА ВІДМІНУ ВІД fetchThumbImage() (шукає камеру по id в БД і бере ЇЇ збережений streamUrl) —
+  // тут URL приймається ЯК ПАРАМЕТР напряму: сторінка калібрування показує превью ПОТОЧНИХ
+  // НЕЗБЕРЕЖЕНИХ значень полів форми (`camera` — локальний React state, ще не збережений у БД
+  // під цим id), тож проксі не може просто прочитати streamUrl з бази.
+  //
+  // Обмежено MJPEG_SNAPSHOT (той самий випадок, що й у BTW) — саме цей тип рендериться як
+  // <img> на клієнті (canShowAsImage() у apps/admin/lib/embeddable.ts); IFRAME/YOUTUBE_LIVE
+  // рендеряться як <iframe> напряму (там проксувати "байти" немає сенсу — вбудовується вся
+  // сторінка), а HLS взагалі не показується інлайн (тільки посилання).
+  async fetchStreamImageProxy(url: string, streamType: string): Promise<{ contentType: string; data: Buffer }> {
+    if (!url || typeof url !== 'string') {
+      throw new BadRequestException('Не указан параметр url');
+    }
+    if (streamType !== 'MJPEG_SNAPSHOT') {
+      throw new BadRequestException(`Проксирование превью для streamType "${streamType}" не реализовано (поддерживается только MJPEG_SNAPSHOT)`);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException('Некорректный url');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('url должен быть http(s)-ссылкой');
+    }
+
+    // Той самий cache-bust на самому запиті ДО камери (не лише на клієнтському <img src>), що
+    // вже й у fetchThumbImage() — NYC DOT-ендпоінт сам себе оновлює десь раз на ~2с, без цього
+    // проміжні кеші могли б віддавати той самий застарілий кадр.
+    const cacheBustedUrl = `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+    const fetchOnce = (axiosConfig: object) =>
+      axios.get(cacheBustedUrl, { ...axiosConfig, responseType: 'arraybuffer', timeout: 10000, validateStatus: (s) => s >= 200 && s < 300 });
+
+    const viaVpn = this.registryProxy.isConfigured();
+    let res;
+    try {
+      res = viaVpn ? (await this.registryProxy.request(fetchOnce)).data : await fetchOnce({});
+    } catch (err) {
+      throw new BadRequestException(`Не удалось загрузить кадр: ${(err as Error).message}`);
+    }
+
+    return {
+      contentType: typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : 'image/jpeg',
+      data: Buffer.from(res.data),
+    };
   }
 
   async calibrate(id: string, dto: CalibrateCameraDto) {

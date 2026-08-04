@@ -187,8 +187,19 @@ export default function CalibrateCameraPage() {
           {canEmbedStream(camera.streamType, camera.streamUrl) ? (
             <iframe src={toEmbeddableUrl(camera.streamUrl)} className="h-56 w-full rounded border" title="Превью трансляции" allowFullScreen />
           ) : canShowAsImage(camera.streamType, camera.streamUrl) ? (
+            // ИСПРАВЛЕНО (за прямым запросом пользователя — "та же проблема с показом видео в
+            // админке"): раньше здесь был ПРЯМОЙ camera.streamUrl — браузер шёл к камере сам,
+            // минуя любой VPN/прокси. Для гео-заблокированных камер (например, NYC DOT —
+            // отдают снимок только на US-IP) это всегда проваливалось (см. скриншот с 31
+            // failed-запросом в Network). Теперь идём через свой же
+            // GET /api/admin/cameras/image-proxy (CamerasController.imageProxy() /
+            // CamerasService.fetchStreamImageProxy()) — тот же VPN/прокси-паттерн
+            // (RegistryProxyService), что уже решил эту проблему для BTW
+            // (BtwService.fetchThumbImage()). url передаётся параметром (а не берётся из БД по
+            // id камеры) — превью тут отражает ТЕКУЩИЕ НЕСОХРАНЁННЫЕ значения полей формы, см.
+            // подпись выше.
             <img
-              src={`${camera.streamUrl}${camera.streamUrl.includes('?') ? '&' : '?'}_t=${snapshotRefreshTick}`}
+              src={`/api/admin/cameras/image-proxy?url=${encodeURIComponent(camera.streamUrl)}&streamType=${encodeURIComponent(camera.streamType)}&_t=${snapshotRefreshTick}`}
               alt="Превью трансляции"
               className="h-56 w-full rounded border object-cover bg-gray-50"
             />

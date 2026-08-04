@@ -122,6 +122,30 @@ export class CamerasController {
     return this.camerasService.importCameras(body.cameras);
   }
 
+  // Проксі кадру для превью в адмінці (за прямим запитом користувача — "та же проблема с
+  // показом видео в админке", той самий кейс, що вже виправлено для BTW —
+  // BtwController.thumbImage()/BtwService.fetchThumbImage(), той самий патерн: @Res()
+  // з passthrough: false — самі керуємо відповіддю (бінарні дані + Content-Type зображення, не
+  // JSON). Свідомо GET, не POST — саме на це посилання вказує <img src> на клієнті
+  // (apps/admin/app/admin/cameras/[id]/calibrate/page.tsx), браузер сам робить звичайний GET.
+  //
+  // url приймається ЯК QUERY-ПАРАМЕТР напряму (а не camera.streamUrl по id з БД, як у BTW) —
+  // сторінка калібрування показує превью ПОТОЧНИХ НЕЗБЕРЕЖЕНИХ значень полів форми, див.
+  // CamerasService.fetchStreamImageProxy() за деталями.
+  //
+  // ВАЖЛИВО: зареєстровано ПЕРЕД admin/cameras/:id нижче — та сама причина, що й
+  // stats-by-country/export/:providerId вище (інакше "image-proxy" перехопився б туди як :id).
+  @UseGuards(AdminGuard)
+  @Get('admin/cameras/image-proxy')
+  async imageProxy(@Query('url') url: string, @Query('streamType') streamType: string, @Res() res: any) {
+    const { contentType, data } = await this.camerasService.fetchStreamImageProxy(url, streamType);
+    res.setHeader('Content-Type', contentType);
+    // Кадр застаріває миттєво (MJPEG-знімок) — не даємо браузеру/проксі кешувати його довше,
+    // ніж один перегляд (той самий підхід, що й у BTW thumbImage()).
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(data);
+  }
+
   @UseGuards(AdminGuard)
   @Get('admin/cameras/:id')
   findOne(@Param('id') id: string) {
