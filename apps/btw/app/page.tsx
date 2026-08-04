@@ -6,6 +6,10 @@ import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
 import BtwRadar from '../components/BtwRadar';
 import { BtwLocalScanner, ScanSupersededError } from '../lib/btwLocalScanner';
 import type { LocalScanResult } from '../lib/btwLocalScanner';
+// За прямим запитом користувача — "между радар и HUD - Log, каждый запрос на сервер и каждый
+// ответ отображай в этом логе, пиши время которое занял запрос и размер ответа" (§ networkLog.ts).
+import { loggedFetch, subscribeNetworkLog, formatBytes } from '../lib/networkLog';
+import type { NetworkLogEntry } from '../lib/networkLog';
 
 // Beyond the Wall (BTW) — сканувальний екран, §3.1/§3.2 ТЗ (doc/BTW-tz.md).
 //
@@ -126,6 +130,13 @@ export default function BtwScanPage() {
   // основна запитана фіча), з можливістю сховати — той самий патерн перемикання, що вже HUD
   // нижче, для тих, хто хоче бачити відео без накладеної панелі.
   const [showRadar, setShowRadar] = useState(true);
+  // За прямим запитом користувача — "между радар и HUD - Log, каждый запрос на сервер и каждый
+  // ответ отображай в этом логе, пиши время которое занял запрос и размер ответа". За
+  // замовчуванням увімкнено, як і showHud/showRadar вище — панель невелика (§ рендер нижче,
+  // компактні рядки), не заважає відео, а користувачу, який щойно попросив цю фічу, найкорисніше
+  // одразу побачити її результат, не шукаючи додаткову кнопку.
+  const [showLog, setShowLog] = useState(true);
+  const [logEntries, setLogEntries] = useState<NetworkLogEntry[]>([]);
   const [usedDevOverride, setUsedDevOverride] = useState(false);
   const [lockedCandidate, setLockedCandidate] = useState<Candidate | null>(null);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
@@ -486,6 +497,17 @@ export default function BtwScanPage() {
     };
   }, []);
 
+  // За прямим запитом користувача — панель "Log" (§ networkLog.ts). Підписка на модульний
+  // сінглтон-лог: subscribeNetworkLog одразу віддає поточний накопичений стан (навіть запити,
+  // що вже пройшли ДО монтування цього ефекту — напр. /api/session, /api/manifest під час
+  // самого першого завантаження сторінки — не губляться), а далі отримує кожне оновлення.
+  // Підписка не залежить від phase/showLog — записи накопичуються завжди, панель лише
+  // показує/ховає вже наявний стан (дешевше, ніж підписуватись/відписуватись при кожному
+  // натисканні кнопки, і не губить історію, поки панель схована).
+  useEffect(() => {
+    return subscribeNetworkLog(setLogEntries);
+  }, []);
+
   // Періодичне сканування — §8.4 ТЗ вказує "не частіше 8 Гц і лише при Δheading>3°/Δposition>10м"
   // для локального Worker; коли localScannerReady — саме цей режим (нижче, гілка "локально"),
   // з поки що ТИМ САМИМ інтервалом 2с (спрощення — не адаптивний §8.4, легко зменшити пізніше,
@@ -550,7 +572,7 @@ export default function BtwScanPage() {
             }
           }
         } else {
-          const res = await fetch('/api/scan', {
+          const res = await loggedFetch('/api/scan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -656,7 +678,7 @@ export default function BtwScanPage() {
       streetCandidatesFoundLast: 0,
     };
     try {
-      await fetch('/api/telemetry', {
+      await loggedFetch('/api/telemetry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -689,7 +711,7 @@ export default function BtwScanPage() {
     setLockingCameraId(candidate.cameraId);
     setLockError(null);
     try {
-      const res = await fetch('/api/thumb', {
+      const res = await loggedFetch('/api/thumb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -753,7 +775,7 @@ export default function BtwScanPage() {
       const phoneImageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
 
       lastRefineAtRef.current = Date.now();
-      const res = await fetch('/api/refine', {
+      const res = await loggedFetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -949,49 +971,6 @@ export default function BtwScanPage() {
         </div>
       )}
 
-      {/* За прямим запитом користувача — debug HUD: усе, що потрібно бачити ПРЯМО НА
-          ТЕЛЕФОНІ під час М0-спайку (doc/AUDIT-btw.md) — без USB-дебагу консолі браузера.
-          Кнопка переключення в правому верхньому куті, панель — під нею. */}
-      <button onClick={() => setShowHud((v) => !v)} className="absolute top-2 right-2 z-10 rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300">
-        {showHud ? 'HUD ▲' : 'HUD ▼'}
-      </button>
-      {showHud && (
-        <div className="absolute top-9 right-2 z-10 max-w-[220px] rounded bg-black/70 px-2 py-2 text-[10px] leading-snug text-gray-200">
-          <div>GPS: {position ? `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)} (±${Math.round(position.accuracyM)}м)` : '—'}</div>
-          {/* §8.1/§4.7.5 ТЗ — видимість, який шлях сканування зараз активний: локальний
-              Worker (тайли завантажені для цього міста) чи серверний фолбек /api/scan
-              (типовий випадок у цьому середовищі — тайли ще не згенеровані, див.
-              doc/AUDIT-btw-radar-m1-m2.md). */}
-          <div>Режим скана: {localScannerReady ? '🟢 локально (Worker)' : '⚪ сервер (/api/scan)'}</div>
-          {usedDevOverride && <div className="text-yellow-400">⚠️ используется подмена координат (dev)</div>}
-          <div>Сырой азимут: {heading != null ? `${Math.round(heading)}°` : '—'}</div>
-          <div>Гироскоп: {hasGyroRef.current ? 'активен' : 'нет данных'}</div>
-          <div>Поправка (У4/У5): {headingBiasRef.current > 0 ? '+' : ''}{Math.round(headingBiasRef.current)}°</div>
-          {/* За прямим запитом користувача — калібрування "по кандидату" (У4) при
-              dev-подмене координат може "вивчити" сміттєвий зсув (компас реальний, GPS
-              підмінений — це різні світи), і зіпсувати всі наступні скани сесії. Кнопка нижче
-              скидає накопичену поправку без перезапуску застосунку. */}
-          {Math.abs(headingBiasRef.current) > 3 && (
-            <button onClick={resetCalibration} className="mt-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] text-white">
-              Сбросить калибровку
-            </button>
-          )}
-          {scanDebug && (
-            <>
-              <div>После snap (У3): {scanDebug.snapped ? `${Math.round(scanDebug.effectiveHeading)}° (притянуто)` : `${Math.round(scanDebug.effectiveHeading)}° (без snap)`}</div>
-              <div>Уличных направлений рядом: {scanDebug.streetCandidatesFound}</div>
-              <div>Камер в радиусе 2.5км: {scanDebug.camerasInBbox}</div>
-              {/* ВИПРАВЛЕНО — раніше цей запас узагалі не застосовувався (мертвий код,
-                  btw-geometry.util.ts::angularTolerance) — тепер видно, наскільки конус
-                  розширено проти шуму компаса на цьому скані. */}
-              <div>Допуск на шум компаса: ±{Math.round(scanDebug.headingUncertaintyDeg)}°</div>
-              <div>Прошли конус (Ф2): {scanDebug.coneSurvivors}</div>
-              <div>Итоговых кандидатов: {scanDebug.finalCandidates}</div>
-            </>
-          )}
-        </div>
-      )}
-
       {/* Компас-стрічка — та сама, що й раніше, лишена поруч із радаром нижче (той самий сенс,
           друга візуалізація тих самих даних, § 3.1.2 ТЗ). */}
       <div className="absolute top-6 left-4 right-4 rounded-full bg-black/50 px-4 py-3">
@@ -1022,28 +1001,124 @@ export default function BtwScanPage() {
         </p>
       </div>
 
-      {/* За прямим запитом користувача ("радара из ТЗ с секторами и отметками") — кільце-радар
-          §3.1.2 ТЗ, у зменшеному обсязі (components/BtwRadar.tsx). Перемикач поруч із HUD —
-          той самий патерн, щоб можна було сховати панель і бачити відео без накладення. */}
-      <button
-        onClick={() => setShowRadar((v) => !v)}
-        className="absolute top-2 left-2 z-10 rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300"
-      >
-        {showRadar ? 'Радар ▲' : 'Радар ▼'}
-      </button>
-      {showRadar && (
-        <div className="absolute top-24 left-1/2 z-10 -translate-x-1/2 rounded-xl bg-black/40 p-2">
-          <BtwRadar heading={heading} candidates={radarCandidates} onSelect={handleRadarSelect} />
-          <p className="mt-1 text-center text-[10px] text-gray-400">
-            <span className="text-green-400">●</span> прямой{' '}
-            {showFallback && (
+      {/* За прямим запитом користувача — єдина нижня панель для Радара/Log/HUD.
+          ВИПРАВЛЕНО (§ "радар и HUD перенеси вниз" + "добавь между радар и HUD - Log"): раніше
+          HUD і Радар були двома незалежними absolute-блоками з вручну підібраними відступами
+          (bottom-[48vh] для кнопки / bottom-[53vh] для панелі), що працювало, лише доки
+          одночасно відкритих панелей було щонайбільше по одній з кожного боку. Додавання
+          третьої панелі (Log) зробило б цей підхід крихким — довелось би вручну підбирати
+          offset під усі комбінації "яка саме панель зараз розкрита". Замість цього — один
+          flex-column контейнер, прив'язаний ЛИШЕ знизу (`bottom-[48vh]`, без `top`): висота
+          контейнера природно зростає ВГОРУ в міру того, як розкривається більше панелей, а
+          рядок кнопок завжди лишається найнижчим (§ порядок дочірніх елементів нижче — усі
+          панелі йдуть ПЕРЕД рядком кнопок). Порядок кнопок зліва направо — Радар, Log, HUD:
+          Log ПОСЕРЕДИНІ, точно як попросив користувач ("между радар и HUD - Log").
+          `bottom-[48vh]` — той самий відступ, що й раніше, свідомо НАД панеллю кандидатів
+          (`bottom-0 ... max-h-[45vh]`, ~3vh запасу), щоб не перекривати тапабельні картки
+          кандидатів своєю /z-10/. ⚠️ Як і раніше, точні відступи підібрані розрахунково, БЕЗ
+          перевірки на реальному екрані (немає живого Telegram WebView в цьому середовищі) —
+          § doc/AUDIT-btw-radar-m1-m2.md. Якщо одночасно розкриті всі три панелі, контейнер
+          може вирости вище top-6 компас-стрічки на дуже низьких екранах — той самий клас
+          компромісу "на око", що вже задокументований для попередньої версії розміщення. */}
+      <div className="absolute inset-x-2 bottom-[48vh] z-10 flex flex-col items-center gap-1.5">
+        {showRadar && (
+          <div className="w-full max-w-[260px] rounded-xl bg-black/40 p-2">
+            <BtwRadar heading={heading} candidates={radarCandidates} onSelect={handleRadarSelect} />
+            <p className="mt-1 text-center text-[10px] text-gray-400">
+              <span className="text-green-400">●</span> прямой{' '}
+              {showFallback && (
+                <>
+                  · <span className="text-amber-400">●</span> резервный
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* За прямим запитом користувача — "между радар и HUD - Log, каждый запрос на сервер и
+            каждый ответ отображай в этом логе, пиши время которое занял запрос и размер
+            ответа". Дані — з lib/networkLog.ts::loggedFetch, підключеного до ВСІХ відомих
+            fetch-викликів мінідодатку (цей файл, btwLocalScanner.ts, btwSession.ts,
+            map/page.tsx) — включно з manifest/тайлами, що завантажуються ще до входу у фазу
+            сканування, тому лог не порожній навіть одразу після відкриття панелі.
+            Найновіші записи зверху (той самий порядок, що вже в самому networkLog.ts).
+            Власний overflow-y-auto + max-h — щоб довгий лог не розтягував контейнер понад
+            компас-стрічку зверху. */}
+        {showLog && (
+          <div className="max-h-[18vh] w-full max-w-[280px] overflow-y-auto rounded bg-black/70 p-2 text-[10px] leading-snug text-gray-200">
+            {logEntries.length === 0 ? (
+              <div className="text-center text-gray-500">Запросов пока нет</div>
+            ) : (
+              logEntries.map((e) => (
+                <div key={e.id} className="border-b border-white/10 py-0.5 last:border-b-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-gray-400">{e.time}</span>
+                    <span className={e.ok ? 'text-green-400' : 'text-red-400'}>{e.status ?? 'ERR'}</span>
+                  </div>
+                  <div className="truncate text-gray-200">
+                    {e.method} {e.url}
+                  </div>
+                  <div className="text-gray-400">
+                    {Math.round(e.durationMs)}мс · {formatBytes(e.sizeBytes)}
+                    {e.error && <span className="text-red-400"> · {e.error}</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* За прямим запитом користувача — debug HUD: усе, що потрібно бачити ПРЯМО НА
+            ТЕЛЕФОНІ під час М0-спайку (doc/AUDIT-btw.md) — без USB-дебагу консолі браузера. */}
+        {showHud && (
+          <div className="w-full max-w-[260px] rounded bg-black/70 px-2 py-2 text-[10px] leading-snug text-gray-200">
+            <div>GPS: {position ? `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)} (±${Math.round(position.accuracyM)}м)` : '—'}</div>
+            {/* §8.1/§4.7.5 ТЗ — видимість, який шлях сканування зараз активний: локальний
+                Worker (тайли завантажені для цього міста) чи серверний фолбек /api/scan
+                (типовий випадок у цьому середовищі — тайли ще не згенеровані, див.
+                doc/AUDIT-btw-radar-m1-m2.md). */}
+            <div>Режим скана: {localScannerReady ? '🟢 локально (Worker)' : '⚪ сервер (/api/scan)'}</div>
+            {usedDevOverride && <div className="text-yellow-400">⚠️ используется подмена координат (dev)</div>}
+            <div>Сырой азимут: {heading != null ? `${Math.round(heading)}°` : '—'}</div>
+            <div>Гироскоп: {hasGyroRef.current ? 'активен' : 'нет данных'}</div>
+            <div>Поправка (У4/У5): {headingBiasRef.current > 0 ? '+' : ''}{Math.round(headingBiasRef.current)}°</div>
+            {/* За прямим запитом користувача — калібрування "по кандидату" (У4) при
+                dev-подмене координат може "вивчити" сміттєвий зсув (компас реальний, GPS
+                підмінений — це різні світи), і зіпсувати всі наступні скани сесії. Кнопка нижче
+                скидає накопичену поправку без перезапуску застосунку. */}
+            {Math.abs(headingBiasRef.current) > 3 && (
+              <button onClick={resetCalibration} className="mt-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] text-white">
+                Сбросить калибровку
+              </button>
+            )}
+            {scanDebug && (
               <>
-                · <span className="text-amber-400">●</span> резервный
+                <div>После snap (У3): {scanDebug.snapped ? `${Math.round(scanDebug.effectiveHeading)}° (притянуто)` : `${Math.round(scanDebug.effectiveHeading)}° (без snap)`}</div>
+                <div>Уличных направлений рядом: {scanDebug.streetCandidatesFound}</div>
+                <div>Камер в радиусе 2.5км: {scanDebug.camerasInBbox}</div>
+                {/* ВИПРАВЛЕНО — раніше цей запас узагалі не застосовувався (мертвий код,
+                    btw-geometry.util.ts::angularTolerance) — тепер видно, наскільки конус
+                    розширено проти шуму компаса на цьому скані. */}
+                <div>Допуск на шум компаса: ±{Math.round(scanDebug.headingUncertaintyDeg)}°</div>
+                <div>Прошли конус (Ф2): {scanDebug.coneSurvivors}</div>
+                <div>Итоговых кандидатов: {scanDebug.finalCandidates}</div>
               </>
             )}
-          </p>
+          </div>
+        )}
+
+        <div className="flex w-full items-center justify-between gap-2">
+          <button onClick={() => setShowRadar((v) => !v)} className="rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300">
+            {showRadar ? 'Радар ▲' : 'Радар ▼'}
+          </button>
+          <button onClick={() => setShowLog((v) => !v)} className="rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300">
+            {showLog ? 'Log ▲' : 'Log ▼'}
+          </button>
+          <button onClick={() => setShowHud((v) => !v)} className="rounded bg-black/60 px-2 py-1 text-[10px] text-gray-300">
+            {showHud ? 'HUD ▲' : 'HUD ▼'}
+          </button>
         </div>
-      )}
+      </div>
 
       <div className="absolute bottom-0 left-0 right-0 max-h-[45vh] overflow-y-auto rounded-t-2xl bg-black/70 p-4">
         {fallbackNotice && <p className="mb-2 text-center text-xs text-green-400">{fallbackNotice}</p>}

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { bboxAroundPoint, LatLng } from '../../lib/geometry';
 import { ensureBtwSession, fetchDevLocationOverride } from '../../lib/btwSession';
+import { loggedFetch } from '../../lib/networkLog';
 import type { MapCamera } from '../../components/MapView';
 
 // Leaflet звертається до window/document при завантаженні модуля — SSR має бути вимкнено,
@@ -53,7 +54,7 @@ export default function BtwMapPage() {
         neLat: String(bounds.neLat),
         neLng: String(bounds.neLng),
       });
-      const res = await fetch(`/api/coverage?${params}`);
+      const res = await loggedFetch(`/api/coverage?${params}`);
       if (res.ok) {
         const data = await res.json();
         setCameras(data.cameras ?? []);

@@ -10,6 +10,12 @@
 // фолбек зберігається").
 
 import type { ObserverPose, RankedCandidate, LatLng } from './btw-geometry-engine';
+// За прямим запитом користувача — "между радар и HUD - Log, каждый запрос на сервер и каждый
+// ответ отображай в этом логе" (§ networkLog.ts) — включно з ЦИМИ запитами (manifest +
+// buildings.bin/cameras.json/streets.json), а не лише прямими викликами з page.tsx: саме ці
+// запити раніше й пояснювали "медленно ищет кандидатов сначала" (§ AUDIT-btw-radar-m1-m2.md),
+// тож бачити їхній реальний час/розмір у логу особливо корисно.
+import { loggedFetch } from './networkLog';
 
 export interface LocalScanResult {
   direct: RankedCandidate[];
@@ -85,7 +91,7 @@ export class BtwLocalScanner {
     }
 
     try {
-      const manifestRes = await fetch(`/api/manifest?city=${encodeURIComponent(cityName)}`);
+      const manifestRes = await loggedFetch(`/api/manifest?city=${encodeURIComponent(cityName)}`);
       if (!manifestRes.ok) return false;
       const manifest = (await manifestRes.json()) as BtwManifest;
 
@@ -185,13 +191,13 @@ export class BtwLocalScanner {
 }
 
 async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url);
+  const res = await loggedFetch(url);
   if (!res.ok) throw new Error(`tile fetch failed: ${url} (${res.status})`);
   return res.arrayBuffer();
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await loggedFetch(url);
   if (!res.ok) throw new Error(`tile fetch failed: ${url} (${res.status})`);
   return res.json() as Promise<T>;
 }

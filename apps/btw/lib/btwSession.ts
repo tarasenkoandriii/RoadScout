@@ -8,6 +8,11 @@
 // Модульний (не React-стейт/ref) сінглтон-проміс — навмисно: єдиний на весь client-side
 // bundle, переживає навігацію між /  і /map (Next.js App Router client-side routing не
 // перезавантажує JS-модулі), тому повторний вхід на іншу сторінку не шле зайвий POST /session.
+//
+// loggedFetch (не голий fetch) — за прямим запитом користувача ("между радар и HUD - Log,
+// каждый запрос на сервер и каждый ответ отображай в этом логе") — § networkLog.ts.
+import { loggedFetch } from './networkLog';
+
 let sessionPromise: Promise<void> | null = null;
 
 export function ensureBtwSession(): Promise<void> {
@@ -16,7 +21,7 @@ export function ensureBtwSession(): Promise<void> {
       const initData = (window as any).Telegram?.WebApp?.initData;
       if (!initData) return; // не всередині Telegram (напр. звичайний браузер для тестів UI) — просто немає сесії
       try {
-        await fetch('/api/session', {
+        await loggedFetch('/api/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -44,7 +49,7 @@ export interface DevLocationOverride {
 // означають "працюй з реальною геолокацією".
 export async function fetchDevLocationOverride(): Promise<DevLocationOverride | null> {
   try {
-    const res = await fetch('/api/dev-location-override', { credentials: 'include' });
+    const res = await loggedFetch('/api/dev-location-override', { credentials: 'include' });
     if (!res.ok) return null;
     const override = await res.json();
     return override ?? null;
