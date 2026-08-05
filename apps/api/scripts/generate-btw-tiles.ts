@@ -82,7 +82,7 @@ async function main() {
     // вже позначені офлайн; тепер узгоджено з рештою адмінських методів BtwService).
     const cameras = await prisma.camera.findMany({
       where: { deletedAt: null, confidence: 'VERIFIED', locationType: 'OUTDOOR', status: 'ONLINE', city: { slug: citySlug } },
-      select: { id: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
+      select: { id: true, name: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
     });
 
     if (cameras.length === 0) {

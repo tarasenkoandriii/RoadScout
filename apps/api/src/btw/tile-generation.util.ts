@@ -199,6 +199,10 @@ export interface Bbox {
 
 export interface CameraForTiling {
   id: string;
+  // За прямим запитом користувача — живий випадок "задвоилась камера" (дві картки кандидата в
+  // мінідодатку з однаковою дистанцією/текстом, неможливо було відрізнити на очах, чи це та сама
+  // камера двічі, чи дві різні поруч) — § детальний коментар біля CamerasTileEntry в tile-format.ts.
+  name: string;
   lat: number;
   lng: number;
   azimuth: number;
@@ -667,6 +671,7 @@ export async function generateTilesForCity(
     cameras: cameras.map(
       (c): CamerasTileEntry => ({
         id: c.id,
+        name: c.name,
         lat: c.lat,
         lng: c.lng,
         heightMeters: c.heightMeters ?? 3, // §4.7.1 поле "висота" — дефолт для камер без явного значення

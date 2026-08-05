@@ -233,6 +233,7 @@ function handleScan(msg: ScanRequest): void {
 
       candidates.push({
         cameraId: cam.id,
+        cameraName: cam.name,
         distanceM,
         bearingToTarget: bearing(cam, target.point),
         coverage,

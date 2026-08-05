@@ -90,6 +90,10 @@ export interface CandidateInput extends CameraSector {
 
 export interface RankedCandidate {
   cameraId: string;
+  // За прямим запитом користувача — живий випадок "задвоилась камера" (дві картки кандидата в
+  // мінідодатку з однаковою дистанцією/текстом, неможливо було відрізнити на очах, чи це та
+  // сама камера двічі, чи дві різні поруч) — ім'я камери на картці дозволяє їх розрізнити.
+  cameraName: string;
   distanceM: number;
   bearingToTarget: number;
   coverage: number;

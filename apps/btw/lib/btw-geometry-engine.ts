@@ -231,6 +231,9 @@ export function classifyOrientationFit(cameraAzimuth: number, userHeading: numbe
 
 export interface RankedCandidate {
   cameraId: string;
+  // Дзеркало серверної копії (apps/api/src/btw/btw-geometry.util.ts) — за прямим запитом
+  // користувача, живий випадок "задвоилась камера" на картках кандидата в мінідодатку.
+  cameraName: string;
   distanceM: number;
   bearingToTarget: number;
   coverage: number;

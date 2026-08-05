@@ -82,6 +82,11 @@ function complementaryFilterStep(prevHeading: number, gyroZDegPerSec: number, dt
 
 interface Candidate {
   cameraId: string;
+  // За прямим запитом користувача — живий випадок "задвоилась камера" (дві картки кандидата з
+  // однаковою дистанцією й однаковим текстом, неможливо було відрізнити на очах). Опційне —
+  // може бути відсутнім у відповіді сервера/тайлах, згенерованих ДО цієї зміни (старий
+  // CamerasTileEntry без name) — рендер картки нижче має захисний фолбек на цей випадок.
+  cameraName?: string;
   distanceM: number;
   bearingToTarget: number;
   coverage: number;
@@ -1178,7 +1183,12 @@ export default function BtwScanPage() {
             disabled={lockingCameraId === c.cameraId}
             className="mb-2 flex w-full items-center justify-between rounded-lg bg-white/10 px-4 py-3 text-left disabled:opacity-50"
           >
-            <span>{Math.round(c.distanceM)} м</span>
+            <span>
+              {/* За прямим запитом користувача — живий випадок "задвоилась камера" (дві картки
+                  з однаковою дистанцією й текстом, неможливо було відрізнити на очах). Фолбек
+                  для тайлів, згенерованих ДО додавання поля name. */}
+              {c.cameraName || 'Камера'} · {Math.round(c.distanceM)} м
+            </span>
             <span className="text-xs text-gray-400">{lockingCameraId === c.cameraId ? 'Загрузка…' : `покрытие ${Math.round(c.coverage * 100)}%`}</span>
           </button>
         ))}
@@ -1215,7 +1225,7 @@ export default function BtwScanPage() {
               className="mb-2 flex w-full flex-col items-start rounded-lg border border-yellow-500/30 bg-white/10 px-4 py-3 text-left disabled:opacity-50"
             >
               <div className="flex w-full items-center justify-between">
-                <span>{Math.round(c.distanceM)} м</span>
+                <span>{c.cameraName || 'Камера'} · {Math.round(c.distanceM)} м</span>
                 <span className="text-xs text-gray-400">{lockingCameraId === c.cameraId ? 'Загрузка…' : `покрытие ${Math.round(c.coverage * 100)}%`}</span>
               </div>
               {/* §4 ТЗ — явне попередження про приватність саме для OPPOSING (не нейтральна

@@ -318,7 +318,7 @@ export class BtwService {
 
     const cameras = await this.prisma.camera.findMany({
       where: { ...this.SCANNABLE_CAMERA_FILTER, city: { slug: citySlug } },
-      select: { id: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
+      select: { id: true, name: true, lat: true, lng: true, azimuth: true, fovAngle: true, rangeMeters: true, heightMeters: true, streamType: true, confidence: true },
     });
 
     if (cameras.length === 0) {
@@ -515,6 +515,7 @@ export class BtwService {
 
       candidates.push({
         cameraId: cam.id,
+        cameraName: cam.name,
         distanceM,
         bearingToTarget: bearing(cam, target.point),
         coverage,
