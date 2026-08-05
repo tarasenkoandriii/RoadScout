@@ -277,6 +277,20 @@ const OVERPASS_QUERY_TIMEOUT_S = 55;
 // власній машині розробника й НЕ має жодного serverless-обмеження — для нього тепер можна
 // передати щедріші значення через GenerateTilesOptions, не чіпаючи behavior адмінського шляху.
 export interface GenerateTilesOptions {
+  // За прямим запитом користувача — "скрипт каждый раз разбивает новую сетку по новой и
+  // стартует с нуля - добавь флаг continue". bbox за замовчуванням рахується ЗАНОВО з живого
+  // списку камер при КОЖНОМУ виклику (computeBboxFromCameras нижче) — а список камер у БД
+  // реально змінюється між окремими запусками CLI-скрипта (сканер/скрапер додає нові камери у
+  // фоні — живий приклад цього кроку: той самий citySlug дав 694 камери в одному запуску й 845
+  // у наступному). Навіть ОДНА нова камера на краю території зсуває min/max lat/lng, тобто й
+  // bbox — а ensureCellCacheValidForBbox() звіряє {bbox, cellSizeM} З ПОПЕРЕДНІМ запуском і
+  // скидає ВЕСЬ кеш комірок при будь-якій розбіжності (§ детальний коментар там — свідомо,
+  // щоб не змішати геодані різної географії), хоча вже готові комірки для майже тієї самої
+  // території й далі цілком валідні. `bboxOverride`, якщо передано, підміняє
+  // computeBboxFromCameras() РІВНО тим bbox, що дав попередній запуск (§ CLI-флаг --continue,
+  // getCellCacheBboxSnapshot() нижче) — тоді ensureCellCacheValidForBbox() бачить ТОЙ САМИЙ
+  // bbox і НЕ скидає прогрес, навіть якщо живий список камер тим часом підріс/змінився.
+  bboxOverride?: Bbox;
   // Скільки часу (мс) на ОДИН виклик generateTilesForCity() відводиться перед тим, як
   // повернутись частково готовим (ідемпотентний resume, § GENERATION_TIME_BUDGET_MS нижче).
   timeBudgetMs?: number;
@@ -480,6 +494,36 @@ async function ensureCellCacheValidForBbox(cellCachePrefix: string, bbox: Bbox, 
   await putBlob(bboxPathname, validityJson, 'application/json');
 }
 
+export interface CellCacheBboxSnapshot {
+  bbox: Bbox;
+  cellSizeM: number;
+}
+
+// За прямим запитом користувача — "скрипт каждый раз разбивает новую сетку по новой и стартует
+// с нуля - добавь флаг continue" (§ детальний коментар біля GenerateTilesOptions.bboxOverride
+// вище). Читає bbox.json, який `ensureCellCacheValidForBbox()` записав ПІД ЧАС попереднього
+// запуску того самого міста — не рахуючи нічого заново, просто повертає, що там реально
+// збережено. CLI-скрипт (--continue) передає результат назад у `bboxOverride`, щоб продовжити
+// РІВНО з тієї самої сітки, а не з нової, перерахованої зі свіжого (можливо, вже зміненого)
+// списку камер. Повертає null, якщо кешу для цього міста ще немає (перший запуск) або файл у
+// старому форматі без cellSizeM (§ зворотна сумісність в ensureCellCacheValidForBbox) — в обох
+// випадках виклику CLI просто нема з чим продовжувати, --continue поводиться як звичайний запуск.
+export async function getCellCacheBboxSnapshot(citySlug: string): Promise<CellCacheBboxSnapshot | null> {
+  const cityBlobPrefix = getCityBlobPrefix(citySlug);
+  const bboxPathname = `${cityBlobPrefix}/.cellcache/bbox.json`;
+  const existing = await listBlobsByPrefix(bboxPathname);
+  if (existing.length === 0) return null;
+  try {
+    const data = await fetchBlobJson(existing[0].url);
+    if (data && typeof data === 'object' && data.bbox && typeof data.cellSizeM === 'number') {
+      return { bbox: data.bbox, cellSizeM: data.cellSizeM };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Одна комірка, що впала (мережа/усі 5 спроб провалились) — НЕ обриває решту: просто лишається
 // pending і буде повторно спробувана наступним викликом, разом з рештою недороблених комірок.
 // Набагато стійкіше за попередню версію (де будь-яка провалена комірка валила ВЕСЬ прогін) —
@@ -596,7 +640,10 @@ export async function generateTilesForCity(
   const overpassAttemptTimeoutMs = options?.overpassAttemptTimeoutMs ?? OVERPASS_ATTEMPT_TIMEOUT_MS;
   const overpassQueryTimeoutS = options?.overpassQueryTimeoutS ?? OVERPASS_QUERY_TIMEOUT_S;
 
-  const bbox = computeBboxFromCameras(cameras);
+  // bboxOverride (§ GenerateTilesOptions вище / CLI --continue) — якщо передано, використовуємо
+  // ТОЙ САМИЙ bbox, що й попередній запуск, замість перерахунку з живого списку камер, щоб
+  // ensureCellCacheValidForBbox() нижче не побачив розбіжності й не скинув кеш комірок.
+  const bbox = options?.bboxOverride ?? computeBboxFromCameras(cameras);
   const cityBlobPrefix = getCityBlobPrefix(citySlug);
   const cellCachePrefix = `${cityBlobPrefix}/.cellcache`;
   await ensureCellCacheValidForBbox(cellCachePrefix, bbox, GRID_CELL_SIZE_M);

@@ -36,6 +36,19 @@
 //   node /tmp/btw-tiles-build/generate-btw-tiles.js kyiv
 // )
 //
+// --continue (за прямим запитом користувача — живий випадок, коли для New York (694 -> 845
+// камер того самого міста між двома окремими запусками CLI, бо сканер додав нові в фоні) кожен
+// новий запуск рахував ІНШИЙ bbox і тому скидав увесь кеш комірок сітки, стартуючи заново
+// з "0/930", попри те що величезна частина вже отриманих даних для практично тієї самої
+// території й далі валідна — § детальний коментар біля GenerateTilesOptions.bboxOverride/
+// getCellCacheBboxSnapshot() у tile-generation.util.ts):
+//
+//   npx ts-node scripts/generate-btw-tiles.ts new-york-us --continue
+//
+// Продовжує РІВНО з того bbox, що дав попередній запуск для цього міста (якщо кеш комірок уже
+// існує) — новоприбулі камери просто увійдуть у наступну ПОВНУ регенерацію (без --continue) чи
+// в наступний виклик з нуля, коли поточна серія комірок завершиться.
+//
 // Аргумент — САМЕ `City.slug` (наприклад "kyiv"), НЕ `City.name` (український відображуваний
 // напис, наприклад "Київ") — див. ВИПРАВЛЕНО-коментар у btw.service.ts::generateTiles() щодо
 // того, чому це важливо.
@@ -60,7 +73,8 @@
 // GET /btw/manifest?city=kyiv має почати повертати scanMode:"local-worker".
 
 import { PrismaClient } from '@prisma/client';
-import { generateTilesForCity } from '../src/btw/tile-generation.util';
+import { generateTilesForCity, getCellCacheBboxSnapshot } from '../src/btw/tile-generation.util';
+import type { GenerateTilesOptions } from '../src/btw/tile-generation.util';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,8 +82,12 @@ function sleep(ms: number): Promise<void> {
 
 async function main() {
   const citySlug = process.argv[2];
+  // За прямим запитом користувача — "скрипт каждый раз разбивает новую сетку по новой и
+  // стартует с нуля - добавь флаг continue" (§ детальний коментар біля
+  // GenerateTilesOptions.bboxOverride/getCellCacheBboxSnapshot() у tile-generation.util.ts).
+  const continueFlag = process.argv.includes('--continue');
   if (!citySlug) {
-    console.error('Usage: ts-node generate-btw-tiles.ts <citySlug>   (напр. kyiv — City.slug, не City.name)');
+    console.error('Usage: ts-node generate-btw-tiles.ts <citySlug> [--continue]   (напр. kyiv — City.slug, не City.name)');
     process.exit(1);
   }
 
@@ -131,11 +149,31 @@ async function main() {
     //     тепер кожен прохід встигає забрати значно більше комірок перед тим, як повернутись.
     // ⚠️ ЧЕСНО: конкретні числа (120с/110с/15хв) підібрані розрахунково — немає живого доступу
     // до Overpass у цьому середовищі розробки, щоб перевірити ідеальні значення емпірично.
-    const CLI_TILE_OPTIONS = {
+    const CLI_TILE_OPTIONS: GenerateTilesOptions = {
       overpassAttemptTimeoutMs: 120_000,
       overpassQueryTimeoutS: 110,
       timeBudgetMs: 15 * 60_000,
     };
+
+    // --continue: підміняємо bbox тим самим, що дав ПОПЕРЕДНІЙ запуск (якщо для цього міста
+    // вже є частковий кеш комірок) — інакше кожен окремий запуск CLI перераховує bbox зі
+    // свіжого списку камер, і якщо він хоч трохи змінився (сканер додав/оновив камеру між
+    // запусками — саме так і сталось цього разу: 694 -> 845 камер того самого міста), увесь
+    // кеш комірок скидається й прогрес втрачається (§ детальний коментар у
+    // tile-generation.util.ts біля GenerateTilesOptions.bboxOverride).
+    if (continueFlag) {
+      const snapshot = await getCellCacheBboxSnapshot(citySlug);
+      if (snapshot) {
+        CLI_TILE_OPTIONS.bboxOverride = snapshot.bbox;
+        console.log(
+          `[generate-btw-tiles] --continue: знайдено кеш попереднього запуску — продовжуємо з тим самим bbox ${JSON.stringify(snapshot.bbox)} (а не перераховуємо зі свіжого списку камер).`,
+        );
+      } else {
+        console.log(
+          '[generate-btw-tiles] --continue: кешу попереднього запуску для цього міста не знайдено (перший запуск) — рахуємо bbox зі свіжого списку камер, як завжди.',
+        );
+      }
+    }
 
     // ВИПРАВЛЕНО (живий інцидент — реальний запуск на New York показав, ЩО повторні проходи
     // самі по собі стали проблемою: ячейки, що впали в проході 1 з "звичайних" timeout/504,
