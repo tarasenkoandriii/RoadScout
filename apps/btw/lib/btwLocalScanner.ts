@@ -16,6 +16,11 @@ import type { ObserverPose, RankedCandidate, LatLng } from './btw-geometry-engin
 // запити раніше й пояснювали "медленно ищет кандидатов сначала" (§ AUDIT-btw-radar-m1-m2.md),
 // тож бачити їхній реальний час/розмір у логу особливо корисно.
 import { loggedFetch } from './networkLog';
+// За прямим запитом користувача — "закешировать данные уровня города на старте мини апп на
+// уровне устройства - и обновлять кеш только по необходимости" (§ детальний розбір у
+// btwTileCache.ts).
+import { getCachedCityTiles, putCachedCityTiles } from './btwTileCache';
+import type { TileLayerVersions } from './btwTileCache';
 
 export interface LocalScanResult {
   direct: RankedCandidate[];
@@ -101,11 +106,42 @@ export class BtwLocalScanner {
       // лишається null і зберігається старий, уже перевірений сценарій.
       if (!manifest.layers) return false;
 
-      const [buildingsBuf, camerasJson, streetsJson] = await Promise.all([
-        fetchArrayBuffer(manifest.layers.buildings.url),
-        fetchJson(manifest.layers.cameras.url),
-        fetchJson(manifest.layers.streets.url),
-      ]);
+      // За прямим запитом користувача — "закешировать данные уровня города на старте мини апп
+      // на уровне устройства - и обновлять кеш только по необходимости" (§ btwTileCache.ts).
+      // manifest завжди запитується заново (маленький JSON) — САМЕ ВІН несе актуальну версію
+      // кожного шару (`uploadedAt` останньої генерації тайлів на сервері). Якщо версія з
+      // manifest збігається з тим, що вже лежить в IndexedDB на цьому пристрої — просто
+      // використовуємо кешоване, БЕЗ жодного мережевого запиту на самі buildings.bin/
+      // cameras.json/streets.json (це і є основна економія — саме вони важать 0.4-1.1 МБ,
+      // не сам manifest).
+      const versions: TileLayerVersions = {
+        buildings: manifest.layers.buildings.version,
+        cameras: manifest.layers.cameras.version,
+        streets: manifest.layers.streets.version,
+      };
+
+      let buildingsBuf: ArrayBuffer;
+      let camerasJson: unknown;
+      let streetsJson: unknown;
+
+      const cached = await getCachedCityTiles(cityName, versions);
+      if (cached) {
+        buildingsBuf = cached.buildingsBuf;
+        camerasJson = cached.camerasJson;
+        streetsJson = cached.streetsJson;
+      } else {
+        [buildingsBuf, camerasJson, streetsJson] = await Promise.all([
+          fetchArrayBuffer(manifest.layers.buildings.url),
+          fetchJson(manifest.layers.cameras.url),
+          fetchJson(manifest.layers.streets.url),
+        ]);
+
+        // ВАЖЛИВО: await ЦЬОГО виклику МУСИТЬ завершитись ДО того, як buildingsBuf піде в
+        // transferable postMessage([buildingsBuf]) нижче — інакше transfer "нейтралізує"
+        // (detached) буфер у головному потоці, і IndexedDB могла б спробувати склонувати вже
+        // порожній буфер (§ детальний розбір гонки в коментарі біля putCachedCityTiles()).
+        await putCachedCityTiles({ citySlug: cityName, versions, buildingsBuf, camerasJson, streetsJson });
+      }
 
       this.worker = new Worker(new URL('../workers/btw-scan.worker.ts', import.meta.url));
       this.worker.onmessage = (ev: MessageEvent<WorkerOutgoingMsg>) => this.handleMessage(ev.data);

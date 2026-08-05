@@ -160,6 +160,14 @@ export class BtwController {
     return this.btwService.coverage(parseFloat(swLat), parseFloat(swLng), parseFloat(neLat), parseFloat(neLng));
   }
 
+  // За прямим запитом користувача — розбір живого бага (хардкод 'kyiv' незалежно від реальної/
+  // підміненої позиції, § детальний коментар біля BtwService.nearestCity()). Публічний, без
+  // TelegramAuthGuard — той самий рівень приватності, що вже /btw/coverage вище.
+  @Get('nearest-city')
+  nearestCity(@Query('lat') lat: string, @Query('lng') lng: string) {
+    return this.btwService.nearestCity(parseFloat(lat), parseFloat(lng));
+  }
+
   // За прямим запитом користувача — програмний спуфінг GPS для дебагу (не апаратний).
   // Гейт — DEV_AUTO_LOGIN, той самий, що вже вимикає auth.service.ts::devLogin() у
   // продакшені (BtwService.assertDevToolsEnabled() кидає 404, якщо вимкнено).

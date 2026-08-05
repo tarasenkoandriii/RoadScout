@@ -994,4 +994,49 @@ export class BtwService {
     });
     return { count: cameras.length, cameras };
   }
+
+  // За прямим запитом користувача — живий баг, знайдений через скріншот панелі Log
+  // (§ networkLog.ts): мінідодаток (apps/btw/app/page.tsx) досі мав ЗАХАРДКОДЖЕНЕ 'kyiv' для
+  // GET /btw/manifest, повністю ІГНОРУЮЧИ фактичну (чи підмінену через dev-tools) позицію
+  // користувача — підміна координат на Нью-Йорк, а мінідодаток однаково просив тайли Києва.
+  // Наслідок — не просто "неправильна назва міста в лозі": локальний Worker (§
+  // btwLocalScanner.ts) вантажив BUILDINGS/CAMERAS/STREETS КИЄВА, а компонував їх геометрично
+  // з GPS-координатами Нью-Йорка — географічно безглузда комбінація, яка структурно НЕ МОЖЕ
+  // знайти жодного кандидата (звідси "Кандидатов не найдено рядом с вами" на скріншоті,
+  // незалежно від того, скільки камер Нью-Йорка реально є в БД).
+  //
+  // Це найпростіший робочий розв'язок — найближче МІСТО за прямою відстанню від точки до
+  // City.lat/lng (центру міста), БЕЗ урахування справжніх адміністративних меж чи форми
+  // bbox конкретного міста (§ computeBboxFromCameras у tile-generation.util.ts — справжня bbox
+  // міста може бути витягнутою вздовж узбережжя/річки й не бути "круглою" навколо центру).
+  // ⚠️ ЧЕСНО: для користувача, що фізично стоїть майже точно посередині між двома містами
+  // (рідкісний випадок для типової відстані між містами в цьому проєкті), це евристика може
+  // вибрати не те місто, чий bbox реально покриває точку користувача — повноцінне рішення
+  // вимагало б перевірки належності до bbox/полігону кожного міста, не лише відстані до
+  // центру; свідомо не зроблено цим кроком заради простоти (жодного реального інциденту з цим
+  // ще не було, на відміну від хардкоду 'kyiv', який ламав усе структурно й завжди).
+  //
+  // Публічний, БЕЗ TelegramAuthGuard — той самий рівень приватності, що вже /btw/coverage вище:
+  // сервер отримує лише координату, яку клієнт сам вирішив надіслати (той самий принцип, що й
+  // /btw/coverage вже застосовує для bbox навколо позиції користувача на карті), і не прив'язує
+  // її до жодного telegramId (виклик не проходить через TelegramAuthGuard узагалі, req.telegramId
+  // тут недоступний).
+  async nearestCity(lat: number, lng: number): Promise<{ slug: string; name: string; distanceM: number }> {
+    const cities = await this.prisma.city.findMany({ select: { slug: true, name: true, lat: true, lng: true } });
+    if (cities.length === 0) {
+      throw new NotFoundException('no cities configured');
+    }
+
+    let best = cities[0];
+    let bestDistanceM = haversineDistance({ lat, lng }, { lat: cities[0].lat, lng: cities[0].lng });
+    for (const city of cities.slice(1)) {
+      const d = haversineDistance({ lat, lng }, { lat: city.lat, lng: city.lng });
+      if (d < bestDistanceM) {
+        best = city;
+        bestDistanceM = d;
+      }
+    }
+
+    return { slug: best.slug, name: best.name, distanceM: Math.round(bestDistanceM) };
+  }
 }

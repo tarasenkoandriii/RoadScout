@@ -263,6 +263,29 @@ export function computeBboxFromCameras(cameras: { lat: number; lng: number }[], 
 // запустити CLI-скрипт локально, де такого обмеження немає.
 const OVERPASS_QUERY_TIMEOUT_S = 55;
 
+// За прямим запитом користувача (живий інцидент — CLI-запуск на New York впирався саме у ці
+// 55с/60с таймаути на "живих", НЕ заблокованих дзеркалах (kumi.systems/private.coffee) для
+// найщільніших комірок Мангеттена, а не в 406-блокування overpass-api.de/lz4 — ті просто
+// одразу відсіювались). Адмінська кнопка (BtwService.generateTiles(), HTTP-запит) і далі жорстко
+// обмежена Vercel Hobby (300с на функцію) — тому саме ЦІ дефолти нижче лишаються НЕЗМІННИМИ (їх
+// і далі використовує generateTilesForCity(), якщо викликач не передав options.overpassAttemptTimeoutS
+// явно). Але окремий CLI-скрипт (apps/api/scripts/generate-btw-tiles.ts) виконується на
+// власній машині розробника й НЕ має жодного serverless-обмеження — для нього тепер можна
+// передати щедріші значення через GenerateTilesOptions, не чіпаючи behavior адмінського шляху.
+export interface GenerateTilesOptions {
+  // Скільки часу (мс) на ОДИН виклик generateTilesForCity() відводиться перед тим, як
+  // повернутись частково готовим (ідемпотентний resume, § GENERATION_TIME_BUDGET_MS нижче).
+  timeBudgetMs?: number;
+  // Overpass-таймаут ОДНІЄЇ спроби (передається в fetchOverpassConcurrent) — має бути ТРОХИ
+  // БІЛЬШИМ за overpassQueryTimeoutS нижче, щоб клієнт встиг дочекатись власної graceful-
+  // відповіді Overpass ДО того, як сам обірве з'єднання (той самий принцип, що вже й для
+  // дефолтних 60с/55с).
+  overpassAttemptTimeoutMs?: number;
+  // Серверний `[timeout:N]` усередині самого Overpass QL — має лишатись МЕНШИМ за
+  // overpassAttemptTimeoutMs вище (з тим самим запасом ~5с, що вже в дефолтах).
+  overpassQueryTimeoutS?: number;
+}
+
 // ПЕРЕРОБЛЕНО (за прямим запитом користувача — наступний скріншот після впровадження дзеркал
 // показав, що ПОСЛІДОВНИЙ перебір сам створює нову проблему: перший ендпоінт просто ЗАВИС — не
 // відповів швидкою 406, а мовчав аж до власного AbortSignal ("The operation was aborted due to
@@ -276,9 +299,9 @@ const OVERPASS_QUERY_TIMEOUT_S = 55;
 const OVERPASS_ATTEMPT_TIMEOUT_MS = 60_000;
 const MAX_CONCURRENT_OVERPASS_REQUESTS = 5;
 
-function fetchOverpass(query: string): Promise<any> {
+function fetchOverpass(query: string, attemptTimeoutMs: number = OVERPASS_ATTEMPT_TIMEOUT_MS): Promise<any> {
   return fetchOverpassConcurrent(query, {
-    timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS,
+    timeoutMs: attemptTimeoutMs,
     maxConcurrent: MAX_CONCURRENT_OVERPASS_REQUESTS,
     registryProxy,
   });
@@ -471,6 +494,7 @@ async function processLayerGridResumable(
   buildQuery: (cell: Bbox) => string,
   filterElement: (el: any) => boolean,
   deadline: number,
+  overpassAttemptTimeoutMs: number,
 ): Promise<LayerProgress> {
   const layerPrefix = `${cellCachePrefix}/${layer}`;
 
@@ -483,7 +507,7 @@ async function processLayerGridResumable(
     await mapWithConcurrency(pending, GRID_QUERY_CONCURRENCY, async (cellIndex) => {
       if (Date.now() >= deadline) return; // бюджет вичерпано — лишаємо комірку pending для наступного виклику
       try {
-        const data = await fetchOverpass(buildQuery(cells[cellIndex]));
+        const data = await fetchOverpass(buildQuery(cells[cellIndex]), overpassAttemptTimeoutMs);
         const elements = ((data.elements ?? []) as any[]).filter(filterElement);
         await putBlob(cellPathname(layerPrefix, cellIndex), JSON.stringify(elements), 'application/json');
         doneIndices.add(cellIndex);
@@ -551,10 +575,22 @@ export function estimateHeightM(tags: Record<string, string> | undefined): numbe
 // фінальні тайли — `result.complete === false` — якщо не встигла обробити всі комірки сітки
 // за свій часовий бюджет. Виклик просто ПОВТОРЮЄТЬСЯ (той самий citySlug/cameras) — кеш
 // комірок у Vercel Blob сам підхоплює прогрес з попереднього разу.
-export async function generateTilesForCity(citySlug: string, cameras: CameraForTiling[]): Promise<GenerateTilesResult> {
+export async function generateTilesForCity(
+  citySlug: string,
+  cameras: CameraForTiling[],
+  options?: GenerateTilesOptions,
+): Promise<GenerateTilesResult> {
   if (cameras.length === 0) {
     throw new Error(`no VERIFIED/OUTDOOR/ONLINE cameras found for city slug="${citySlug}" — nothing to tile`);
   }
+
+  // За замовчуванням (жоден options не передано — саме так і далі викликає адмінська кнопка,
+  // BtwService.generateTiles()) — поведінка АБСОЛЮТНО не змінюється, ті самі константи, що й
+  // раніше. Лише CLI-скрипт (apps/api/scripts/generate-btw-tiles.ts) тепер явно передає щедріші
+  // значення (§ GenerateTilesOptions вище) — обмеження Vercel Hobby 300с на нього не діє.
+  const timeBudgetMs = options?.timeBudgetMs ?? GENERATION_TIME_BUDGET_MS;
+  const overpassAttemptTimeoutMs = options?.overpassAttemptTimeoutMs ?? OVERPASS_ATTEMPT_TIMEOUT_MS;
+  const overpassQueryTimeoutS = options?.overpassQueryTimeoutS ?? OVERPASS_QUERY_TIMEOUT_S;
 
   const bbox = computeBboxFromCameras(cameras);
   const cityBlobPrefix = getCityBlobPrefix(citySlug);
@@ -562,7 +598,7 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
   await ensureCellCacheValidForBbox(cellCachePrefix, bbox, GRID_CELL_SIZE_M);
 
   const cells = splitBboxIntoGrid(bbox);
-  const deadline = Date.now() + GENERATION_TIME_BUDGET_MS;
+  const deadline = Date.now() + timeBudgetMs;
 
   // Послідовно (не Promise.all, як у попередній версії) — свідомо, для простоти й чіткості
   // прогресу: buildings спершу забирають свою частку бюджету, streets — те, що лишилось.
@@ -573,24 +609,26 @@ export async function generateTilesForCity(citySlug: string, cameras: CameraForT
     cells,
     cellCachePrefix,
     (cell) => `
-      [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
+      [out:json][timeout:${overpassQueryTimeoutS}];
       way["building"](${cell.south},${cell.west},${cell.north},${cell.east});
       out geom;
     `,
     (el) => el.geometry?.length >= 3,
     deadline,
+    overpassAttemptTimeoutMs,
   );
   const streetsProgress = await processLayerGridResumable(
     'streets',
     cells,
     cellCachePrefix,
     (cell) => `
-      [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];
+      [out:json][timeout:${overpassQueryTimeoutS}];
       way["highway"](${cell.south},${cell.west},${cell.north},${cell.east});
       out geom;
     `,
     (el) => el.geometry?.length >= 2,
     deadline,
+    overpassAttemptTimeoutMs,
   );
 
   const cellsTotal = cells.length * 2; // buildings + streets — той самий grid, дві незалежні прогрес-доріжки

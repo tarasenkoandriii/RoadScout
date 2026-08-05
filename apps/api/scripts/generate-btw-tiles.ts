@@ -62,6 +62,10 @@
 import { PrismaClient } from '@prisma/client';
 import { generateTilesForCity } from '../src/btw/tile-generation.util';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
   const citySlug = process.argv[2];
   if (!citySlug) {
@@ -110,15 +114,66 @@ async function main() {
     // GRID_CELL_SIZE_M — навіть після зменшення розміру комірки теоретично можливо для
     // найщільніших районів) — щоб скрипт зрештою зупинився з чітким повідомленням, а не висів
     // нескінченно, гріючи Overpass марними повторними запитами.
+    // ВИПРАВЛЕНО (живий інцидент — CLI-запуск на New York реально впирався саме у 55с/60с
+    // Overpass-таймаути на "живих" (НЕ заблокованих 406-фільтром) дзеркалах kumi.systems/
+    // private.coffee для найщільніших комірок Мангеттена — не в саме блокування overpass-api.de/
+    // lz4.overpass-api.de, ті відсіювались одразу). За прямим підтвердженням користувача — цей
+    // CLI-скрипт виконується на власній машині, БЕЗ жодного serverless-обмеження, тому може
+    // дозволити собі значно щедріші таймаути, ніж адмінська кнопка (яка й далі жорстко обмежена
+    // Vercel Hobby 300с — § детальний коментар біля GenerateTilesOptions/OVERPASS_QUERY_TIMEOUT_S
+    // у tile-generation.util.ts, ЦІ дефолти для адмінки НЕ змінені цим кроком).
+    //   - overpassAttemptTimeoutMs: 60с -> 120с (клієнтський HTTP-таймаут на одну спробу);
+    //   - overpassQueryTimeoutS: 55с -> 110с (серверний `[timeout:N]` усередині самого Overpass
+    //     QL — лишається трохи МЕНШИМ за attemptTimeoutMs з тим самим запасом ~10с, щоб Overpass
+    //     встиг відповісти власним graceful-таймаутом ДО того, як клієнт сам обірве з'єднання);
+    //   - timeBudgetMs: 220с -> 15 хв на ОДИН виклик generateTilesForCity() — за той самий
+    //     зовнішній цикл нижче все одно продовжує резюмуватись, доки complete:true, просто
+    //     тепер кожен прохід встигає забрати значно більше комірок перед тим, як повернутись.
+    // ⚠️ ЧЕСНО: конкретні числа (120с/110с/15хв) підібрані розрахунково — немає живого доступу
+    // до Overpass у цьому середовищі розробки, щоб перевірити ідеальні значення емпірично.
+    const CLI_TILE_OPTIONS = {
+      overpassAttemptTimeoutMs: 120_000,
+      overpassQueryTimeoutS: 110,
+      timeBudgetMs: 15 * 60_000,
+    };
+
+    // ВИПРАВЛЕНО (живий інцидент — реальний запуск на New York показав, ЩО повторні проходи
+    // самі по собі стали проблемою: ячейки, що впали в проході 1 з "звичайних" timeout/504,
+    // у ПРОХОДІ 2 — одразу наступному, без жодної паузи — почали падати вже з HTTP 429 ("забагато
+    // запитів") і навіть ECONNREFUSED/ETIMEDOUT на IP-адресу lz4.overpass-api.de (тобто хост
+    // почав повністю відмовляти в з'єднанні, а не просто повільно відповідати). Це ознака, що
+    // безкоштовні публічні дзеркала почали активно обмежувати/банити саме нас за занадто часті
+    // повторні запити без жодної паузи між проходами (кожен прохід — до 3 комірок одночасно ×
+    // 4 дзеркала = до 12 паралельних HTTP-запитів, і наступний прохід стартував одразу, як
+    // тільки попередній завершувався). За прямим підтвердженням користувача — пауза між
+    // проходами МАЄ пріоритет над "просто чекати, поки саме розсмокчеться" чи "додати ще VPN":
+    // VPN додав би ЩЕ паралельних запитів до й так перевантажених дзеркал, не вирішуючи корінну
+    // причину (rate-limit від НАШОЇ ЖЕ надмірної частоти запитів).
+    //
+    // Лінійний бекофф із стелею (не експоненційний — на довгому списку в 200 проходів
+    // експоненційний зріс би до абсурдних значень): 5с, 10с, 15с, ... до стелі 60с. Досить, щоб
+    // дати вікну rate-limit'у публічних дзеркал "охолонути" між проходами, не розтягуючи повний
+    // прогін на неприйнятно довгий час для великих міст (максимум +60с на прохід після 12-го).
+    // ⚠️ ЧЕСНО: конкретні числа (5с крок/60с стеля) підібрані розрахунково, за логікою типової
+    // rate-limit поведінки публічних API — немає живого доступу до Overpass у цьому середовищі
+    // розробки, щоб перевірити емпірично, чи цього досить, щоб повністю прибрати 429/ECONNREFUSED.
     const MAX_ITERATIONS = 200;
-    let result = await generateTilesForCity(citySlug, cameras);
+    const BACKOFF_STEP_MS = 5_000;
+    const BACKOFF_CEILING_MS = 60_000;
+
+    let result = await generateTilesForCity(citySlug, cameras, CLI_TILE_OPTIONS);
     let iteration = 1;
     while (!result.complete && iteration < MAX_ITERATIONS) {
       console.log(
         `[generate-btw-tiles] прохід ${iteration}: ${result.cellsDone}/${result.cellsTotal} комірок сітки — продовжуємо автоматично (кеш комірок у Vercel Blob зберігає прогрес)...`,
       );
+      const backoffMs = Math.min(BACKOFF_STEP_MS * iteration, BACKOFF_CEILING_MS);
+      console.log(
+        `[generate-btw-tiles] пауза ${Math.round(backoffMs / 1000)}с перед наступним проходом — даємо публічним Overpass-дзеркалам "охолонути" після можливого rate-limit'у...`,
+      );
+      await sleep(backoffMs);
       iteration += 1;
-      result = await generateTilesForCity(citySlug, cameras);
+      result = await generateTilesForCity(citySlug, cameras, CLI_TILE_OPTIONS);
     }
 
     if (!result.complete) {

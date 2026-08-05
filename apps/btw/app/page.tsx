@@ -115,6 +115,16 @@ export default function BtwScanPage() {
   const [hasCamera, setHasCamera] = useState(false);
   const [heading, setHeading] = useState<number | null>(null);
   const [position, setPosition] = useState<{ lat: number; lng: number; accuracyM: number } | null>(null);
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем через панель Log — GET /api/manifest?
+  // city=kyiv надсилався НАВІТЬ коли dev-override підміняв координати на Нью-Йорк): раніше тут
+  // узагалі не було стану — `scanner.init('kyiv')` викликався із захардкодженим рядком, повністю
+  // ігноруючи `position`. Тепер місто визначається асинхронно від РЕАЛЬНОЇ (чи підміненої)
+  // позиції через новий публічний ендпоінт `GET /btw/nearest-city` (§ детальний коментар біля
+  // BtwService.nearestCity() — найближче місто за прямою відстанню до центру). `null` — ще не
+  // визначено (початковий стан І стан під час самого запиту) — ефект нижче, що стартує
+  // BtwLocalScanner, чекає на непорожнє значення, перш ніж узагалі братись за завантаження
+  // тайлів (§ коментар біля useEffect нижче).
+  const [scanCitySlug, setScanCitySlug] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   // М2 ТЗ (doc/TZ-btw-side-reverse-view.md) — резервний рівень (SIDE+OPPOSING), схований за
   // замовчуванням. showFallback скидається на false при КОЖНОМУ скані, де знову з'явився
@@ -231,6 +241,10 @@ export default function BtwScanPage() {
   // ефекту).
   const localScannerRef = useRef<BtwLocalScanner | null>(null);
   const [localScannerReady, setLocalScannerReady] = useState(false);
+  // За прямим запитом користувача — визначення міста від позиції (§ scanCitySlug вище) МАЄ
+  // спрацювати лише ОДИН РАЗ за сесію, при першому відомому `position`, а не на КОЖЕН новий
+  // GPS-фікс (watchPosition оновлює position регулярно, поки триває сканування).
+  const cityResolveStartedRef = useRef(false);
   // За прямим запитом користувача — реальне трекування лічильників телеметрії сесії (раніше
   // ендпоінт /btw/telemetry існував на сервері, але клієнт його жодного разу не викликав!).
   // М3 ТЗ (doc/TZ-btw-side-reverse-view.md §7) — доданo fallbackOffered/fallbackUsed для
@@ -434,12 +448,43 @@ export default function BtwScanPage() {
     gyroZRef.current = rotationRate.alpha;
   }
 
-  // §8.1/§4.7.5 ТЗ — спроба ініціалізувати локальний Worker-сканер. 'kyiv' — той самий дефолт
-  // міста, що вже BtwController::getManifest() (@Query('city') city ?? 'kyiv') — клієнт поки
-  // не має вибору міста в UI взагалі (весь MVP — один Telegram mini-app на Київ), тому хардкод
-  // тут відповідає вже наявному серверному. init() сам ловить БУДЬ-ЯКУ помилку (немає тайлів
-  // для міста, мережа, Worker не підтримується) і повертає false — саме тому нижче можна
-  // безумовно покладатись на localScannerReady, не обробляючи різні "чому саме не готово" тут.
+  // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем через панель Log — § детальний
+  // коментар біля scanCitySlug/cityResolveStartedRef вище): раніше тут викликався
+  // `scanner.init('kyiv')` із захардкодженим рядком, повністю ігноруючи фактичну (чи
+  // підмінену через dev-tools) позицію користувача — підміна на Нью-Йорк, а мінідодаток
+  // однаково просив тайли Києва, і локальний Worker геометрично комбінував будівлі/вулиці
+  // КИЄВА з GPS-координатами НЬЮ-ЙОРКА, структурно не здатний знайти жодного кандидата.
+  // Визначаємо citySlug асинхронно (§ ефект нижче, GET /btw/nearest-city) від реальної
+  // позиції, щойно вона стає відомою — цей ефект просто ЧЕКАЄ на `scanCitySlug != null`
+  // (додано в масив залежностей), перш ніж узагалі братись за завантаження тайлів.
+  useEffect(() => {
+    if (position == null) return;
+    if (cityResolveStartedRef.current) return; // вже запитали (чи в польоті, чи вже отримали) цього сеансу — watchPosition оновлює position часто, повторний запит на кожен фікс не потрібен
+    cityResolveStartedRef.current = true;
+
+    (async () => {
+      try {
+        const params = new URLSearchParams({ lat: String(position.lat), lng: String(position.lng) });
+        const res = await loggedFetch(`/api/nearest-city?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { slug: string };
+        setScanCitySlug(data.slug);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[BtwScanPage] nearest-city failed, falling back to "kyiv":', err);
+        // Чесний фолбек — той самий дефолт, що вже BtwController::getManifest() застосовує
+        // (`@Query('city') city ?? 'kyiv'`) — краще спробувати щось (навіть імовірно неправильне
+        // місто), ніж НАЗАВЖДИ лишити локальний шлях вимкненим через один невдалий HTTP-запит.
+        setScanCitySlug('kyiv');
+      }
+    })();
+  }, [position]);
+
+  // §8.1/§4.7.5 ТЗ — спроба ініціалізувати локальний Worker-сканер, для МІСТА, визначеного
+  // ефектом вище (`scanCitySlug`) — БІЛЬШЕ НЕ захардкоджений рядок (§ детальний коментар там
+  // же). init() сам ловить БУДЬ-ЯКУ помилку (немає тайлів для міста, мережа, Worker не
+  // підтримується) і повертає false — саме тому нижче можна безумовно покладатись на
+  // localScannerReady, не обробляючи різні "чому саме не готово" тут.
   //
   // ВИПРАВЛЕНО (за прямим запитом користувача — "почему при старте так медленно ищет
   // кандидатов сначала"): раніше цей ефект стартував завантаження ЛИШЕ при `phase ===
@@ -449,26 +494,25 @@ export default function BtwScanPage() {
   // завантажуватись, і перші тики сканування (кожні 2с, поки localScannerReady не стане true)
   // ішли ПОВІЛЬНИМ серверним шляхом (`/api/scan` -> живі Overpass-запити на кожного кандидата,
   // §4.5 Ф3, доки не спрацює кеш) — саме це й відчувалось як "довго шукає кандидатов сначала".
-  // Тепер тригер — `phase === 'requesting' АБО 'scanning'` (а не лише 'scanning') — завантаження
+  // Тригер — `phase === 'requesting' АБО 'scanning'` (а не лише 'scanning') — завантаження
   // тайлів (manifest + buildings.bin/cameras.json/streets.json, § btwLocalScanner.ts::init())
-  // стартує ОДРАЗУ, щойно користувач натиснув "почати" (setPhase('requesting') — самий
-  // початок requestPermissions()), і йде ПАРАЛЕЛЬНО з усім ланцюжком дозволів, а не ПІСЛЯ
-  // нього — до моменту, коли користувач нарешті дозволить усе й фаза стане 'scanning', тайли
-  // здебільшого вже встигають довантажитись, і локальний (швидкий) шлях активний з самого
-  // початку сканування, а не через кілька секунд після нього.
+  // стартує, щойно ОБИДВА — і фаза активна, і місто визначене (§ ефект вище — це, як правило,
+  // відбувається одразу після геолокації/dev-override, ще ДО дозволів на орієнтацію/камеру,
+  // тобто раніше, ніж у "до фікса медленно ищет", хоч і не миттєво в момент кліку, як у
+  // попередній — але некоректній для інших міст — версії).
   //
   // `if (localScannerRef.current) return;` — КРИТИЧНО: без цієї перевірки перехід
-  // 'requesting' -> 'scanning' (обидві "активні" фази) знову спрацював би як зміна `phase` у
-  // масиві залежностей і, за старою логікою нижче (створити новий сканер + `cancelled` у
-  // closure), ПЕРЕЗАПУСТИВ би саме те завантаження, яке щойно почалось — тобто звів би цю
-  // зміну нанівець. Порівняння за ІДЕНТИЧНІСТЮ інстансу в `.then()` (`localScannerRef.current
-  // === scanner`), а не прапорцем `cancelled`, зав'язаним на ОДИН виклик ефекту — з тієї самої
-  // причини: сам виклик `init()` продовжує "летіти" через перехід 'requesting' -> 'scanning'
-  // (це той самий інстанс сканера, що обидва рази проходить через `if (localScannerRef.current)
-  // return;` вище), і прапорець-closure старого стилю хибно позначив би його "скасованим" на
-  // цьому переході, назавжди залишаючи localScannerReady=false для всієї сесії.
+  // 'requesting' -> 'scanning' (обидві "активні" фази) знову спрацював би як зміна залежностей
+  // ефекту і, за старою логікою (створити новий сканер + `cancelled` у closure), ПЕРЕЗАПУСТИВ
+  // би саме те завантаження, яке щойно почалось — тобто звів би цю зміну нанівець. Порівняння
+  // за ІДЕНТИЧНІСТЮ інстансу в `.then()` (`localScannerRef.current === scanner`), а не
+  // прапорцем `cancelled`, зав'язаним на ОДИН виклик ефекту — з тієї самої причини: сам виклик
+  // `init()` продовжує "летіти" через перехід 'requesting' -> 'scanning' (це той самий інстанс
+  // сканера, що обидва рази проходить через `if (localScannerRef.current) return;` вище), і
+  // прапорець-closure старого стилю хибно позначив би його "скасованим" на цьому переході,
+  // назавжди залишаючи localScannerReady=false для всієї сесії.
   useEffect(() => {
-    const active = phase === 'requesting' || phase === 'scanning';
+    const active = (phase === 'requesting' || phase === 'scanning') && scanCitySlug != null;
     if (!active) {
       if (localScannerRef.current) {
         localScannerRef.current.dispose();
@@ -482,10 +526,10 @@ export default function BtwScanPage() {
     const scanner = new BtwLocalScanner();
     localScannerRef.current = scanner;
 
-    scanner.init('kyiv').then((ok) => {
+    scanner.init(scanCitySlug!).then((ok) => {
       if (localScannerRef.current === scanner) setLocalScannerReady(ok);
     });
-  }, [phase]);
+  }, [phase, scanCitySlug]);
 
   // Гарантія звільнення Worker'а при розмонтуванні сторінки НЕЗАЛЕЖНО від того, якою була
   // фаза в момент розмонтування (ефект вище звільняє лише при ПЕРЕХОДІ у неактивну фазу, не
