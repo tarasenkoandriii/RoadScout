@@ -560,6 +560,59 @@ export async function getCellCacheBboxSnapshot(citySlug: string): Promise<CellCa
   }
 }
 
+export interface LiveCellCacheStats {
+  bbox: Bbox;
+  cellSizeM: number;
+  cellsPerLayer: number;
+  cellsTotal: number; // cellsPerLayer * 2 (buildings + streets, той самий grid)
+  buildingsDone: number;
+  streetsDone: number;
+  cellsDone: number; // buildingsDone + streetsDone
+}
+
+// За прямим запитом користувача — "админка не показывает кеш скрипта - хотя бы статистику
+// покажи": `BtwService.getGenerationStatus()` (яку опитує /admin/btw-tiles) досі показував ЛИШЕ
+// `cellsDone`/`cellsTotal`, збережені в останньому записі `BtwTileGenerationRun` — а цей запис
+// пише ВИКЛЮЧНО `BtwService.generateTiles()` (клік по кнопці адмінки). CLI-скрипт
+// (`generate-btw-tiles.ts`) працює через ОКРЕМИЙ, власний `new PrismaClient()` і НІКОЛИ не
+// торкається таблиці `BtwTileGenerationRun` — увесь його прогрес живе ЛИШЕ в самому кеші комірок
+// у Vercel Blob (`.cellcache/<layer>/<i>.json`). Тому якщо прогрес зробив CLI (а не кнопка
+// адмінки), адмінка про це просто НІЧОГО не знала — показувала застарілі (або взагалі відсутні)
+// числа з БД, хоча реальний кеш у Blob уже міг містити сотні готових комірок.
+//
+// Ця функція — "чесне" джерело правди: рахує кеш НАПРЯМУ з Vercel Blob (той самий механізм, що
+// вже `processLayerGridResumable()`/`getCellCacheBboxSnapshot()` використовують), не торкаючись
+// БД взагалі — тому однаково відображає прогрес НЕЗАЛЕЖНО від того, CLI його зробив чи адмінська
+// кнопка. Лише РАХУЄ (list(), без жодного мережевого запиту до Overpass) — безпечно викликати на
+// кожен /admin/generation-status (опитується раз на 4с, поки триває генерація). Повертає null,
+// якщо для цього міста ще взагалі немає кешу комірок (перший запуск не робився).
+export async function getLiveCellCacheStats(citySlug: string): Promise<LiveCellCacheStats | null> {
+  const snapshot = await getCellCacheBboxSnapshot(citySlug);
+  if (!snapshot) return null;
+
+  const cellCachePrefix = `${getCityBlobPrefix(citySlug)}/.cellcache`;
+  const cells = splitBboxIntoGrid(snapshot.bbox, snapshot.cellSizeM);
+  const [buildingsBlobs, streetsBlobs] = await Promise.all([
+    listBlobsByPrefix(`${cellCachePrefix}/buildings/`),
+    listBlobsByPrefix(`${cellCachePrefix}/streets/`),
+  ]);
+  // Той самий фільтр валідних індексів комірок, що вже processLayerGridResumable() застосовує
+  // (parseCellIndexFromPathname) — про запас, якщо під цим префіксом колись опиниться якийсь
+  // сторонній/пошкоджений blob без коректного `<i>.json` імені, він не має псевдо-роздувати лічильник.
+  const buildingsDone = new Set(buildingsBlobs.map((b) => parseCellIndexFromPathname(b.pathname)).filter((i) => i >= 0)).size;
+  const streetsDone = new Set(streetsBlobs.map((b) => parseCellIndexFromPathname(b.pathname)).filter((i) => i >= 0)).size;
+
+  return {
+    bbox: snapshot.bbox,
+    cellSizeM: snapshot.cellSizeM,
+    cellsPerLayer: cells.length,
+    cellsTotal: cells.length * 2,
+    buildingsDone,
+    streetsDone,
+    cellsDone: buildingsDone + streetsDone,
+  };
+}
+
 // Одна комірка, що впала (мережа/усі 5 спроб провалились) — НЕ обриває решту: просто лишається
 // pending і буде повторно спробувана наступним викликом, разом з рештою недороблених комірок.
 // Набагато стійкіше за попередню версію (де будь-яка провалена комірка валила ВЕСЬ прогін) —

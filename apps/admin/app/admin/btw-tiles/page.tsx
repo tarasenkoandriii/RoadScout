@@ -76,10 +76,27 @@ interface GenerationRun {
   elapsedMs?: number | null; // заповнено сервером ЛИШЕ для latest.status === 'running'
 }
 
+// За прямим запитом користувача — "админка не показывает кеш скрипта - хотя бы статистику
+// покажи" (§ детальний коментар біля getLiveCellCacheStats() у tile-generation.util.ts і
+// BtwService.getGenerationStatus()): незалежне від таблиці BtwTileGenerationRun джерело правди
+// — рахується напряму з Vercel Blob, тому показує РЕАЛЬНИЙ прогрес, зроблений НАВІТЬ CLI-
+// скриптом (generate-btw-tiles.ts), який ніколи не пише в БД. `null` з сервера, якщо для цього
+// міста кешу комірок ще взагалі немає (перший запуск не робився ані кнопкою, ані CLI).
+interface LiveCellCacheStats {
+  bbox: { south: number; west: number; north: number; east: number };
+  cellSizeM: number;
+  cellsPerLayer: number;
+  cellsTotal: number;
+  buildingsDone: number;
+  streetsDone: number;
+  cellsDone: number;
+}
+
 interface GenerationStatus {
   citySlug: string;
   latest: GenerationRun | null;
   history: GenerationRun[];
+  liveCache: LiveCellCacheStats | null;
 }
 
 // Опитування статусу поки триває "running" — той самий часовий бюджет за замовчуванням
@@ -301,6 +318,29 @@ export default function BtwTilesPage() {
             ) : (
               <div className="text-gray-500">⚪ Тайлов пока нет — BTW mini-app использует серверный /api/scan (без изменений)</div>
             )}
+          </div>
+        )}
+
+        {/* За прямим запитом користувача — "админка не показывает кеш скрипта - хотя бы
+            статистику покажи": на відміну від блоків "🟡 Частично готово"/"⏳ Генерация уже
+            выполняется" нижче (які читають ЛИШЕ таблицю BtwTileGenerationRun — тобто НІЧОГО не
+            знають про прогрес, зроблений CLI-скриптом, § getLiveCellCacheStats() у
+            tile-generation.util.ts), цей блок рахує кеш НАПРЯМУ з Vercel Blob і тому показує
+            РЕАЛЬНИЙ поточний стан незалежно від того, хто його наповнив — кнопка адмінки чи
+            `npx ts-node scripts/generate-btw-tiles.ts <slug>` на машині розробника. Показуємо
+            ЗАВЖДИ, коли є хоч якийсь кеш (навіть якщо жодного запуску в історії нижче немає
+            взагалі) — саме цього й бракувало. */}
+        {genStatus?.liveCache && (
+          <div className="mb-3 rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-700">
+            <div className="font-medium">
+              📦 Кеш ячеек в Vercel Blob сейчас: {genStatus.liveCache.cellsDone}/{genStatus.liveCache.cellsTotal}
+              {genStatus.liveCache.cellsDone >= genStatus.liveCache.cellsTotal ? ' (готово к финализации)' : ''}
+            </div>
+            <div className="mt-0.5 text-slate-600">
+              здания: {genStatus.liveCache.buildingsDone}/{genStatus.liveCache.cellsPerLayer}, улицы: {genStatus.liveCache.streetsDone}/
+              {genStatus.liveCache.cellsPerLayer} (сетка {genStatus.liveCache.cellSizeM}м, включая прогресс от CLI-скрипта, если он
+              запускался — эта цифра не зависит от истории запусков ниже).
+            </div>
           </div>
         )}
 

@@ -20,7 +20,7 @@ import {
   RankedCandidate,
   MAX_TARGET_RADIUS_M,
 } from './btw-geometry.util';
-import { generateTilesForCity, getCityBlobPrefix, listBlobsByPrefix, fetchBlobBuffer } from './tile-generation.util';
+import { generateTilesForCity, getCellCacheBboxSnapshot, getLiveCellCacheStats, getCityBlobPrefix, listBlobsByPrefix, fetchBlobBuffer } from './tile-generation.util';
 
 // generateTiles()/getGenerationStatus() нижче — за прямим запитом користувача ("сделай
 // возможность идемпотентного мнгоразового запуска с мониторингом времени - как уже делали с
@@ -331,7 +331,21 @@ export class BtwService {
     }
 
     try {
-      const result = await generateTilesForCity(citySlug, cameras);
+      // За прямим запитом користувача — "админка не видит кеш тайлов радара" (живий інцидент:
+      // історія запусків New York в адмінці стабільно застрягала на "3-4/1800 ячеек" кілька
+      // спроб поспіль, попри те, що кеш комірок у Vercel Blob МАВ накопичувати прогрес між
+      // кліками). Причина — та сама, що вже виправлена для CLI-шляху (§ детальний коментар біля
+      // GenerateTilesOptions.bboxOverride/getCellCacheBboxSnapshot() у tile-generation.util.ts):
+      // bbox рахувався ЗАНОВО з живого списку камер при КОЖНОМУ виклику, а список камер у БД
+      // реально змінюється у фоні (сканер/скрапер) — щонайменша розбіжність bbox між кліками
+      // змушувала ensureCellCacheValidForBbox() скидати ВЕСЬ кеш комірок щоразу. На відміну від
+      // CLI (де продовження з попереднього bbox — опційний прапорець `--continue`), ЦЯ кнопка
+      // адмінки вже НАЗИВАЄТЬСЯ "Продолжить генерацию" — продовження й так очікувана поведінка
+      // за замовчуванням тут, без потреби в окремому прапорці (клік по кнопці не передає жодних
+      // додаткових аргументів). Тому тут ЗАВЖДИ спершу перевіряємо, чи є кеш bbox від
+      // попереднього запуску цього самого міста, і якщо є — підставляємо його як bboxOverride.
+      const bboxSnapshot = await getCellCacheBboxSnapshot(citySlug);
+      const result = await generateTilesForCity(citySlug, cameras, bboxSnapshot ? { bboxOverride: bboxSnapshot.bbox } : undefined);
 
       // ДОПОВНЕНО (за прямим запитом користувача — "сделай запуски из вкладки идемпотентными -
       // несколько запусков подряд до исчерпания списка ячеек"): `complete: false` — НЕ помилка.
@@ -412,6 +426,19 @@ export class BtwService {
       take: 5,
     });
     const [latest, ...history] = runs;
+
+    // За прямим запитом користувача — "админка не показывает кеш скрипта - хотя бы статистику
+    // покажи": усе вище (`latest`/`history`) читає ЛИШЕ таблицю `BtwTileGenerationRun`, яку
+    // пише ВИКЛЮЧНО ця сама `generateTiles()` (клік по кнопці адмінки) — CLI-скрипт
+    // (`generate-btw-tiles.ts`) працює через ОКРЕМИЙ `new PrismaClient()` і НІКОЛИ не торкається
+    // цієї таблиці, увесь його прогрес живе лише в самому кеші комірок у Vercel Blob. Тому якщо
+    // прогрес зробив CLI, адмінка про це попередньо НІЧОГО не знала. `liveCache` — незалежне
+    // джерело правди: рахує кеш НАПРЯМУ з Blob (§ детальний коментар біля
+    // getLiveCellCacheStats() у tile-generation.util.ts), тому показує РЕАЛЬНИЙ поточний стан
+    // незалежно від того, хто саме (CLI чи ця кнопка) його наповнив. `null`, якщо для цього
+    // міста кешу комірок ще взагалі немає.
+    const liveCache = await getLiveCellCacheStats(citySlug);
+
     return {
       citySlug,
       latest: latest
@@ -421,6 +448,7 @@ export class BtwService {
           }
         : null,
       history,
+      liveCache,
     };
   }
 
