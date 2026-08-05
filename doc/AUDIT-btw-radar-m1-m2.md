@@ -1141,3 +1141,36 @@ CLI-запуском раніше в цій сесії, ДО цієї зміни
 `apps/btw/workers/btw-scan.worker.ts`, `apps/btw/app/page.tsx`. Перевірено синтаксично
 (`tsc --noEmit --skipLibCheck`, включно з `--jsx react-jsx` для `page.tsx`) — без нових
 помилок категорій TS1xxx/TS17xx.
+
+### Виправлення: пропущена серверна копія tile-format.ts (TS2353 на живому запуску CLI)
+
+Користувач запустив `npx ts-node scripts/generate-btw-tiles.ts new-york-us` після попереднього
+кроку й отримав живу помилку компіляції:
+```
+src/btw/tile-generation.util.ts:674:9 - error TS2353: Object literal may only specify known
+properties, and 'name' does not exist in type 'CamerasTileEntry'.
+```
+
+**Причина**: у попередньому кроці існування ДВОХ окремих копій `tile-format.ts` було
+пропущено — відредаговано лише `apps/btw/lib/tile-format.ts` (клієнтський порт, який реально
+імпортує `btw-scan.worker.ts`), а `tile-generation.util.ts` (і, відповідно, CLI-скрипт та
+адмінський HTTP-шлях генерації тайлів) насправді імпортує `CamerasTileEntry` з ОКРЕМОГО файлу
+`apps/api/src/btw/tile-format.ts` (`import type { ... } from './tile-format'` — відносний шлях
+у межах `apps/api`, не `apps/btw`). Ця серверна копія не була синхронізована з доданим полем
+`name`, тому `tile-generation.util.ts` намагався записати `name: c.name,` у тип, що ще не мав
+такого поля — саме той самий клас багів "дві копії — виправлено лише в одній", що вже
+кілька разів траплявся раніше в цій сесії (Overpass-клієнт, азимут-евристика, геометричний
+рушій) і мав бути врахований одразу.
+
+**Виправлено**: `apps/api/src/btw/tile-format.ts::CamerasTileEntry` тепер теж має поле
+`name: string` (з тим самим поясненням у коментарі, що й у клієнтській копії, плюс явна
+примітка про сам факт існування двох копій і що саме тут стався пропуск).
+
+Перевірено: скопійовано обидва файли (`apps/api/src/btw/tile-format.ts` та
+`tile-generation.util.ts`, з підміною шляху імпорту на локальний) у сценарну директорію й
+прогнано `tsc --noEmit --skipLibCheck` — TS2353 (і будь-які TS1xxx/TS17xx) відсутні. Живий
+`ts-node`-запуск і генерацію файлу в blob підтвердити неможливо (немає мережевого доступу до
+Vercel Blob/БД у цьому середовищі) — потрібне повторне підтвердження від користувача, що CLI
+тепер відпрацьовує до кінця без цієї помилки.
+
+Файли: `apps/api/src/btw/tile-format.ts`.
