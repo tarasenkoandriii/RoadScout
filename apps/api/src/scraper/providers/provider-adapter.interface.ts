@@ -21,6 +21,30 @@ export interface RawCameraItem {
   // розпізнати неправильно чи взагалі не розпізнати.
   suggestedLat?: number;
   suggestedLng?: number;
+
+  // Підказка міста/країни НАПРЯМУ від джерела (додано для TrafficVisionAdapter — camera-data
+  // JSON вже містить власний геокодинг TrafficVision, поле `city`/`country_code` на кожному
+  // записі). ОКРЕМО від suggestedLocationType/suggestedLat — це не координати самої камери, а
+  // підказка, ЯКИЙ City-рядок цього проєкту їй відповідає (якщо він взагалі є в базі).
+  // ScraperService.processItem() намагається знайти ТОЧНИЙ (case-insensitive) збіг
+  // City.name+City.countryCode і, якщо знаходить, використовує його cityId ДЛЯ ЦІЄЇ КОНКРЕТНОЇ
+  // камери — замість provider.cityId (провайдера) за замовчуванням. Це потрібно тому, що
+  // provider.cityId — ОДНЕ місто на весь провайдер (див. WebcamGuruAdapter/NycTmcAdapter — там
+  // це коректно, бо кожен провайдер там і так одне місто), а TrafficVision-джерела (наприклад
+  // bpjt — платні дороги ВСІЄЇ Індонезії, багато міст) охоплюють БАГАТО міст одним провайдером.
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "добавить при импорте проверку есть ли в базе
+  // город провайдер и добавлять если отсутствуют"): якщо точного збігу City немає,
+  // ScraperService.processItem() тепер АВТОМАТИЧНО СТВОРЮЄ новий City-рядок із цих полів (а не
+  // просто лишає cityId=null, як було раніше) — див. детальний коментар безпосередньо в
+  // processItem() біля виклику upsert. suggestedCountryName/suggestedRegion — додаткові поля
+  // САМЕ для цього створення (region/countryName у самому City теж nullable, тому їх
+  // відсутність не блокує створення міста, лише лишає ці колонки порожніми).
+  // Адаптери, що не задають ці поля (усі, крім TrafficVisionAdapter), поводяться РІВНО як
+  // раніше — provider.cityId і далі використовується без змін, нових City не створюється.
+  suggestedCityName?: string;
+  suggestedCountryCode?: string;
+  suggestedCountryName?: string;
+  suggestedRegion?: string;
 }
 
 // diagnostics — см. doc/TZ-parser-import-improvements.md, П0.1: адаптер сообщает, какая именно

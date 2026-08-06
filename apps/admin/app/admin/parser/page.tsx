@@ -193,6 +193,30 @@ export default function ParserAdminPage() {
     }
   };
 
+  // "Досчитать азимут" (см. запрос пользователя: "возможно ли потом в админке батчами дотянуть
+  // оверпасс?") — заново пробует Overpass ТОЛЬКО для уже импортированных камер этого источника
+  // с azimuthSource==='fallback' (не перезапускает весь импорт заново). providerId===null —
+  // глобальная кнопка по всей базе сразу (см. ниже).
+  const [recalibratingId, setRecalibratingId] = useState<string | null>(null);
+  const [recalibrateResult, setRecalibrateResult] = useState<{
+    providerName: string;
+    totalFallback: number;
+    updated: number;
+    stillFallback: number;
+  } | null>(null);
+  const recalibrateAzimuth = async (providerId: string | null, providerName: string) => {
+    setRecalibratingId(providerId ?? '__all__');
+    try {
+      const url = providerId ? `/api/admin/parser/recalibrate-azimuth-fallback?providerId=${providerId}` : '/api/admin/parser/recalibrate-azimuth-fallback';
+      const res = await fetch(url, { method: 'POST' });
+      const data = await res.json();
+      setRecalibrateResult({ providerName, ...data });
+      await load();
+    } finally {
+      setRecalibratingId(null);
+    }
+  };
+
   return (
     <div className="p-6 space-y-10">
       <section>
@@ -239,6 +263,18 @@ export default function ParserAdminPage() {
             >
               {runningWebSearch ? 'Запуск Google-поиска…' : '🤖 Запустить Google-поиск (debug)'}
             </button>
+            {/* Глобальная кнопка — по всем источникам сразу, без providerId. Полезно, например,
+                после того как Overpass API был временно недоступен (сеть/файрвол) во время
+                импорта — не тратит время на перезапуск всего парсера, только досчитывает уже
+                существующие камеры с azimuthSource==='fallback'. */}
+            <button
+              onClick={() => recalibrateAzimuth(null, 'все источники')}
+              disabled={recalibratingId !== null}
+              title="Заново попробовать Overpass API для всех уже импортированных камер (по всем источникам), у которых сейчас азимут — фолбэк"
+              className="rounded bg-yellow-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+            >
+              {recalibratingId === '__all__' ? 'Пересчёт азимутов…' : '📐 Досчитать азимуты (fallback)'}
+            </button>
           </div>
         </div>
 
@@ -278,6 +314,18 @@ export default function ParserAdminPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {recalibrateResult && (
+          <div className="mb-4 rounded bg-yellow-50 p-3 text-xs">
+            <p className="font-medium">
+              Пересчёт азимута ({recalibrateResult.providerName}): было {recalibrateResult.totalFallback} фолбэк-камер, обновлено{' '}
+              {recalibrateResult.updated}, осталось фолбэком {recalibrateResult.stillFallback}
+              {recalibrateResult.stillFallback > 0 ? ' (Overpass не нашёл дорогу рядом или сам недоступен — можно повторить позже)' : ''}.
+            </p>
+            <button onClick={() => setRecalibrateResult(null)} className="text-gray-500 underline mt-1">
+              Закрыть
+            </button>
           </div>
         )}
 
@@ -348,6 +396,16 @@ export default function ParserAdminPage() {
                   >
                     {dryRunLoading === s.providerId ? 'Проверка…' : 'Dry-run'}
                   </button>
+                  {s.azimuthFallbackCount > 0 && (
+                    <button
+                      className="ml-2 text-yellow-700 text-xs underline disabled:opacity-50"
+                      disabled={recalibratingId !== null}
+                      onClick={() => recalibrateAzimuth(s.providerId, s.providerName)}
+                      title="Заново попробовать Overpass API только для камер этого источника с фолбэк-азимутом (например, если Overpass был недоступен во время импорта)"
+                    >
+                      {recalibratingId === s.providerId ? 'Пересчёт…' : `Досчитать азимут (${s.azimuthFallbackCount})`}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

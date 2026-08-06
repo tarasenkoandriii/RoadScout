@@ -223,6 +223,18 @@ export class ScraperController {
     return this.scraperService.rejectSourceRaw(id, (req as any).telegramId, dto.reason);
   }
 
+  // Батчове дотягування азимуту для вже імпортованих камер, у яких Overpass API був
+  // недоступний під час імпорту (azimuthSource==='fallback') — див. ScraperService.
+  // recalibrateFallbackAzimuths() за детальним обґрунтуванням (прямий запит користувача,
+  // реальний інцидент — усі 4 дзеркала Overpass повернули ECONNREFUSED під час прогону
+  // trafficvision-oktraffic). ?providerId= — лише один провайдер (кнопка в рядку таблиці);
+  // без параметра — по всій базі відразу.
+  @UseGuards(AdminGuard)
+  @Post('admin/parser/recalibrate-azimuth-fallback')
+  async recalibrateAzimuthFallback(@Query('providerId') providerId?: string) {
+    return this.scraperService.recalibrateFallbackAzimuths(providerId);
+  }
+
   // Per-provider summary: total cameras, pending review count, last run, success rate —
   // "конкретная статистика по проходам парсера по списку камер"
   @UseGuards(AdminGuard)

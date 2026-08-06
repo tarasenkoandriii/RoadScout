@@ -10,6 +10,8 @@ import { YoutubeSearchAdapter } from './providers/youtube-search.adapter';
 import { GoogleWebCameraSearchAdapter } from './providers/google-web-camera-search.adapter';
 import { WindyWebcamsAdapter } from './providers/windy-webcams.adapter';
 import { NycTmcAdapter } from './providers/nyctmc.adapter';
+import { TrafficVisionAdapter } from './providers/trafficvision.adapter';
+import { findTrafficVisionSource, slugFromAdapterKey } from './providers/trafficvision-sources';
 import { RegistryProxyService } from './proxy/registry-proxy.service';
 import { ImportLogService } from './import-log.service';
 import { ResolveSourceRawDto } from './dto/resolve-source-raw.dto';
@@ -75,6 +77,17 @@ function sleep(ms: number): Promise<void> {
 function getRunTimeBudgetMs(): number {
   const v = parseInt(process.env.PARSER_RUN_TIME_BUDGET_MS ?? '', 10);
   return Number.isFinite(v) && v > 0 ? v : 25000;
+}
+
+// Для resolveOrCreateCityId() (автостворення City для TrafficVisionAdapter та будь-якого
+// майбутнього адаптера з тим самим suggestedCityName-шляхом) — проста, без зовнішніх бібліотек
+// транслітерація/нормалізація не потрібна (назви міст від TrafficVision уже латиницею): нижній
+// регістр, усе, що не [a-z0-9], стає "-", повторні/крайні "-" згортаються.
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 interface RunStats {
@@ -149,6 +162,24 @@ export class ScraperService {
         throw new Error(`Provider "${provider.adapterKey}" uses the windy adapter but has no linked City — set CameraProvider.cityId.`);
       }
       return new WindyWebcamsAdapter(provider.city.name, provider.city.lat, provider.city.lng, this.registryProxy);
+    }
+
+    // TrafficVision.Live camera-data (див. клас-коментар TrafficVisionAdapter і
+    // doc/AUDIT-trafficvision-parser.md за повним дослідженням) — ЄДИНИЙ провайдер НЕ по місту
+    // (як nyctmc — одне джерело охоплює ціле джерело/агентство, потенційно багато міст), тому
+    // City тут НЕ обов'язковий (на відміну від webcam-guru/youtube-search/web-search/windy
+    // вище) — City-прив'язка окремих камер робиться поштучно нижче, у processItem(), через
+    // item.suggestedCityName/suggestedCountryCode, а не через provider.city.
+    if (provider.adapterKey.startsWith('trafficvision-')) {
+      const slug = slugFromAdapterKey(provider.adapterKey);
+      const source = slug ? findTrafficVisionSource(slug) : undefined;
+      if (!source) {
+        throw new Error(
+          `Provider "${provider.adapterKey}" uses the trafficvision adapter, but "${slug}" is not a known TrafficVision source — ` +
+            'see TRAFFICVISION_SOURCES in providers/trafficvision-sources.ts.',
+        );
+      }
+      return new TrafficVisionAdapter(source.slug, source.url, this.registryProxy);
     }
 
     // Register additional adapter families here as they're implemented (matched by adapterKey
@@ -519,6 +550,71 @@ export class ScraperService {
     return { ...item, ...details };
   }
 
+  // Поштучна City-прив'язка для джерел, де ОДИН provider охоплює БАГАТО міст (див. клас-
+  // коментар RawCameraItem.suggestedCityName) — за прямим запитом користувача: "добавить при
+  // импорте проверку есть ли в базе город провайдер и добавлять если отсутствуют". Спочатку
+  // шукає ТОЧНИЙ (case-insensitive) збіг City.name (+ City.countryCode, якщо задано); якщо не
+  // знайдено — створює новий City-рядок із того, що дав сам адаптер (suggestedCityName/
+  // suggestedCountryCode/suggestedCountryName/suggestedRegion) і координат ЦІЄЇ камери як
+  // наближення для City.lat/lng (справжнього центру міста джерело не дає — окремий геокодинг
+  // "центру міста" тут навмисно НЕ робиться, це був би зайвий виклик на кожне нове місто; для
+  // цілей проєкту (сектор пошуку/відображення на карті) наближення координатами першої знайденої
+  // в цьому місті камери достатньо точне — місто однаково не менше кількох км).
+  //
+  // upsert (НЕ findFirst+create окремо) — items у batch обробляються ПАРАЛЕЛЬНО
+  // (Promise.all у runForProvider()), тож кілька камер одного НОВОГО міста в одному batch
+  // могли б одночасно не знайти City і спробувати створити його — upsert за унікальним slug
+  // атомарний на рівні БД (ON CONFLICT), тому race-умова не породжує дублікат/помилку
+  // унікальності: хто б не "виграв" гонку, решта просто отримають той самий рядок назад.
+  private async resolveOrCreateCityId(item: RawCameraItem, cameraLat: number, cameraLng: number): Promise<string | null> {
+    const cityName = item.suggestedCityName?.trim();
+    if (!cityName) return null;
+
+    const countryCode = item.suggestedCountryCode?.trim() || undefined;
+
+    const existing = await this.prisma.city.findFirst({
+      where: {
+        name: { equals: cityName, mode: 'insensitive' },
+        ...(countryCode ? { countryCode } : {}),
+      },
+    });
+    if (existing) return existing.id;
+
+    const slug = await this.uniqueCitySlug(slugify(`${cityName}-${countryCode ?? ''}`));
+
+    this.logger.log(`resolveOrCreateCityId: город "${cityName}" (${countryCode ?? '?'}) не найден в City — создаю новый (slug="${slug}").`);
+
+    const created = await this.prisma.city.upsert({
+      where: { slug },
+      update: {},
+      create: {
+        name: cityName,
+        slug,
+        lat: cameraLat,
+        lng: cameraLng,
+        region: item.suggestedRegion?.trim() || null,
+        countryCode: countryCode ?? 'UA', // City.countryCode не nullable — 'UA' лишається дефолтом схеми, якщо джерело зовсім не дало код країни (для TrafficVisionAdapter це не мало б траплятись — country_code завжди присутній у реальних відповідях обох джерел)
+        countryName: item.suggestedCountryName?.trim() || null,
+      },
+    });
+    return created.id;
+  }
+
+  // slug мусить бути унікальним (City.slug @unique) — на випадок, якщо ДВА РІЗНІ міста
+  // (наприклад, однакова назва в різних областях тієї самої країни — camera-data не завжди дає
+  // достатньо деталей, щоб їх відрізнити) згенерують однаковий базовий slug, додаємо числовий
+  // суфікс. Малоймовірно на практиці (dedup вище й так спрацьовує за назвою+країною раніше), але
+  // без цього другий такий випадок впав би з помилкою унікальності на порожньому місці.
+  private async uniqueCitySlug(baseSlug: string): Promise<string> {
+    let candidate = baseSlug || 'city';
+    let suffix = 2;
+    while (await this.prisma.city.findUnique({ where: { slug: candidate }, select: { id: true } })) {
+      candidate = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
   private async processItem(
     runId: string,
     providerId: string,
@@ -764,11 +860,23 @@ export class ScraperService {
     // "природа/пляж", это исправляется вручную через инструмент калибровки.
     const resolvedLocationType = item.suggestedLocationType ?? 'OUTDOOR';
 
+    // Поштучна City-прив'язка (див. RawCameraItem.suggestedCityName/suggestedCountryCode,
+    // клас-коментар там же) — потрібно для джерел, де ОДИН provider охоплює БАГАТО міст
+    // (TrafficVisionAdapter: bpjt-джерело — платні дороги всієї Індонезії). Якщо жоден City не
+    // задовольняє точний (case-insensitive) збіг за name+countryCode — АВТОСТВОРЮЄМО новий (за
+    // прямим запитом користувача: "добавить при импорте проверку есть ли в базе город
+    // провайдер и добавлять если отсутствуют"), див. resolveOrCreateCityId() нижче. Адаптери,
+    // що не задають suggestedCityName (усі, крім TrafficVisionAdapter), лишаються на
+    // provider-рівневому cityId — поведінка НЕ змінюється.
+    const resolvedCityId = item.suggestedCityName
+      ? await this.resolveOrCreateCityId(item, geocodeResult.lat, geocodeResult.lng)
+      : cityId;
+
     const camera = await this.prisma.camera.create({
       data: {
         name: title,
         providerId,
-        cityId,
+        cityId: resolvedCityId,
         streamUrl,
         streamType,
         lat: geocodeResult.lat,
@@ -994,5 +1102,109 @@ export class ScraperService {
         rejectionReason: reason,
       },
     });
+  }
+
+  // Батчове ДОТЯГУВАННЯ азимуту для ВЖЕ ІМПОРТОВАНИХ камер — за прямим запитом користувача
+  // (реальний живий інцидент: прогін trafficvision-oktraffic ловив "Overpass: все 4
+  // параллельных попытки провалились — ECONNREFUSED" на всі 4 дзеркала одразу, тобто мережа
+  // самого середовища на момент прогону не мала виходу до жодного з overpass-хостів — не
+  // проблема коду/джерела даних; питання користувача: "то есть текущий парсер импортирует все
+  // 649 камер oktraffic ... возможно ли потом в админке батчами дотянуть оверпасс ?").
+  //
+  // ⚠️ ЧЕСНО: жоден імпортований запис НЕ втрачається через збій Overpass — processItem() і так
+  // завжди створює камеру з azimuthSource:'fallback' (azimuth:0, rangeHint:'yard'), якщо
+  // AzimuthHeuristicService.guessForPoint() впав чи не знайшов дорогу поруч (§ коментар там
+  // же) — це лише ГІРША якість автокалібрування (порожня заглушка замість реального напрямку
+  // вздовж дороги), не втрата камери. Тому НЕ потрібно перезапускати весь імпорт (дублікатів
+  // не буде — dedup по [providerId, externalId] і так відсіє вже імпортовані елементи, але це
+  // все одно зайвий прохід по всьому джерелу заради невеликої частки, що впала). Натомість цей
+  // метод точково перебирає ТІЛЬКИ вже існуючі камери з azimuthSource==='fallback' (опційно
+  // одного провайдера) і заново пробує ТОЙ САМИЙ Overpass-запит через
+  // AzimuthHeuristicService.guessForPoints() — той самий тайл-кеш-спершу + пакетний шлях, що й
+  // під час звичайного імпорту (§ прогрів кешу в runForProvider() вище), лише за вже готовими
+  // координатами з БД замість щойно спарсених.
+  //
+  // Групування по citySlug ОБОВ'ЯЗКОВЕ (не можна просто зібрати всі fallback-камери провайдера
+  // в один виклик): guessForPoints() приймає ОДИН citySlug на весь пакет точок (перевіряє
+  // тайл-кеш САМЕ цього міста), а TrafficVision-джерела (bpjt-) охоплюють багато міст одним
+  // провайдером (§ resolveOrCreateCityId() вище) — camera.cityId тут ВЖЕ поставлений на
+  // конкретне місто кожної окремої камери (не provider.cityId), тому city зчитується З КОЖНОЇ
+  // камери, а не з provider.
+  async recalibrateFallbackAzimuths(providerId?: string): Promise<{ totalFallback: number; updated: number; stillFallback: number }> {
+    const cameras = await this.prisma.camera.findMany({
+      where: {
+        azimuthSource: 'fallback',
+        deletedAt: null,
+        ...(providerId ? { providerId } : {}),
+      },
+      include: { city: { select: { slug: true } } },
+    });
+
+    if (cameras.length === 0) {
+      return { totalFallback: 0, updated: 0, stillFallback: 0 };
+    }
+
+    const groups = new Map<string, { citySlug: string | null; cameras: typeof cameras }>();
+    for (const camera of cameras) {
+      const citySlug = camera.city?.slug ?? null;
+      const key = citySlug ?? '__no_city__';
+      if (!groups.has(key)) groups.set(key, { citySlug, cameras: [] });
+      groups.get(key)!.cameras.push(camera);
+    }
+
+    // Той самий розмір пачки, що й прогрів кешу під час звичайного імпорту (§ OVERPASS_BATCH_SIZE
+    // у runForProvider() вище) — Overpass приймає до 20 точок в одному union-запиті.
+    const OVERPASS_BATCH_SIZE = 20;
+    let updated = 0;
+
+    for (const { citySlug, cameras: groupCameras } of groups.values()) {
+      for (let i = 0; i < groupCameras.length; i += OVERPASS_BATCH_SIZE) {
+        const chunk = groupCameras.slice(i, i + OVERPASS_BATCH_SIZE);
+
+        let guesses;
+        try {
+          guesses = await this.azimuthHeuristic.guessForPoints(
+            chunk.map((c) => ({ lat: c.lat, lng: c.lng })),
+            citySlug,
+          );
+        } catch (err) {
+          // Overpass і зараз недоступний (та сама мережева проблема) — не критична помилка,
+          // просто лишаємо цю пачку fallback, як і раніше; наступний виклик цієї ж кнопки
+          // спробує знову.
+          this.logger.warn(`recalibrateFallbackAzimuths: пачка з ${chunk.length} камер провалилась: ${(err as Error).message}`);
+          continue;
+        }
+
+        for (let j = 0; j < chunk.length; j++) {
+          const guess = guesses[j];
+          if (guess.source === 'fallback') continue; // Overpass і зараз не дав результату для цієї конкретної точки — лишаємо як є
+
+          const camera = chunk[j];
+          const updatedCamera = await this.prisma.camera.update({
+            where: { id: camera.id },
+            data: {
+              azimuth: guess.azimuth,
+              azimuthSource: guess.source,
+              // rangeMeters теж перераховуємо (та сама таблиця DEFAULT_RANGE_BY_HINT, що й при
+              // створенні камери) — фолбек-заглушка мала rangeHint:'yard' (80м), реальна
+              // еврестика могла визначити дорогу (avenue/street/bridge) з іншою типовою
+              // дальністю; без цього оновлення сектор огляду лишився б неправильного розміру
+              // навіть після виправлення самого азимуту.
+              rangeMeters: DEFAULT_RANGE_BY_HINT[guess.rangeHint] ?? camera.rangeMeters,
+            },
+          });
+          updated += 1;
+
+          // Той самий принцип, що й processItem()/resolveSourceRaw() вище — сектор огляду
+          // (fov_polygon) перебудовується лише для OUTDOOR-камер (INDOOR/NATURE не мають
+          // осмисленого "напрямку вздовж вулиці").
+          if (updatedCamera.locationType === 'OUTDOOR') {
+            await syncCameraPolygon(this.prisma, updatedCamera);
+          }
+        }
+      }
+    }
+
+    return { totalFallback: cameras.length, updated, stillFallback: cameras.length - updated };
   }
 }

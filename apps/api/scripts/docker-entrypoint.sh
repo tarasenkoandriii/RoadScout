@@ -57,6 +57,7 @@ run_sql sql/camera-providers-seed.sql
 run_sql sql/youtube-search-providers-seed.sql
 run_sql sql/web-search-providers-seed.sql
 run_sql sql/windy-webcams-providers-seed.sql
+run_sql sql/trafficvision-providers-seed.sql
 run_sql sql/cities-seed-neighboring.sql true
 run_sql sql/border-crossings-seed.sql
 
