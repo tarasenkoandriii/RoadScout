@@ -54,21 +54,12 @@ export default function AggregatorSitesPage() {
     load();
   }, []);
 
-  // При завантаженні сторінки — перевірка стану активних batch-ів сайтів-агрегаторів (за
-  // прямим запитом користувача: "аналогично и в других открытиях страниц"). Той самий
-  // принцип, що на сторінці камер — перезавантажуємо список, тільки якщо щось реально щойно
-  // обробилось.
-  useEffect(() => {
-    fetch('/api/admin/aggregator-sites/process-pending-batches', { method: 'POST', credentials: 'include' })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result?.processed > 0) load();
-      })
-      .catch(() => {
-        // Перевірка пакетів — суто фонова оптимізація; при помилці сторінка й далі показує
-        // звичайний, уже завантажений список.
-      });
-  }, []);
+  // ⚠️ Раніше тут був ще один useEffect, що при завантаженні сторінки опитував
+  // /api/admin/aggregator-sites/process-pending-batches (Batch API xAI). ВИДАЛЕНО — Batch API
+  // для сайтів-агрегаторів більше не використовується (див. коментар біля submitBatch нижче
+  // й doc/AUDIT-grok-batch-api.md): нових batch-job тепер не створюється, тож опитувати
+  // нічого. camera-calibration (інша частина проєкту) Batch API й далі використовує —
+  // не зачеплено цією зміною.
 
   const runSearch = async () => {
     setRunning(true);
@@ -80,22 +71,15 @@ export default function AggregatorSitesPage() {
     }
   };
 
-  // Batch API xAI (глибша переробка — за прямим запитом користувача, doc/AUDIT-grok-batch-api.md)
-  // — подає пачку й одразу повертається, НЕ чекаючи результатів (на відміну від runSearch()
-  // вище) — результати з'являться в таблиці згодом (типово до 24 годин, окремий cron
-  // забирає їх), не одразу після натискання.
-  const [submittingBatch, setSubmittingBatch] = useState(false);
-  const [batchSubmitResult, setBatchSubmitResult] = useState<{ submitted: boolean; reason?: string; citiesInBatch?: number } | null>(null);
-  const submitBatch = async () => {
-    if (!confirm('Подать пакетный запрос (Batch API) по всем городам? Дешевле, но результаты появятся в таблице не сразу — обычно в течение часов, иногда до суток.')) return;
-    setSubmittingBatch(true);
-    try {
-      const res = await fetch('/api/admin/aggregator-sites/submit-batch', { method: 'POST', credentials: 'include' });
-      setBatchSubmitResult(await res.json());
-    } finally {
-      setSubmittingBatch(false);
-    }
-  };
+  // ⚠️ Раніше тут була кнопка "🕐 Пакетный запрос (дешевле)" (Batch API xAI, submitBatch()) —
+  // ВИДАЛЕНО за прямим вибором користувача ("Отказаться от Batch API для этой задачи
+  // (рекомендую)"): реальний виклик показав, що xAI Batch API не виконує web_search попри
+  // документацію (message.content: "" з невиконаним tool_calls щоразу) — підтверджене
+  // обмеження платформи xAI, не виправна помилка з нашого боку. Деталі й докази —
+  // doc/AUDIT-grok-batch-api.md. Серверний ендпоінт /submit-batch тепер завжди відповідає
+  // {submitted: false, reason: '...'} (AggregatorDiscoveryService.submitBatchDiscovery()) —
+  // кнопку прибрано, щоб не пропонувати користувачу шлях, який гарантовано нічого не знайде.
+  // Синхронний пошук (runSearch() нижче) лишається єдиним і повністю робочим способом.
 
   // Дабл-клік по країні (див. запит користувача: "автоматический запуск парсера сайтов
   // агрегаторов именно по этой стране") — запускає пошук ТІЛЬКИ для міст цієї країни. "По
@@ -181,23 +165,8 @@ export default function AggregatorSitesPage() {
         <button onClick={runSearch} disabled={running} className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50 whitespace-nowrap">
           {running ? 'Ищем…' : 'Запустить поиск по всем городам'}
         </button>
-        <button
-          onClick={submitBatch}
-          disabled={submittingBatch}
-          title="Дешевле (Batch API xAI, скидка 20-50%), но результаты появятся не сразу — типово в течение часов, иногда до суток"
-          className="rounded border border-purple-600 px-3 py-1.5 text-sm text-purple-700 disabled:opacity-50 whitespace-nowrap"
-        >
-          {submittingBatch ? 'Подаём…' : '🕐 Пакетный запрос (дешевле)'}
-        </button>
       </div>
 
-      {batchSubmitResult && (
-        <div className={`rounded px-3 py-2 text-xs ${batchSubmitResult.submitted ? 'bg-purple-50 text-purple-700' : 'bg-red-50 text-red-700'}`}>
-          {batchSubmitResult.submitted
-            ? `📦 Пакет из ${batchSubmitResult.citiesInBatch} городов подан. Результаты появятся в таблице позже (фоновая проверка раз в час).`
-            : batchSubmitResult.reason}
-        </div>
-      )}
       {runningCountryCode && (
         <div className="rounded bg-blue-50 px-3 py-2 text-xs text-blue-700">
           🔍 Идёт поиск по стране «{runningCountryCode}» — список обновляется автоматически по мере нахождения новых сайтов…

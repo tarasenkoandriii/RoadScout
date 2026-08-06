@@ -618,3 +618,109 @@ UPDATE "GrokBatchJob" SET status = 'processing' WHERE "jobType" = 'camera-calibr
 ≥1% на 100-бальній шкалі помилково трактувався б як "100% впевненість AI" і одразу
 застосовувався б до камери зі статусом VERIFIED — навіть якщо реальна впевненість була
 низькою.
+
+## 2026-08-06 — xAI Batch API + web_search: чому пакетний пошук сайтів-агрегаторів скасовано
+
+### Тригер
+
+Користувач подав пакет "aggregator-discovery-1785978966268" (`batch_cfdf2c2c-d04e-4cbe-96e6-4dce79c9686f`,
+30 міст) через `submitBatchDiscovery()`. Скріншот консолі xAI показав **30/30 completed**.
+Скріншот `/admin/aggregator-sites` після цього показав **"Пока пусто"** — жодного нового
+кандидата сайту-агрегатора, попри повністю завершений пакет.
+
+### Діагностика
+
+Раніше вбудований протективний фікс (див. розділ вище, "не позначаємо completed, якщо
+resultsByRequestId порожній попри непорожній requestMap") якраз спрацював — job лишався в
+`processing`, чекаючи наступної спроби, замість хибно позначитись як "успішно оброблено з
+нульовим результатом". Це вказувало на зламаний ПАРСИНГ, а не на легітимну відсутність сайтів.
+
+Попросив у користувача точний рядок серверного логу
+`getBatchResults(...): сырой ответ /results (первые 800 символов): ...`. Отримано:
+
+```json
+{"results":[{"batch_request_id":"city_0_city_us_new_york","batch_result":{"response":{"chat_get_completion":{
+  ...,"content":"", ...,
+  "tool_calls":[{"id":"call-b857a2f9-...","function":{"name":"web_search","arguments":"{\"query\":\"New York webcams online aggregator OR catalog OR directory OR list\",\"num_results\":\"15\"}"},"type":"function"}, ...]
+```
+
+`message.content` — **порожній рядок**. Натомість присутній НЕВИКОНАНИЙ `tool_calls` — модель
+лише ЗАПРОПОНУВАЛА виклик `web_search`, xAI Batch API його НІКОЛИ не виконав і не продовжив
+розмову до фінальної відповіді.
+
+Звірка з рештою цього документа показала важливий нюанс: усі попередні
+"✅ ПІДТВЕРДЖЕНО реальним викликом" підтвердження структури `chat_get_completion.choices[0].
+message.content` (розділи вище) трасуються до **camera-calibration** пакетів (приклад
+Lexington Ave / E 110 St) — які НЕ використовують `tools` взагалі (лише vision-вхід). Шлях
+aggregator-discovery + `tools: [{type: 'web_search'}]` до цього моменту в продакшні живим
+викликом ще не перевірявся.
+
+### Дослідження офіційної документації xAI (WebSearch/WebFetch)
+
+Офіційна документація Batch API стверджує: *"Server-side tools (web search, code execution,
+MCP, etc.) work the same as in the real-time API — they are executed during processing and
+the final response is returned"*. Реальний виклик це **спростовує**.
+
+Додатково перевірено (друга, точніша вибірка доків) вичерпний перелік ключів усередині
+`batch_request`: **лише** `responses` / `image_generation` / `image_edit` / `video_generation`
+/ `video_extension` — жодної альтернативи типу `chat`/`messages`/`completions` не існує, тобто
+"спробувати інший формат запиту" не є життєздатним експериментом. Схема самого tool
+`web_search` (`{type, filters: {allowed_domains, excluded_domains}, enable_image_understanding,
+enable_image_search}`) не має жодного прапорця "виконати автоматично" — керувати цим з нашого
+боку неможливо. Legacy-механізм `search_parameters` (Live Search для `/v1/chat/completions`) —
+не альтернатива: deprecated, вимикається 12 січня 2026.
+
+**Висновок**: це підтверджене обмеження платформи xAI (Batch API проголошує підтримку
+server-side tools, але реально не виконує `web_search`), не виправна помилка нашого коду.
+
+### Хід узгодження з користувачем (два звернення, з чесним розворотом)
+
+1. Перше `AskUserQuestion` (до другого, точнішого дослідження доків): користувач обрав
+   **"Попробовать изменённый формат запроса"**.
+2. Друге, точніше дослідження доків (вичерпний перелік ключів `batch_request`, схема
+   `web_search`) показало, що обраний шлях **нежиттєздатний** — жодного альтернативного
+   формату запиту, який змусив би Batch API виконати `web_search`, не існує.
+3. Користувачу чесно повідомлено про це і поставлено друге `AskUserQuestion` із двома
+   реальними шляхами: (а) відмовитись від Batch API для цього завдання, (б) самим виконувати
+   пошук на нашому боці і подавати результат другим запитом. Користувач обрав
+   **"Отказаться от Batch API для этой задачи (рекомендую)"**.
+
+### Реалізація рішення
+
+- `AggregatorDiscoveryService.submitBatchDiscovery()` (`apps/api/src/aggregator-discovery/
+  aggregator-discovery.service.ts`) — більше НЕ викликає `grokAssist.submitAggregatorSearchBatch()`
+  і НЕ створює `GrokBatchJob`; одразу повертає `{submitted: false, reason: '...'}` з поясненням.
+  Це defense-in-depth на рівні сервісу — працює незалежно від того, чи продовжує зовнішній
+  cron смикати `/internal/aggregator-discovery/submit-batch` (у репозиторії немає
+  `apps/api/vercel.json` cron-конфігурації для цих двох джобів — вони налаштовані ЗОВНІШНЬО,
+  найімовірніше в дашборді Vercel Cron Jobs; з коду їх вимкнути не можна).
+- `AggregatorDiscoveryService.processPendingBatches()` — залишено (безпечно no-op'иться, якщо
+  немає pending/processing job-ів aggregator-discovery; призначення — доопрацювати вже наявні
+  до цієї зміни записи, яких стосується SQL-скрипт нижче).
+- Новий SQL-скрипт `apps/api/sql/aggregator-discovery-batch-disable.sql` — позначає ВЖЕ наявні
+  `GrokBatchJob` з `jobType='aggregator-discovery'` і `status IN ('pending','processing')` як
+  `'failed'` (зокрема сам `batch_cfdf2c2c-...`), щоб `processPendingBatches()` не опитувала їх
+  нескінченно.
+- `apps/admin/app/admin/aggregator-sites/page.tsx` — видалено кнопку "🕐 Пакетный запрос
+  (дешевле)" (`submitBatch()`, стан `submittingBatch`/`batchSubmitResult`) і useEffect, що
+  опитував `process-pending-batches` при завантаженні сторінки (нових batch-job більше не
+  буде — опитувати нічого).
+- **НЕ зачеплено**: `discoverForAllCities()`/`discoverForCountry()` (синхронний пошук —
+  повністю робочий, лишається єдиним способом пошуку сайтів-агрегаторів);
+  `GrokCameraAssistService.submitAzimuthFovBatch()`/`getAzimuthFovBatchResults()`
+  (camera-calibration Batch API — не використовує `tools`, працює коректно, підтверджено
+  реальними даними вище в цьому документі); `searchAggregatorSites()` (синхронний
+  `/v1/responses` шлях із `web_search` — той самий інструмент, але через REAL-TIME API, де
+  server-side tools дійсно виконуються, на відміну від Batch API).
+
+### ⚠️ ЧЕСНО
+
+У цьому середовищі розробки немає доступу до продакшн xAI Batch API чи продакшн-БД —
+верифікація обмежена: (а) реальним логом, наданим користувачем, (б) офіційною документацією
+xAI (WebSearch/WebFetch), (в) статичним аналізом коду й `tsc --noEmit --skipLibCheck` на
+змінені файли. SQL-скрипт не прогнано проти реальної БД — перед запуском рекомендовано
+спершу виконати закоментований `SELECT` для ручної звірки. Користувачу потрібно ВРУЧНУ
+вимкнути/видалити два зовнішні cron-завдання (`internal/aggregator-discovery/submit-batch` і
+`internal/aggregator-discovery/process-pending-batches`) у своєму зовнішньому планувальнику
+(найімовірніше — дашборд Vercel Cron Jobs) — з коду цього репозиторію це зробити неможливо,
+оскільки жодної in-repo cron-конфігурації для них не існує.

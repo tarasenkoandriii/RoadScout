@@ -82,40 +82,47 @@ export class AggregatorDiscoveryService {
   }
 
   // ---------------------------------------------------------------------------------------
-  // Batch API xAI (глибша переробка — за прямим запитом користувача, doc/AUDIT-grok-batch-api.md)
-  // — асинхронний шлях, окремий від discoverForAllCities()/discoverForCountry() вище (ті
-  // лишаються синхронними — потрібні для інтерактивного дабл-кліку в адмінці з живим
-  // оновленням, де секунди мають значення; Batch API — типово до 24 годин, best-effort).
+  // Batch API xAI — ВІДМОВЛЕНО для aggregator-discovery (doc/AUDIT-grok-batch-api.md, розділ
+  // "xAI Batch API + web_search: чому пакетний пошук сайтів-агрегаторів скасовано").
+  //
+  // ⚠️ ЧЕСНО: попри офіційну документацію xAI, що обіцяє "server-side tools (web search...)
+  // execute during processing" для Batch API так само, як у реальному часі — РЕАЛЬНИЙ виклик
+  // (лог користувача, batch_cfdf2c2c-..., 30/30 completed) показав, що це НЕПРАВДА для
+  // web_search: кожна відповідь повертається з message.content: "" і НЕВИКОНАНИМ tool_calls
+  // (модель лише ПРОПОНУЄ виклик web_search, але Batch API ніколи його не виконує і не
+  // продовжує розмову до фінальної відповіді — на відміну від синхронного /v1/responses).
+  // Перевірено (WebFetch офіційних доків xAI): `batch_request` приймає ЛИШЕ ключі responses /
+  // image_generation / image_edit / video_generation / video_extension — жодної "chat"-
+  // альтернативи не існує; сам `web_search` tool не має прапорця авто-виконання. Тобто це не
+  // виправна помилка формату запиту з нашого боку, а реальне обмеження платформи xAI.
+  //
+  // За прямим вибором користувача ("Отказаться от Batch API для этой задачи (рекомендую)")
+  // Batch API для aggregator-discovery ВИМКНЕНО тут (defense in depth — сам сервіс відмовляє,
+  // навіть якщо зовнішній cron все ще смикає ендпоінт; див. controller). Batch API й далі
+  // ПРАЦЮЄ для camera-calibration (submitAzimuthFovBatch/getAzimuthFovBatchResults у
+  // GrokCameraAssistService) — той шлях НЕ використовує tools і не зачеплений цим виправленням.
+  //
+  // discoverForAllCities()/discoverForCountry() вище (синхронний шлях, без Batch API) —
+  // ПОВНІСТЮ РОБОЧІ й НЕ зачеплені цією зміною; це і лишається єдиним способом пошуку
+  // сайтів-агрегаторів.
   // ---------------------------------------------------------------------------------------
 
-  // Подає ВСІ міста одним пакетом до xAI Batch API, зберігає GrokBatchJob для подальшого
-  // опитування — повертається одразу, не чекаючи результатів (на відміну від discoverForAllCities()).
   async submitBatchDiscovery() {
-    const cities = await this.prisma.city.findMany();
-    const submission = await this.grokAssist.submitAggregatorSearchBatch(
-      cities.map((c) => ({ id: c.id, name: c.name, countryName: c.countryName ?? 'Украина' })),
-    );
-
-    if ('error' in submission) {
-      return { submitted: false, reason: submission.error };
-    }
-
-    await this.prisma.grokBatchJob.create({
-      data: {
-        xaiBatchId: submission.xaiBatchId,
-        jobType: 'aggregator-discovery',
-        status: 'pending',
-        requestMap: submission.requestMap as any,
-      },
-    });
-
-    return { submitted: true, xaiBatchId: submission.xaiBatchId, citiesInBatch: cities.length };
+    return {
+      submitted: false,
+      reason:
+        'Batch API вимкнено для пошуку сайтів-агрегаторів: xAI Batch API не виконує web_search ' +
+        'всупереч документації (підтверджено реальним викликом — див. doc/AUDIT-grok-batch-api.md). ' +
+        'Використовуйте синхронний пошук ("Запустить поиск по всем городам" / по країні).',
+    };
   }
 
   // Опитування всіх ще не оброблених пакетів — викликається з cron (не при кожному запиті
-  // користувача). Для кожного pending/processing job: перевіряє статус у xAI, і якщо
-  // завершено — забирає результати, створює AggregatorSiteCandidate (та сама дедуплікація за
-  // URL, що вже є в discoverForCities()), позначає job як completed.
+  // користувача). ⚠️ Оскільки submitBatchDiscovery() більше не створює нових job — це лишено
+  // лише для того, щоб доопрацювати вже наявні (до цього виправлення) записи GrokBatchJob, які
+  // окремий SQL-скрипт (sql/) переводить у status='failed'; якщо з якоїсь причини лишиться
+  // pending/processing запис поза цим скриптом — нижче все одно нічого корисного не станеться
+  // (getBatchResults поверне ті самі порожні content), тож функція просто нешкідливо no-op'иться.
   async processPendingBatches() {
     const pendingJobs = await this.prisma.grokBatchJob.findMany({
       where: { jobType: 'aggregator-discovery', status: { in: ['pending', 'processing'] } },

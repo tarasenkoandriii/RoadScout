@@ -741,22 +741,27 @@ export async function generateTilesForCity(
   const deadline = Date.now() + timeBudgetMs;
 
   // Послідовно (не Promise.all, як у попередній версії) — свідомо, для простоти й чіткості
-  // прогресу: buildings спершу забирають свою частку бюджету, streets — те, що лишилось.
-  // Кожен шар усередині себе однаково паралелить комірки (GRID_QUERY_CONCURRENCY), тож
-  // конкурентність не втрачається, лише координація між двома шарами спрощена.
-  const buildingsProgress = await processLayerGridResumable(
-    'buildings',
-    cells,
-    cellCachePrefix,
-    (cell) => `
-      [out:json][timeout:${overpassQueryTimeoutS}];
-      way["building"](${cell.south},${cell.west},${cell.north},${cell.east});
-      out geom;
-    `,
-    (el) => el.geometry?.length >= 3,
-    deadline,
-    overpassAttemptTimeoutMs,
-  );
+  // прогресу: ОДИН шар забирає свою частку спільного дедлайна `deadline`, другий отримує лише
+  // те, що лишилось. Кожен шар усередині себе однаково паралелить комірки
+  // (GRID_QUERY_CONCURRENCY), тож конкурентність не втрачається, лише координація між двома
+  // шарами спрощена.
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "зачем мы скачиваем здания с overpass если
+  // скорее всего нам нужны улицы?"): раніше ПЕРШИМИ в черзі йшли buildings — а саме вони, не
+  // streets, є домінантним джерелом навантаження на Overpass у щільній забудові (живий приклад
+  // цієї сесії — ОДНА комірка Мангеттена дала 1912 елементів будівель проти сотень для вулиць
+  // у сусідніх комірках). Це означало, що для справді великих/щільних міст (New York) buildings
+  // регулярно з'їдали ВЕСЬ спільний `deadline` ще до того, як streets узагалі встигали
+  // розпочатись — а streets (потрібні для азимут-евристики, § AzimuthHeuristicService) є
+  // ПОРІВНЯНО дешевими й могли б завершитись за один-два проходи, якби йшли першими. Свідомий
+  // компроміс: це НЕ прибирає потребу в buildings — Ф3 ТЗ (LOS-перевірка через isVisible(), §
+  // detailed коментар біля estimateHeightM() нижче) лишається обов'язковою, і фінальні тайли
+  // (buildings.bin/cameras.json/streets.json) й далі пишуться лише коли ОБИДВА шари
+  // `complete: true` (§ `complete` нижче НЕ змінено) — просто МІНЯЄТЬСЯ ЧЕРГА: streets тепер
+  // забирають свою частку спільного бюджету ПЕРШИМИ, тож для великих міст streets із високою
+  // ймовірністю завершаться за перші кілька проходів (даючи корисні азимути раніше), а
+  // buildings — найдорожчий шар — тепер послідовно "донагромаджується" ще більшою кількістю
+  // проходів після цього, ніж раніше (загальний обсяг роботи не зменшився, лише порядок).
   const streetsProgress = await processLayerGridResumable(
     'streets',
     cells,
@@ -767,6 +772,19 @@ export async function generateTilesForCity(
       out geom;
     `,
     (el) => el.geometry?.length >= 2,
+    deadline,
+    overpassAttemptTimeoutMs,
+  );
+  const buildingsProgress = await processLayerGridResumable(
+    'buildings',
+    cells,
+    cellCachePrefix,
+    (cell) => `
+      [out:json][timeout:${overpassQueryTimeoutS}];
+      way["building"](${cell.south},${cell.west},${cell.north},${cell.east});
+      out geom;
+    `,
+    (el) => el.geometry?.length >= 3,
     deadline,
     overpassAttemptTimeoutMs,
   );
