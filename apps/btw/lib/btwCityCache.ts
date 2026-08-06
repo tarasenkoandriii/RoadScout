@@ -1,0 +1,100 @@
+// apps/btw/lib/btwCityCache.ts
+//
+// За прямим запитом користувача — "по прежнему секунд 10-12-15 идет режим скана на сервере
+// /api/scan и только потом переключается на локальный воркер, необходимо переключаться сразу
+// и кроме того кешировать на устройстве результат этого запроса от сессии к сессии при
+// совпадении координат".
+//
+// Діагностика: локальний Worker уже кешує ВЕЛИКІ файли тайлів (buildings.bin/cameras.json/
+// streets.json, § btwTileCache.ts, IndexedDB) — але це не рятує від затримки, бо ЖОДНЕ
+// завантаження тайлів не стартує, доки не відомий citySlug, а citySlug не відомий, доки не
+// відома GPS-позиція, а GPS-позиція не відома, доки не пройде вся ланцюжка дозволів
+// (page.tsx::requestPermissions() — геолокація до 8с таймаут сам по собі, потім орієнтація й
+// камера, кожна з власним iOS-жест-діалогом). Тобто "10-12-15 секунд" — це здебільшого НЕ
+// повторне завантаження тайлів (воно вже кешоване), а сам факт, що завантаження тайлів ще й НЕ
+// СТАРТУВАЛО, поки триває ця ланцюжка.
+//
+// Рішення — два незалежних, доповнюючих кеші в localStorage (не IndexedDB — тут лише малі
+// рядки/числа, не бінарні МБ-файли, localStorage синхронний і достатній):
+//
+// 1. "Найсвіжіше відоме місто" (getMostRecentCitySlug) — використовується в page.tsx як
+//    СПЕКУЛЯТИВНА здогадка ще ДО того, як GPS взагалі відповів, навіть ДО натискання кнопки
+//    "почати" (фаза 'intro') — дозволяє завантаження тайлів (manifest + буферів з
+//    btwTileCache.ts) стартувати практично одразу при відкритті мінідодатку, паралельно з
+//    усією ланцюжкою дозволів, а не ПІСЛЯ неї. Якщо здогадка виявиться неправильною (юзер
+//    змінив місто між сесіями) — page.tsx сам виявляє розбіжність (реальний scanCitySlug !=
+//    здогадки) і перезапускає завантаження для правильного міста — чиста оптимізація
+//    "оптимістичного прогріву", без ризику показати дані НЕ того міста.
+//
+// 2. "Місто за округленими координатами" (lookupCitySlugForCoords/rememberCitySlug) — те, про
+//    що користувач просив буквально: результат GET /btw/nearest-city — ЧИСТА функція від
+//    (lat,lng) і НЕЗМІННОГО (у межах звичайної роботи) списку міст у БД, тож коли поточні
+//    (округлені до ~1км) координати ВЖЕ зустрічались на цьому пристрої раніше — результат
+//    можна віддати миттєво, синхронно, БЕЗ жодного мережевого запиту до /btw/nearest-city
+//    взагалі (не лише "швидше показати", а взагалі усунути цей запит із критичного шляху).
+//    ⚠️ Свідома спрощення: не інвалідується, якщо адмін пізніше додасть НОВЕ, ближче місто —
+//    прийнятний компроміс (той самий рівень "best-effort" кешування, що вже btwTileCache.ts
+//    застосовує до версій тайлів), бо nearest-city — дешевий і не є єдиним джерелом істини для
+//    самого сканування (лише вибирає, ЯКИЙ тайл-бандл завантажити).
+
+interface CityCacheEntry {
+  slug: string;
+  lat: number;
+  lng: number;
+  ts: number;
+}
+
+const STORAGE_KEY = 'btw-city-cache-v1';
+const MAX_ENTRIES = 20; // достатньо для кількох "звичних" точок (дім/робота/кілька міст) без необмеженого росту localStorage
+const COORD_ROUND_DECIMALS = 2; // ~1.1км на екваторі — досить для визначення МІСТА (не точної позиції в ньому)
+
+function roundKey(lat: number, lng: number): string {
+  return `${lat.toFixed(COORD_ROUND_DECIMALS)},${lng.toFixed(COORD_ROUND_DECIMALS)}`;
+}
+
+function loadEntries(): CityCacheEntry[] {
+  try {
+    if (typeof localStorage === 'undefined') return []; // SSR-рендер сторінки
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as CityCacheEntry[]) : [];
+  } catch {
+    return []; // будь-яка проблема (квота/приватний режим/зіпсований JSON) — просто працюємо без кешу, як і без цієї фічі
+  }
+}
+
+function saveEntries(entries: CityCacheEntry[]): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  } catch {
+    // квота/приватний режим — не критично, просто наступного разу знову звернемось до мережі
+  }
+}
+
+// Найсвіжіший відомий на цьому пристрої citySlug — незалежно від поточних координат (вони ще
+// НЕВІДОМІ на момент виклику, § детальний розбір вище). Це саме СПЕКУЛЯТИВНА здогадка.
+export function getMostRecentCitySlug(): string | null {
+  const entries = loadEntries();
+  if (entries.length === 0) return null;
+  return entries.reduce((a, b) => (a.ts >= b.ts ? a : b)).slug;
+}
+
+// Точний lookup за округленими координатами — використовується ПІСЛЯ того, як реальна
+// GPS-позиція вже відома, щоб узагалі уникнути мережевого запиту до /btw/nearest-city.
+export function lookupCitySlugForCoords(lat: number, lng: number): string | null {
+  const key = roundKey(lat, lng);
+  const match = loadEntries().find((e) => roundKey(e.lat, e.lng) === key);
+  return match?.slug ?? null;
+}
+
+// Викликається після КОЖНОЇ успішної відповіді GET /btw/nearest-city — наступного разу з тими
+// самими (округленими) координатами lookupCitySlugForCoords() вище поверне це миттєво.
+export function rememberCitySlug(lat: number, lng: number, slug: string): void {
+  const key = roundKey(lat, lng);
+  const entries = loadEntries().filter((e) => roundKey(e.lat, e.lng) !== key); // заміщуємо старий запис для тих самих округлених координат, не дублюємо
+  entries.push({ slug, lat, lng, ts: Date.now() });
+  entries.sort((a, b) => b.ts - a.ts);
+  saveEntries(entries.slice(0, MAX_ENTRIES));
+}

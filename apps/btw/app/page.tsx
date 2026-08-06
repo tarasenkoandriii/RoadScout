@@ -10,6 +10,10 @@ import type { LocalScanResult } from '../lib/btwLocalScanner';
 // ответ отображай в этом логе, пиши время которое занял запрос и размер ответа" (§ networkLog.ts).
 import { loggedFetch, subscribeNetworkLog, formatBytes } from '../lib/networkLog';
 import type { NetworkLogEntry } from '../lib/networkLog';
+// За прямим запитом користувача — "переключаться сразу и кроме того кешировать на устройстве
+// результат этого запроса от сессии к сессии при совпадении координат" (§ детальний розбір у
+// btwCityCache.ts).
+import { getMostRecentCitySlug, lookupCitySlugForCoords, rememberCitySlug } from '../lib/btwCityCache';
 
 // Beyond the Wall (BTW) — сканувальний екран, §3.1/§3.2 ТЗ (doc/BTW-tz.md).
 //
@@ -130,6 +134,15 @@ export default function BtwScanPage() {
   // BtwLocalScanner, чекає на непорожнє значення, перш ніж узагалі братись за завантаження
   // тайлів (§ коментар біля useEffect нижче).
   const [scanCitySlug, setScanCitySlug] = useState<string | null>(null);
+  // ДОДАНО (§ btwCityCache.ts) — "здогадка" з попередньої сесії на цьому пристрої, відома
+  // СИНХРОННО вже на першому рендері (лінивий ініціалізатор useState викликається один раз, до
+  // будь-яких ефектів) — саме вона дозволяє ефекту завантаження тайлів нижче стартувати ще ДО
+  // того, як реальна GPS-позиція взагалі відома, замість чекати на неї (§ "переключаться сразу").
+  const [speculativeCitySlug] = useState<string | null>(() => (typeof window !== 'undefined' ? getMostRecentCitySlug() : null));
+  // Яке саме місто зараз завантажено/завантажується в localScannerRef — потрібно, щоб ефект
+  // нижче відрізняв "нічого не змінилось, не чіпай" від "реальний scanCitySlug розійшовся зі
+  // спекулятивною здогадкою — перезапускай для правильного міста".
+  const loadedCitySlugRef = useRef<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   // М2 ТЗ (doc/TZ-btw-side-reverse-view.md) — резервний рівень (SIDE+OPPOSING), схований за
   // замовчуванням. showFallback скидається на false при КОЖНОМУ скані, де знову з'явився
@@ -467,6 +480,17 @@ export default function BtwScanPage() {
     if (cityResolveStartedRef.current) return; // вже запитали (чи в польоті, чи вже отримали) цього сеансу — watchPosition оновлює position часто, повторний запит на кожен фікс не потрібен
     cityResolveStartedRef.current = true;
 
+    // ДОДАНО (§ btwCityCache.ts, за прямим запитом користувача — "кешировать ... результат
+    // этого запроса от сессии к сессии при совпадении координат"): якщо ці самі (округлені)
+    // координати вже зустрічались на цьому пристрої раніше — результат nearest-city можна
+    // віддати МИТТЄВО, синхронно, без жодного мережевого запиту взагалі (не просто швидше —
+    // повністю усуває цей запит із критичного шляху до готовності локального сканера).
+    const cachedSlug = lookupCitySlugForCoords(position.lat, position.lng);
+    if (cachedSlug != null) {
+      setScanCitySlug(cachedSlug);
+      return;
+    }
+
     (async () => {
       try {
         const params = new URLSearchParams({ lat: String(position.lat), lng: String(position.lng) });
@@ -474,6 +498,7 @@ export default function BtwScanPage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as { slug: string };
         setScanCitySlug(data.slug);
+        rememberCitySlug(position.lat, position.lng, data.slug); // наступного разу з тими самими координатами — миттєвий cache hit вище, без мережі
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[BtwScanPage] nearest-city failed, falling back to "kyiv":', err);
@@ -516,25 +541,52 @@ export default function BtwScanPage() {
   // сканера, що обидва рази проходить через `if (localScannerRef.current) return;` вище), і
   // прапорець-closure старого стилю хибно позначив би його "скасованим" на цьому переході,
   // назавжди залишаючи localScannerReady=false для всієї сесії.
+  //
+  // ВИПРАВЛЕНО (за прямим запитом користувача — "по прежнему секунд 10-12-15 идет режим скана
+  // на сервере /api/scan и только потом переключается на локальный воркер, необходимо
+  // переключаться сразу"): навіть із попереднім фіксом вище завантаження тайлів усе одно
+  // чекало на `scanCitySlug`, а той — на РЕАЛЬНУ GPS-позицію, яка стає відомою лише ПІСЛЯ
+  // getCurrentPosition() (до 8с таймаут сам по собі, § requestPermissions()). Тепер тригер —
+  // `citySlugToLoad = scanCitySlug ?? speculativeCitySlug` (§ btwCityCache.ts) — і фаза
+  // 'intro' ДОДАНА в активні: якщо на цьому пристрої вже є "здогадка" з минулої сесії,
+  // завантаження тайлів стартує ОДРАЗУ при відкритті мінідодатку, ще ДО натискання кнопки
+  // "почати" й задовго до того, як GPS взагалі відповість — паралельно з усією ланцюжкою
+  // дозволів, а не після неї. `loadedCitySlugRef` — яке саме місто зараз завантажене/
+  // завантажується: коли реальний `scanCitySlug` нарешті приходить і збігається зі здогадкою
+  // (типовий випадок — той самий пристрій, та сама людина, те саме місто) — ефект НІЧОГО не
+  // перезапускає, Worker уже завантажується/завантажений. Якщо не збігається (юзер справді в
+  // іншому місті, ніж минулого разу) — стара спроба для неправильного міста відкидається й
+  // стартує нова, коректна — чисте самовиправлення "оптимістичної" здогадки, без ризику
+  // показати кандидатів НЕ того міста.
   useEffect(() => {
-    const active = (phase === 'requesting' || phase === 'scanning') && scanCitySlug != null;
+    const citySlugToLoad = scanCitySlug ?? speculativeCitySlug;
+    const active = (phase === 'intro' || phase === 'requesting' || phase === 'scanning') && citySlugToLoad != null;
     if (!active) {
       if (localScannerRef.current) {
         localScannerRef.current.dispose();
         localScannerRef.current = null;
+        loadedCitySlugRef.current = null;
         setLocalScannerReady(false);
       }
       return;
     }
-    if (localScannerRef.current) return; // вже створено й завантажується/завантажено цього сеансу
+    if (localScannerRef.current && loadedCitySlugRef.current === citySlugToLoad) return; // вже завантажується/завантажено САМЕ це місто
+
+    if (localScannerRef.current) {
+      // Місто, для якого вже йшло/пройшло завантаження, розійшлося з тим, яке треба зараз
+      // (найчастіше — спекулятивна здогадка не збіглася з реальним GPS-визначеним містом).
+      localScannerRef.current.dispose();
+      setLocalScannerReady(false);
+    }
 
     const scanner = new BtwLocalScanner();
     localScannerRef.current = scanner;
+    loadedCitySlugRef.current = citySlugToLoad;
 
-    scanner.init(scanCitySlug!).then((ok) => {
+    scanner.init(citySlugToLoad).then((ok) => {
       if (localScannerRef.current === scanner) setLocalScannerReady(ok);
     });
-  }, [phase, scanCitySlug]);
+  }, [phase, scanCitySlug, speculativeCitySlug]);
 
   // Гарантія звільнення Worker'а при розмонтуванні сторінки НЕЗАЛЕЖНО від того, якою була
   // фаза в момент розмонтування (ефект вище звільняє лише при ПЕРЕХОДІ у неактивну фазу, не
@@ -626,6 +678,11 @@ export default function BtwScanPage() {
           // без нього серверний фолбек-шлях НІКОЛИ не користувався кешем тайлу вулиць міста і
           // завжди бив живий Overpass — саме scanCitySlug тут, той самий, що вже визначено для
           // ініціалізації локального сканера вище, жодного додаткового запиту не потрібно.
+          // `?? speculativeCitySlug` — та сама здогадка з минулої сесії (§ btwCityCache.ts), на
+          // той рідкісний випадок, коли цей тик стається РАНІШЕ, ніж реальний scanCitySlug устиг
+          // прийти: гірший випадок — хибний citySlug просто не влучить у кеш тайлу на сервері
+          // (BtwService.scan() тихо йде живим Overpass-шляхом, як і без citySlug узагалі), не
+          // помилка.
           const res = await loggedFetch('/api/scan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -636,7 +693,7 @@ export default function BtwScanPage() {
               accuracyM: position.accuracyM,
               heading: correctedHeading,
               headingSigma: 8,
-              citySlug: scanCitySlug ?? undefined,
+              citySlug: scanCitySlug ?? speculativeCitySlug ?? undefined,
             }),
           });
           if (!res.ok) throw new Error(`scan failed: ${res.status}`);
