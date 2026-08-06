@@ -71,11 +71,18 @@ export class BtwController {
       headingSigma: number;
       targetLat?: number;
       targetLng?: number;
+      // ДОДАНО — § детальний коментар біля BtwService.scan(): дозволяє серверному фолбек-шляху
+      // (поки локальний Worker ще не готовий) користуватись тим самим кешем тайлу вулиць
+      // міста, що вже Worker використовує локально, замість завжди живого Overpass-запиту.
+      // Клієнт УЖЕ визначає це значення одноразово (GET /btw/nearest-city) перед стартом
+      // сканування — просто передає його тут, без жодного додаткового запиту.
+      citySlug?: string;
     },
   ) {
     return this.btwService.scan(
       { lat: body.lat, lng: body.lng, accuracyM: body.accuracyM, heading: body.heading, headingSigma: body.headingSigma },
       body.targetLat != null && body.targetLng != null ? { lat: body.targetLat, lng: body.targetLng } : undefined,
+      body.citySlug,
     );
   }
 

@@ -621,11 +621,23 @@ export default function BtwScanPage() {
             }
           }
         } else {
+          // citySlug ДОДАНО (реальний живий інцидент — телеметрія в адмінці показувала різні
+          // "улиц рядом" при незмінній позиції; § детальний коментар біля BtwService.scan()):
+          // без нього серверний фолбек-шлях НІКОЛИ не користувався кешем тайлу вулиць міста і
+          // завжди бив живий Overpass — саме scanCitySlug тут, той самий, що вже визначено для
+          // ініціалізації локального сканера вище, жодного додаткового запиту не потрібно.
           const res = await loggedFetch('/api/scan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, heading: correctedHeading, headingSigma: 8 }),
+            body: JSON.stringify({
+              lat: position.lat,
+              lng: position.lng,
+              accuracyM: position.accuracyM,
+              heading: correctedHeading,
+              headingSigma: 8,
+              citySlug: scanCitySlug ?? undefined,
+            }),
           });
           if (!res.ok) throw new Error(`scan failed: ${res.status}`);
           result = await res.json();
@@ -693,7 +705,12 @@ export default function BtwScanPage() {
     return () => {
       if (scanTimerRef.current) clearInterval(scanTimerRef.current);
     };
-  }, [phase, position, heading, showFallback, localScannerReady]);
+    // scanCitySlug ДОДАНО у залежності (§ коментар біля тіла тика вище, де воно тепер
+    // читається) — без цього, якщо `scanCitySlug` резолвиться (null -> реальний слаг) ПІСЛЯ
+    // того, як цей ефект уже створив інтервал (закриття JS-функції захопило б старе `null`
+    // назавжди), серверний фолбек-шлях так і не отримав би citySlug аж до наступної зміни
+    // ІНШОЇ залежності нижче.
+  }, [phase, position, heading, showFallback, localScannerReady, scanCitySlug]);
 
   // Надсилає накопичені лічильники й скидає їх — §6 ТЗ "агрегаты сессии, без координат"
   // (жодних lat/lng тут немає навмисно). Викликається періодично (раз на 3 скани) і при

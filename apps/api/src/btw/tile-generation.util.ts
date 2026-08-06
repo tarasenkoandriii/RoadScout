@@ -664,12 +664,33 @@ async function processLayerGridResumable(
 // зчитує вміст УСІХ комірок шару й зливає в один список елементів з дедуплікацією по `id`
 // (одна OSM way може мати вузли в кількох сусідніх комірках і тому потрапити в результати
 // більш ніж однієї — Overpass повертає way, якщо ХОЧА Б один її вузол потрапляє в bbox).
-async function collectLayerGridElements(layer: 'buildings' | 'streets', cells: Bbox[], cellCachePrefix: string): Promise<any[]> {
+//
+// ВИПРАВЛЕНО (реальний живий інцидент — прогін користувача: "streets: комірка 857/930 готова",
+// одразу за нею "streets: не вдалось прочитати кеш комірки 915 — read EHOSTUNREACH" й так само
+// для комірки 914): читання ВЖЕ закешованого блоба (не Overpass — фаза 1 для цих комірок уже
+// успішно відпрацювала раніше, саме тому вони й потрапили в `urlByIndex`) провалилось через
+// тимчасову мережеву недоступність Vercel Blob-сховища (той самий клас проблем, що й
+// ECONNREFUSED до Overpass-дзеркал в іншому місці цього проєкту — не баг цього коду). ДО цього
+// виправлення провалений `fetchBlobJson()` тут просто пропускав комірку (`console.warn` і йшли
+// далі) — а виклик-власник (generateTilesForCity) орієнтувався ЛИШЕ на `complete` з фази 1
+// (кеш комірок повний), тому міг записати ФІНАЛЬНИЙ streets.json/buildings.bin МОВЧКИ БЕЗ
+// даних для комірок 914/915 — жодної помітної ознаки, що тайл насправді неповний. Тепер
+// функція рахує й повертає кількість таких провалів (`failedCount`) — викликач (нижче)
+// трактує `failedCount > 0` так само, як "бюджет вичерпано" (§ гілка `if (!complete)`):
+// НЕ пише фінальні тайли, кеш комірок НЕ видаляється — наступний виклик (та сама кнопка
+// "Продовжити генерацію"/CLI) просто повторить читання ЦИХ САМИХ уже готових комірок, без
+// жодного зайвого Overpass-запиту.
+async function collectLayerGridElements(
+  layer: 'buildings' | 'streets',
+  cells: Bbox[],
+  cellCachePrefix: string,
+): Promise<{ elements: any[]; failedCount: number }> {
   const layerPrefix = `${cellCachePrefix}/${layer}`;
   const blobs = await listBlobsByPrefix(`${layerPrefix}/`);
   const urlByIndex = new Map(blobs.map((b) => [parseCellIndexFromPathname(b.pathname), b.url]));
 
   const allElements: any[] = [];
+  let failedCount = 0;
   await mapWithConcurrency(
     Array.from({ length: cells.length }, (_, i) => i),
     GRID_QUERY_CONCURRENCY,
@@ -680,12 +701,13 @@ async function collectLayerGridElements(layer: 'buildings' | 'streets', cells: B
         const elements = await fetchBlobJson(url);
         if (Array.isArray(elements)) allElements.push(...elements);
       } catch (err) {
-        console.warn(`[tile-generation] ${layer}: не вдалось прочитати кеш комірки ${i} — ${(err as Error).message}`);
+        failedCount += 1;
+        console.warn(`[tile-generation] ${layer}: не вдалось прочитати кеш комірки ${i} — ${(err as Error).message} (тайл цього разу не буде записано, спробуємо знову наступного виклику)`);
       }
     },
   );
 
-  return dedupeElementsById(allElements);
+  return { elements: dedupeElementsById(allElements), failedCount };
 }
 
 // ⚠️ ЧЕСНО: жоден наявний сервіс проєкту досі не парсив висоту будівель з OSM
@@ -804,8 +826,24 @@ export async function generateTilesForCity(
     return { citySlug, cityBlobPrefix, bbox, cameraCount: cameras.length, buildingCount: 0, buildingBytes: 0, streetCount: 0, cellsTotal, cellsDone, complete: false };
   }
 
-  const buildingElements = await collectLayerGridElements('buildings', cells, cellCachePrefix);
-  const streetElements = await collectLayerGridElements('streets', cells, cellCachePrefix);
+  const buildingsCollected = await collectLayerGridElements('buildings', cells, cellCachePrefix);
+  const streetsCollected = await collectLayerGridElements('streets', cells, cellCachePrefix);
+
+  // § детальний коментар біля collectLayerGridElements() вище — тимчасова мережева
+  // недоступність Vercel Blob під час ЧИТАННЯ вже готового кешу комірок (не Overpass) НЕ
+  // повинна призводити до мовчазно неповного фінального тайлу. Той самий idempotent-retry
+  // шлях, що й для незавершеної фази 1 (`if (!complete)` нижче) — кеш комірок НЕ видаляється,
+  // наступний виклик просто перечитає ЦІ САМІ вже готові комірки.
+  const readFailedCells = buildingsCollected.failedCount + streetsCollected.failedCount;
+  if (readFailedCells > 0) {
+    console.warn(
+      `[tile-generation] city=${citySlug}: ${readFailedCells} комірок кешу не вдалось прочитати (мережа) — тайли НЕ записані цим разом, повторіть виклик.`,
+    );
+    return { citySlug, cityBlobPrefix, bbox, cameraCount: cameras.length, buildingCount: 0, buildingBytes: 0, streetCount: 0, cellsTotal, cellsDone, complete: false };
+  }
+
+  const buildingElements = buildingsCollected.elements;
+  const streetElements = streetsCollected.elements;
 
   // Origin — центр bbox, той самий tileOrigin, який клієнтський toLocalXY()/fromLocalXY()
   // (btw-geometry-engine.ts) використовує для проекції camera/building координат у локальні
@@ -883,5 +921,121 @@ export async function generateTilesForCity(
     cellsTotal,
     cellsDone,
     complete: true,
+  };
+}
+
+// РУЧНИЙ ТОЧКОВИЙ РЕМОНТ уже ОПУБЛІКОВАНОГО streets.json — за прямим запитом користувача
+// (реальний живий інцидент: `generate-btw-tiles.ts new-york-us` виконався ДО фіксу вище
+// (§ "Живий інцидент: мовчазно неповний тайл" у doc/AUDIT-btw-radar-m1-m2.md) і встиг
+// записати `streets.json` БЕЗ даних комірок 913/914/915 (EHOSTUNREACH/ETIMEDOUT при читанні
+// кешу цих КОНКРЕТНИХ комірок), одразу після чого той самий "успішний" прохід ВИДАЛИВ увесь
+// кеш комірок (§ `deleteBlobsByPrefix(cellCachePrefix)` наприкінці generateTilesForCity() —
+// виконується безумовно при завершенні; після сьогоднішнього фіксу такого запису просто не
+// станеться, але він ВЖЕ стався для new-york-us ДО фіксу). Тому "просто повторити генерацію" —
+// НЕ підхопить прогрес: кешу вже нема, а повна регенерація Нью-Йорка з нуля коштує годин
+// Overpass-запитів (§ GRID_QUERY_CONCURRENCY/GENERATION_TIME_BUDGET_MS вище, історія застрягань
+// на "88/288 ячеек" у секції вище).
+//
+// Натомість — точковий ремонт: живий Overpass-запит ЛИШЕ за вказані індекси комірок ТОГО
+// САМОГО bbox, що дав invalid прогін (bbox друкується в консолі кожним запуском, § result.bbox
+// у generate-btw-tiles.ts) — і результат домержовується в УЖЕ ОПУБЛІКОВАНИЙ streets.json без
+// зачіпання решти ~927 комірок. bbox — ОБОВ'ЯЗКОВИЙ явний аргумент (не перераховується зі
+// свіжого списку камер): список камер міста міг змінитись від моменту invalid-прогону (сканер
+// працює у фоні), а індекси комірок (§ splitBboxIntoGrid()) мають СЕНС лише відносно ТОГО
+// САМОГО bbox, що дав саме ЦІ номери в логах.
+//
+// ⚠️ ЧЕСНО: підтримується ЛИШЕ streets (не buildings.bin) — на момент написання це не було
+// потрібно (лог показав провали читання лише для streets; шар buildings цього конкретного
+// прогону відпрацював повністю, buildingCount у виводі ненульовий). buildings.bin, на відміну
+// від streets.json, ще й прив'язаний до `origin` (центр bbox, § encodeBuildingsTile вище) —
+// технічно точковий патч можливий (той самий bbox гарантує той самий origin), просто не
+// реалізований цим кроком, бо не було живого інциденту, що цього потребував би.
+export async function patchStreetCells(
+  citySlug: string,
+  bbox: Bbox,
+  cellIndices: number[],
+  overpassAttemptTimeoutMs: number = OVERPASS_ATTEMPT_TIMEOUT_MS,
+  overpassQueryTimeoutS: number = OVERPASS_QUERY_TIMEOUT_S,
+): Promise<{ requestedCells: number; patchedCells: number; failedCells: number[]; addedStreetEntries: number; totalStreetEntries: number }> {
+  const cells = splitBboxIntoGrid(bbox);
+  const cityBlobPrefix = getCityBlobPrefix(citySlug);
+  const pathname = `${cityBlobPrefix}/streets.json`;
+
+  const existingBlob = (await listBlobsByPrefix(pathname))[0];
+  if (!existingBlob) {
+    throw new Error(
+      `patchStreetCells: streets.json для міста "${citySlug}" ще не опубліковано (${pathname} не знайдено) — ` +
+        'немає що патчити, спершу потрібна звичайна generateTilesForCity() до повного завершення.',
+    );
+  }
+  const existingTile: StreetsTile = await fetchBlobJson(existingBlob.url);
+
+  // Та сама логіка побудови StreetsTileEntry, що вже в generateTilesForCity() вище (bearing
+  // обох напрямків вздовж сегмента, дедуплікація в межах 10°) — навмисно НЕ винесена в спільну
+  // функцію заради ОДНОГО додаткового виклику, той самий принцип копіювання невеликих шматків
+  // без спільного пакета, що вже bearing()/toLocalXY() в цьому файлі застосовують.
+  const DEDUP_TOLERANCE_DEG = 10;
+  const newEntries: StreetsTileEntry[] = [];
+  const failedCells: number[] = [];
+
+  for (const cellIndex of cellIndices) {
+    const cell = cells[cellIndex];
+    if (!cell) {
+      console.warn(
+        `[tile-generation] patchStreetCells: індекс комірки ${cellIndex} поза межами сітки (0..${cells.length - 1}) ` +
+          'для цього bbox — пропущено (перевірте, чи bbox справді той самий, що дав invalid прогін).',
+      );
+      failedCells.push(cellIndex);
+      continue;
+    }
+    try {
+      const query = `
+        [out:json][timeout:${overpassQueryTimeoutS}];
+        way["highway"](${cell.south},${cell.west},${cell.north},${cell.east});
+        out geom;
+      `;
+      const data = await fetchOverpass(query, overpassAttemptTimeoutMs);
+      const elements = ((data.elements ?? []) as any[]).filter((el) => el.geometry?.length >= 2);
+
+      for (const way of elements) {
+        const geometry = way.geometry;
+        for (let i = 0; i < geometry.length - 1; i++) {
+          const p1 = geometry[i];
+          const p2 = geometry[i + 1];
+          const segBearing = bearing(p1.lat, p1.lon, p2.lat, p2.lon);
+          const axisAzimuths: number[] = [];
+          for (const candidate of [segBearing, (segBearing + 180) % 360]) {
+            const isDuplicate = axisAzimuths.some((existing) => {
+              const diff = Math.abs(existing - candidate) % 360;
+              return Math.min(diff, 360 - diff) < DEDUP_TOLERANCE_DEG;
+            });
+            if (!isDuplicate) axisAzimuths.push(candidate);
+          }
+          newEntries.push({ lat: (p1.lat + p2.lat) / 2, lng: (p1.lon + p2.lon) / 2, axisAzimuths });
+        }
+      }
+      console.log(`[tile-generation] patchStreetCells: комірка ${cellIndex} відремонтована (+${elements.length} елементів OSM).`);
+    } catch (err) {
+      failedCells.push(cellIndex);
+      console.warn(`[tile-generation] patchStreetCells: комірка ${cellIndex} знову провалилась — ${(err as Error).message} (спробуйте ще раз пізніше).`);
+    }
+  }
+
+  if (newEntries.length > 0) {
+    const patchedTile: StreetsTile = { version: 1, streets: [...existingTile.streets, ...newEntries] };
+    await putBlobOverwrite(pathname, JSON.stringify(patchedTile), 'application/json');
+    // Той самий in-process TTL-кеш, що getCachedStreetsTile() веде (§ вище) — інваліднено, щоб
+    // AzimuthHeuristicService у ЦЬОМУ Ж процесі (якщо колись викличе цю функцію довгоживучий
+    // сервер, а не CLI-скрипт, що завершується одразу) не читав стару версію тайлу з пам'яті
+    // до 5 хв після щойно записаного патча.
+    streetsTileCache.delete(citySlug);
+  }
+
+  return {
+    requestedCells: cellIndices.length,
+    patchedCells: cellIndices.length - failedCells.length,
+    failedCells,
+    addedStreetEntries: newEntries.length,
+    totalStreetEntries: existingTile.streets.length + newEntries.length,
   };
 }

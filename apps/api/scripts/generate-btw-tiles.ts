@@ -49,6 +49,17 @@
 // існує) — новоприбулі камери просто увійдуть у наступну ПОВНУ регенерацію (без --continue) чи
 // в наступний виклик з нуля, коли поточна серія комірок завершиться.
 //
+// --patch-cells (за прямим запитом користувача — живий випадок: старий, ще НЕ виправлений код
+// записав streets.json для міста БЕЗ даних кількох комірок (мережева помилка САМЕ при читанні
+// вже готового кешу — EHOSTUNREACH/ETIMEDOUT, не при запиті до Overpass) — і той самий прохід
+// одразу видалив увесь кеш комірок, тож звичайний повторний запуск нічого не підхопить. Не
+// "пересборка из кеша" (кешу вже нема), а ТОЧКОВИЙ ремонт — живий Overpass-запит лише за
+// вказані номери комірок (беруться з логу невдалого прогону) і домержування в уже
+// опублікований streets.json, § детальний коментар біля runPatchCells() нижче:
+//
+//   npx ts-node scripts/generate-btw-tiles.ts new-york-us --patch-cells=913,914,915 \
+//     --bbox='{"south":40.516880510600075,"west":-74.23986572073677,"north":40.913488489399924,"east":-73.70426727926322}'
+//
 // Аргумент — САМЕ `City.slug` (наприклад "kyiv"), НЕ `City.name` (український відображуваний
 // напис, наприклад "Київ") — див. ВИПРАВЛЕНО-коментар у btw.service.ts::generateTiles() щодо
 // того, чому це важливо.
@@ -73,11 +84,75 @@
 // GET /btw/manifest?city=kyiv має почати повертати scanMode:"local-worker".
 
 import { PrismaClient } from '@prisma/client';
-import { generateTilesForCity, getCellCacheBboxSnapshot } from '../src/btw/tile-generation.util';
-import type { GenerateTilesOptions } from '../src/btw/tile-generation.util';
+import { generateTilesForCity, getCellCacheBboxSnapshot, patchStreetCells } from '../src/btw/tile-generation.util';
+import type { GenerateTilesOptions, Bbox } from '../src/btw/tile-generation.util';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// --patch-cells (за прямим запитом користувача — реальний живий інцидент: старий, ще НЕ
+// виправлений код записав streets.json для new-york-us БЕЗ даних кількох комірок сітки
+// (EHOSTUNREACH/ETIMEDOUT саме при ЧИТАННІ вже готового кешу, не при запиті до Overpass, §
+// детальний розбір у doc/AUDIT-btw-radar-m1-m2.md, секція "Живий інцидент: мовчазно неповний
+// тайл") — і той самий "успішний" прохід одразу видалив УВЕСЬ кеш комірок, тож звичайне
+// "просто перезапустіть" тут нічого не підхопить (нема з чого продовжувати), а повна
+// регенерація Нью-Йорка з нуля — це години Overpass-запитів заради кількох комірок із тисячі.
+// ⚠️ Питання користувача було "нужно ли пересобрать из кеша?" — ЧЕСНА відповідь: НІ, кешу для
+// ЦЬОГО прогону вже не існує (видалений тим самим кроком, що й записав неповний тайл) — тому
+// замість "пересборки из кеша" (яка неможлива) цей флаг робить ТОЧКОВИЙ ремонт: живий
+// Overpass-запит ЛИШЕ за вказані індекси комірок (номери — САМЕ ТІ, що показав лог невдалого
+// прогону, наприклад "не вдалось прочитати кеш комірки 915" -> індекс 915) і домержовує
+// результат в УЖЕ ОПУБЛІКОВАНИЙ streets.json, не займаючи решту сітки.
+//
+// bbox — ОБОВ'ЯЗКОВИЙ (`--bbox='{"south":...,"west":...,"north":...,"east":...}'`), береться
+// ДОСЛІВНО з рядка `[generate-btw-tiles] bbox: {...}` того самого невдалого прогону — НЕ
+// перераховується зі свіжого списку камер (§ детальний коментар біля patchStreetCells() у
+// tile-generation.util.ts — індекси комірок мають сенс лише відносно ТОГО САМОГО bbox, що дав
+// саме ці номери в логах; список камер міг змінитись у фоні відтоді).
+//
+// Приклад (саме цей інцидент):
+//   npx ts-node scripts/generate-btw-tiles.ts new-york-us --patch-cells=913,914,915 \
+//     --bbox='{"south":40.516880510600075,"west":-74.23986572073677,"north":40.913488489399924,"east":-73.70426727926322}'
+async function runPatchCells(citySlug: string, cellsArg: string, bboxArg: string | undefined): Promise<void> {
+  const cellIndices = cellsArg
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n));
+  if (cellIndices.length === 0) {
+    console.error('[generate-btw-tiles] --patch-cells потребує список індексів через кому, напр. --patch-cells=913,914,915');
+    process.exit(1);
+  }
+  if (!bboxArg) {
+    console.error(
+      '[generate-btw-tiles] --patch-cells потребує --bbox=\'{"south":...,"west":...,"north":...,"east":...}\' — ' +
+        'ДОСЛІВНО той bbox, що показав невдалий прогін (рядок "[generate-btw-tiles] bbox: {...}" у його виводі). ' +
+        'Кеш комірок цього прогону вже видалено (він видаляється одразу після запису фінальних тайлів) — ' +
+        'перерахувати bbox зі свіжого списку камер тут НЕ можна: індекси комірок мають сенс лише відносно ТОГО САМОГО bbox.',
+    );
+    process.exit(1);
+  }
+
+  let bbox: Bbox;
+  try {
+    bbox = JSON.parse(bboxArg);
+  } catch (err) {
+    console.error(`[generate-btw-tiles] --bbox не вдалось розпарсити як JSON: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  console.log(`[generate-btw-tiles] --patch-cells: ремонтуємо комірки [${cellIndices.join(', ')}] для "${citySlug}" (bbox=${JSON.stringify(bbox)})...`);
+  const result = await patchStreetCells(citySlug, bbox, cellIndices);
+  console.log(
+    `[generate-btw-tiles] --patch-cells: готово — відремонтовано ${result.patchedCells}/${result.requestedCells} комірок, ` +
+      `додано ${result.addedStreetEntries} записів вулиць (у тайлі тепер ${result.totalStreetEntries} записів).`,
+  );
+  if (result.failedCells.length > 0) {
+    console.error(
+      `[generate-btw-tiles] --patch-cells: комірки [${result.failedCells.join(', ')}] знову не вдалось обробити — запустіть цю саму команду повторно пізніше.`,
+    );
+    process.exit(1);
+  }
 }
 
 async function main() {
@@ -86,9 +161,22 @@ async function main() {
   // стартует с нуля - добавь флаг continue" (§ детальний коментар біля
   // GenerateTilesOptions.bboxOverride/getCellCacheBboxSnapshot() у tile-generation.util.ts).
   const continueFlag = process.argv.includes('--continue');
+  // --patch-cells=913,914,915 --bbox='{...}' (§ детальний коментар біля runPatchCells() вище) —
+  // окремий, значно вужчий режим: НЕ читає камери з БД взагалі (точковий ремонт публічного
+  // тайлу, не залежить від поточного списку камер), тому обробляється й виходить ДО створення
+  // PrismaClient нижче.
+  const patchCellsArg = process.argv.find((a) => a.startsWith('--patch-cells='))?.split('=')[1];
+  const bboxArg = process.argv.find((a) => a.startsWith('--bbox='))?.slice('--bbox='.length);
   if (!citySlug) {
-    console.error('Usage: ts-node generate-btw-tiles.ts <citySlug> [--continue]   (напр. kyiv — City.slug, не City.name)');
+    console.error(
+      'Usage: ts-node generate-btw-tiles.ts <citySlug> [--continue]   (напр. kyiv — City.slug, не City.name)\n' +
+        '   або: ts-node generate-btw-tiles.ts <citySlug> --patch-cells=913,914,915 --bbox=\'{"south":...,"west":...,"north":...,"east":...}\'',
+    );
     process.exit(1);
+  }
+  if (patchCellsArg) {
+    await runPatchCells(citySlug, patchCellsArg, bboxArg);
+    return;
   }
 
   const prisma = new PrismaClient();

@@ -472,12 +472,36 @@ export class BtwService {
   }
 
   // §4.5 ТЗ — каскад Ф1→Ф2→Ф3, і §4.6 — скоринг. Це ядро всього продукту.
-  async scan(pose: ObserverPose, targetOverride?: { lat: number; lng: number }): Promise<ScanResult> {
+  //
+  // ВИПРАВЛЕНО (реальний живий інцидент — користувач помітив у адмінській телеметрії, що
+  // "улиц рядом"/"прошли конус" міняються МІЖ сесіями сканування ПРИ НЕЗМІННІЙ позиції (dev-
+  // override, фіксовані координати) — підозра на "долгая подгрузка в начале". Причина: клієнт
+  // (apps/btw/app/page.tsx) на кожен тик обирає ОДИН з ДВОХ незалежних шляхів сканування —
+  // локальний Worker (btw-scan.worker.ts), щойно тайли міста довантажені, АБО цей самий
+  // серверний шлях, ПОКИ тайли ще вантажаться. Обидва шляхи мали б давати ідентичний результат
+  // для однієї й тієї самої пози, але:
+  //   1. Worker шукає найближчі вулиці в радіусі STREET_SEARCH_RADIUS_M=200м (btw-scan.
+  //      worker.ts), а цей метод викликався БЕЗ явного radiusM — тобто з дефолтом
+  //      AzimuthHeuristicService.getNearbyStreetAzimuths() = 30м, у 6.6 рази менше. На тій
+  //      самій позиції 30м vs 200м майже завжди дають РІЗНУ кількість "вулиць поруч" — саме
+  //      це й спостерігав користувач як "телеметрия меняется при неизменной позиции".
+  //   2. citySlug тут НІКОЛИ не передавався — тобто гілка "спершу перевір кеш тайлу міста"
+  //      усередині getNearbyStreetAzimuths() (§ коментар там же) НІКОЛИ не спрацьовувала для
+  //      цього шляху, і кожен серверний тик бив ЖИВИЙ Overpass-запит, навіть коли тайл міста
+  //      вже давно згенерований і лежить у Vercel Blob. Це і є найімовірніша причина "долгая
+  //      подгрузка в начале" — не сама лише loading тайлів, а те, що ВСІ тики до готовності
+  //      Worker'а платять мережевий round-trip до Overpass замість дешевого читання кешу.
+  //
+  // citySlug — опційний (без нього поведінка та сама, що й раніше, ДЕ radiusM тепер 200 —
+  // джерело `scanCitySlug`, що клієнт УЖЕ визначає одноразово через GET /btw/nearest-city
+  // перед стартом сканування, § page.tsx — жодного додаткового запиту на сервері не потрібно).
+  async scan(pose: ObserverPose, targetOverride?: { lat: number; lng: number }, citySlug?: string): Promise<ScanResult> {
     // У3 ТЗ (§5) — "главный приём": перед усім іншим намагаємось притягнути виміряний
-    // компасом heading до одного з реальних напрямків найближчої вулиці. Живий Overpass-
-    // запит (з кешем по сітці всередині AzimuthHeuristicService — сусідні скани тієї самої
-    // позиції майже завжди влучають у кеш, не долблять Overpass на кожен тик).
-    const streetCandidates = await this.azimuthHeuristic.getNearbyStreetAzimuths(pose.lat, pose.lng);
+    // компасом heading до одного з реальних напрямків найближчої вулиці. Спершу кеш тайлу
+    // міста (якщо citySlug передано), лише потім живий Overpass — той самий шлях, що вже
+    // Worker використовує локально (§ детальний коментар вище).
+    const STREET_SEARCH_RADIUS_M = 200; // той самий, що btw-scan.worker.ts::STREET_SEARCH_RADIUS_M — див. коментар вище
+    const streetCandidates = await this.azimuthHeuristic.getNearbyStreetAzimuths(pose.lat, pose.lng, STREET_SEARCH_RADIUS_M, citySlug);
     const snapResult = snapHeadingToStreetGrid(pose.heading, streetCandidates);
     const effectiveHeading = snapResult.heading;
     if (snapResult.snapped) {
