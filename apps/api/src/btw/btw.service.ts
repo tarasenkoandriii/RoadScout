@@ -155,9 +155,50 @@ export class BtwService {
   // окремими HTTP-викликами. Сховище тепер — Vercel Blob (tile-generation.util.ts,
   // getCityBlobPrefix()/listBlobsByPrefix()/fetchBlobBuffer() — та сама логіка, що
   // generateTilesForCity() вже використовує для запису, тепер читання дзеркалить її).
+  //
+  // ВИПРАВЛЕНО (реальний, живий інцидент — скріншот Log-панелі користувача: `GET
+  // /api/manifest?city=new-york-us` — 1953мс на відповідь МЕНШЕ 1КБ, § "переключаться сразу"
+  // (продовження 3), doc/AUDIT-btw-radar-m1-m2.md): manifest — саме той запит, що лежить на
+  // критичному шляху ДО переходу на локальний Worker, і раніше він БЕЗУМОВНО бив живий
+  // List-запит до Vercel Blob (`listBlobsByPrefix`, нижче тепер лише фолбек) — сам Blob List
+  // API має помітну (секунди) латентність, невиправдану для відповіді, що не змінюється між
+  // сусідніми запитами частіше, ніж раз на кілька хвилин/годин (нова генерація тайлів — рідкісна
+  // адмінська дія, не щотикова подія). `BtwTileGenerationRun` (§ generateTiles() вище) УЖЕ
+  // атомарно фіксує в БД, коли генерація дійсно ЗАВЕРШИЛАСЬ — `status: 'completed'`
+  // виставляється ЛИШЕ ПІСЛЯ того, як `generateTilesForCity()` успішно записала ВСІ 3 файли в
+  // Blob (§ tile-generation.util.ts — три `putBlobOverwrite()` перед `return {complete: true}`,
+  // жодного проміжного стану "частково записано" не існує). Тобто швидкий індексований запит
+  // до власної БД (`@@index([citySlug, startedAt])`) дає ТУ САМУ гарантію "усі 3 файли готові",
+  // що раніше давав повільний живий Blob List, без зовнішньої мережевої залежності на
+  // критичному шляху відкриття мінідодатку.
   private async getLocalTileLayers(
     citySlug: string,
   ): Promise<{ buildings: { url: string; version: number }; cameras: { url: string; version: number }; streets: { url: string; version: number } } | null> {
+    const lastCompletedRun = await this.prisma.btwTileGenerationRun.findFirst({
+      where: { citySlug, status: 'completed' },
+      orderBy: { startedAt: 'desc' },
+      select: { finishedAt: true, startedAt: true },
+    });
+    if (lastCompletedRun) {
+      // uploadedAt блоба як версія/cache-bust токен раніше давав mtime файлу (§4.7.1 ТЗ: "Кэш:
+      // 30 сут, ETag" / "24 ч, ETag") — finishedAt цього запуску еквівалентний: усі 3 файли
+      // записуються атомарно в межах ОДНОГО завершеного запуску (§ коментар вище), тож єдиний
+      // спільний timestamp коректний для всіх трьох, а не лише наближення.
+      const version = (lastCompletedRun.finishedAt ?? lastCompletedRun.startedAt).getTime();
+      return {
+        buildings: { url: `/api/tiles/${encodeURIComponent(citySlug)}/buildings`, version },
+        cameras: { url: `/api/tiles/${encodeURIComponent(citySlug)}/cameras`, version },
+        streets: { url: `/api/tiles/${encodeURIComponent(citySlug)}/streets`, version },
+      };
+    }
+
+    // Фолбек — той самий повільний, але коректний живий Blob List, що був єдиним шляхом раніше
+    // (§ коментар вище): покриває міста, тайли яких згенеровані НАПРЯМУ CLI-скриптом
+    // (apps/api/scripts/generate-btw-tiles.ts), а не через адмінську кнопку "Сгенерировать
+    // тайлы" (BtwService.generateTiles() вище) — CLI-скрипт використовує ВЛАСНИЙ standalone
+    // `new PrismaClient()` і НІКОЛИ не пише в `BtwTileGenerationRun` (ця таблиця — суто
+    // адмінський UI-моніторинг прогресу, § коментар біля generateTiles()), тож для таких міст
+    // DB-запис просто відсутній, і ЛИШЕ прямий Blob List лишається джерелом істини.
     const prefix = getCityBlobPrefix(citySlug);
     const blobs = await listBlobsByPrefix(`${prefix}/`);
     // Виключаємо все під `.cellcache/` — це проміжний кеш комірок сітки (§ tile-generation.
@@ -172,8 +213,6 @@ export class BtwService {
     const streets = byName.get('streets.json');
     if (!buildings || !cameras || !streets) return null;
 
-    // uploadedAt блоба як версія/cache-bust токен — той самий рівень точності, що раніше давав
-    // mtime файлу на диску (§4.7.1 ТЗ: "Кэш: 30 сут, ETag" / "24 ч, ETag").
     return {
       buildings: { url: `/api/tiles/${encodeURIComponent(citySlug)}/buildings`, version: new Date(buildings.uploadedAt).getTime() },
       cameras: { url: `/api/tiles/${encodeURIComponent(citySlug)}/cameras`, version: new Date(cameras.uploadedAt).getTime() },
