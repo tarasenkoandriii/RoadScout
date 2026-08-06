@@ -1,8 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { AdminGuard } from '../auth/admin.guard';
 import { WeatherService } from './weather.service';
 import { RoadIncidentsService } from './incidents.service';
+// За прямим запитом користувача — "впиши 511NY как основной источник трафика для NYC" +
+// "пишем парсер 511ny.org ... показываем инциденты" (doc/TZ-btw-route-planning.md §7.2/§8).
+import { FiveElevenNyService } from './five11ny.service';
+// За прямим запитом користувача — "реализовать TomTom Traffic API — fallback/дополнение вне
+// NY State" (doc/TZ-btw-route-planning.md §7.2/§9 п.5).
+import { TomTomTrafficService, centerRadiusToBoundingBox } from './tomtom.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
 import { UpdateIncidentDto } from './dto/update-incident.dto';
 
@@ -16,6 +22,8 @@ export class SituationalController {
   constructor(
     private readonly weather: WeatherService,
     private readonly incidents: RoadIncidentsService,
+    private readonly fiveElevenNy: FiveElevenNyService,
+    private readonly tomTom: TomTomTrafficService,
   ) {}
 
   @Get('weather')
@@ -28,12 +36,48 @@ export class SituationalController {
     return status === 'all' ? this.incidents.listAll() : this.incidents.listActive();
   }
 
-  // Один запрос для карты: погода + активные инциденты вместе, чтобы фронту не делать два
-  // отдельных round-trip'а при каждом открытии вкладки.
+  // Живий фід 511NY (§7.2/§8 ТЗ) — окремо від ручних /incidents вище: `configured: false`
+  // дозволяє фронту чесно показати "ключ 511NY не налаштований" замість того, щоб мовчки
+  // показувати порожню карту й лишати адміна гадати, чи це "немає подій" чи "щось зламалось".
+  @Get('511ny')
+  async getFiveElevenNy() {
+    const events = await this.fiveElevenNy.getEvents();
+    return { configured: this.fiveElevenNy.isConfigured(), events };
+  }
+
+  // TomTom — fallback/дополнение ВНЕ NY State (§7.2 ТЗ): в отличие от 511NY (один фид на весь
+  // штат без параметров), TomTom требует конкретную географическую точку — сюда её передаёт
+  // фронт (TomTomFallbackPanel.tsx, поле координат/радиуса), это НЕ фиксированный регион, как
+  // 511NY, поэтому не входит в /overview ниже, а вызывается по требованию.
+  @Get('tomtom')
+  async getTomTom(@Query('lat') latRaw: string, @Query('lng') lngRaw: string, @Query('radiusKm') radiusKmRaw?: string) {
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    const radiusKm = radiusKmRaw ? Number(radiusKmRaw) : 15;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radiusKm)) {
+      throw new BadRequestException('lat/lng/radiusKm must be valid numbers');
+    }
+
+    const bbox = centerRadiusToBoundingBox(lat, lng, radiusKm);
+    const incidents = await this.tomTom.getIncidents(bbox);
+    return { configured: this.tomTom.isConfigured(), incidents };
+  }
+
+  // Один запрос для карты: погода + активные инциденты + 511NY вместе, чтобы фронту не делать
+  // отдельные round-trip'ы при каждом открытии вкладки. TomTom сюда НЕ входит — см. /tomtom
+  // выше, требует координаты, у которых нет единого дефолта для "всего обзора".
   @Get('overview')
   async getOverview() {
-    const [weather, incidents] = await Promise.all([this.weather.getSnapshot(), this.incidents.listActive()]);
-    return { weather, incidents };
+    const [weather, incidents, fiveElevenNyEvents] = await Promise.all([
+      this.weather.getSnapshot(),
+      this.incidents.listActive(),
+      this.fiveElevenNy.getEvents(),
+    ]);
+    return {
+      weather,
+      incidents,
+      fiveElevenNy: { configured: this.fiveElevenNy.isConfigured(), events: fiveElevenNyEvents },
+    };
   }
 
   @Post('incidents')

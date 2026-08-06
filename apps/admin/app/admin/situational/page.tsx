@@ -3,6 +3,14 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import WindyWidget from '../../../components/WindyWidget';
+// За прямим запитом користувача — "пишем парсер 511ny.org - карту штата нью йорк отображаем на
+// вкладку /admin/situational" (doc/TZ-btw-route-planning.md §7.2/§8, Этап 2): окрема секція
+// нижче на цій самій вкладці, не заміна українського блоку вище (проект охоплює обидва
+// напрямки — див. §9 п.5 того ж ТЗ).
+import NySituationalPanel from '../../../components/NySituationalPanel';
+// За прямим запитом користувача — "реализовать TomTom Traffic API — fallback/дополнение вне NY
+// State" (doc/TZ-btw-route-planning.md §7.2/§9 п.5).
+import TomTomFallbackPanel from '../../../components/TomTomFallbackPanel';
 
 const SituationalMap = dynamic(() => import('../../../components/SituationalMap'), { ssr: false });
 
@@ -165,6 +173,20 @@ export default function SituationalAwarenessPage() {
         <h2 className="text-sm font-medium text-gray-700">Радар осадков (Windy)</h2>
         <WindyWidget lat={UKRAINE_CENTER.lat} lng={UKRAINE_CENTER.lng} zoom={5} defaultOverlay="radar" heightClassName="h-80 w-full rounded border-0" />
       </div>
+
+      <hr className="border-t" />
+
+      {/* Отдельная секция для США (BTW-планирование маршрутов, doc/TZ-btw-route-planning.md) —
+          собственный живой источник (511NY), собственная карта, не связана с украинскими
+          ручными инцидентами/погодой выше. */}
+      <NySituationalPanel />
+
+      <hr className="border-t" />
+
+      {/* Fallback вне NY State — TomTom (§7.2/§9 п.5 ТЗ). */}
+      <TomTomFallbackPanel />
+
+      <hr className="border-t" />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <form onSubmit={handleSubmit} className="space-y-3 rounded border p-4">
