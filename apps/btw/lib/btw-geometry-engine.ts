@@ -240,6 +240,11 @@ export interface RankedCandidate {
   orientationFit: OrientationFitLabel;
   score: number;
   cameraAzimuth: number;
+  // ДОДАНО — за прямим запитом користувача (міні-карта азимута/сектора огляду на
+  // locked-екрані, components/BtwCameraMiniMap.tsx): раніше fovAngle рахувався лише
+  // ВСЕРЕДИНІ геометрії (passesConeFilter/isVisible), клієнт його взагалі не отримував —
+  // без нього неможливо намалювати справжній сектор огляду камери, лише саму лінію азимута.
+  fovAngle: number;
 }
 
 export function passesConeFilter(cam: CameraSector, target: TargetZone, headingUncertaintyDeg = 0): boolean {

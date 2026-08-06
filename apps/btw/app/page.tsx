@@ -4,11 +4,15 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
 import BtwRadar from '../components/BtwRadar';
+// За прямим запитом користувача — "добавить на экране отображения камеры мини-карту на 33%
+// экрана с отображением азимута и сектора обзора этой камеры" (§ детальний розбір у самому
+// компоненті).
+import BtwCameraMiniMap from '../components/BtwCameraMiniMap';
 import { BtwLocalScanner, ScanSupersededError } from '../lib/btwLocalScanner';
 import type { LocalScanResult } from '../lib/btwLocalScanner';
 // За прямим запитом користувача — "между радар и HUD - Log, каждый запрос на сервер и каждый
 // ответ отображай в этом логе, пиши время которое занял запрос и размер ответа" (§ networkLog.ts).
-import { loggedFetch, subscribeNetworkLog, formatBytes } from '../lib/networkLog';
+import { loggedFetch, subscribeNetworkLog, formatBytes, clearNetworkLog } from '../lib/networkLog';
 import type { NetworkLogEntry } from '../lib/networkLog';
 // За прямим запитом користувача — "переключаться сразу и кроме того кешировать на устройстве
 // результат этого запроса от сессии к сессии при совпадении координат" (§ детальний розбір у
@@ -100,6 +104,12 @@ interface Candidate {
   // fovAngle/2, реально спостережено ~84° розбіжності проти orientationFit на скріні
   // користувача). Тепер сервер віддає справжній cam.azimuth напряму (btw.service.ts).
   cameraAzimuth: number;
+  // ДОДАНО — за прямим запитом користувача (міні-карта азимута/сектора огляду на
+  // locked-екрані, components/BtwCameraMiniMap.tsx). Опційне з тієї самої причини, що й
+  // cameraName вище — старий закешований локальний Worker-тайл (buildings.bin/cameras.json/
+  // streets.json, § btwTileCache.ts) чи ще не оновлений сервер можуть віддати кандидата БЕЗ
+  // цього поля; рендер нижче має захисний дефолт на цей випадок.
+  fovAngle?: number;
 }
 
 // За прямим запитом користувача — debug-інформація з /btw/scan, потрібна для HUD під час
@@ -189,7 +199,15 @@ export default function BtwScanPage() {
   // помилки, якщо /thumb повернув не-200 — раніше тап просто нічого не показував.
   const [lockingCameraId, setLockingCameraId] = useState<string | null>(null);
   const [lockError, setLockError] = useState<string | null>(null);
-  const [xrayOpacity, setXrayOpacity] = useState(70);
+  // ЗАМІНЕНО (за прямим запитом користувача — "заменить прозрачность (рентген) на
+  // контрастность"): раніше цей повзунок керував `opacity` кадру камери, блендованого поверх
+  // повноекранного відео власної камери користувача (mixBlendMode:'screen' — "рентген"-ефект).
+  // Тепер locked-екран перебудований на звичайний вертикальний макет (§ детальний коментар
+  // біля JSX нижче — назва камери зверху, кадр камери на 50% екрана, міні-карта на 33%), і
+  // повзунок керує CSS `filter: contrast()` самого кадру камери — 100% = без змін, менше =
+  // тьмяніше/пласкіше, більше = різкіше — практичніша штука для розбору деталей у
+  // темному/малоконтрастному кадрі камери, ніж просте затемнення прозорістю.
+  const [xrayContrast, setXrayContrast] = useState(100);
   // У5 ТЗ — стан vision-уточнення: клієнтський cooldown-таймер (додатково до серверного
   // rate-limit, який є реальною точкою контролю — клієнтський лише для UX, щоб не показувати
   // кнопку як активну, коли запит однаково буде відхилено).
@@ -240,6 +258,24 @@ export default function BtwScanPage() {
   }, []);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  // ВИПРАВЛЕНО (реальний баг, знайдений під час перебудови locked-екрана вище — § "добавить
+  // мини-карту/изображение камеры 50%"): `getUserMedia()` у requestPermissions() викликає
+  // `videoRef.current.srcObject = stream` у ФАЗІ 'requesting' — а `<video>`-елемент НІКОЛИ не
+  // рендериться в цій фазі (лише в 'scanning'/'locked', § JSX нижче), тож `videoRef.current`
+  // на той момент завжди `null`, і присвоєння мовчки пропускалось (`if (videoRef.current)`).
+  // Коли фаза пізніше переходить у 'scanning' і `<video>` нарешті монтується — НІХТО повторно
+  // не встановлює йому `srcObject`, тож picture-in-picture власної камери (і раніше повноекранне
+  // відео) фактично був порожнім/чорним ВЕСЬ час, попри `hasCamera === true`. Зберігаємо сам
+  // MediaStream окремо (він переживає розмонтування DOM-елемента) і прикріплюємо його заново
+  // через callback-ref (attachVideoRef нижче) щоразу, коли `<video>` реально монтується.
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const attachVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && mediaStreamRef.current && el.srcObject !== mediaStreamRef.current) {
+      el.srcObject = mediaStreamRef.current;
+      el.play().catch(() => {}); // best-effort — autoplay-обмеження тут не мають значення, той самий muted+playsInline елемент, що вже грав раніше
+    }
+  }, []);
   const headingSamplesRef = useRef<number[]>([]);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScanRef = useRef<{ heading: number; lat: number; lng: number } | null>(null);
@@ -403,6 +439,11 @@ export default function BtwScanPage() {
     // 3. Камера телефону (не блокує — §3.2, фолбек-режим обов'язковий)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      // ВИПРАВЛЕНО (§ детальний коментар біля mediaStreamRef/attachVideoRef вище) — зберігаємо
+      // сам stream окремо, бо `<video>` ще НЕ змонтований у цій фазі ('requesting');
+      // `videoRef.current` тут майже завжди `null`, реальне прикріплення робить callback-ref
+      // (attachVideoRef), коли елемент нарешті з'являється у 'scanning'/'locked'.
+      mediaStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -997,65 +1038,112 @@ export default function BtwScanPage() {
   }
 
   if (phase === 'locked' && lockedCandidate) {
+    // ВИПРАВЛЕНО/ПЕРЕБУДОВАНО (за прямим запитом користувача — "добавить на экране отображения
+    // камеры мини-карту на 33% экрана с отображением азимута и сектора обзора этой камеры,
+    // изображение камеры (CSS 50%), сверху название камеры" + "заменить прозрачность (рентген)
+    // на контрастность"): раніше цей екран був повноекранним відео власної камери користувача з
+    // блендованим (mixBlendMode:'screen') поверх нього кадром цільової камери — фіксовані
+    // пропорції (50%/33%) і окремий заголовок з назвою камери структурно не сумісні з таким
+    // повноекранним оверлеєм, тож екран перебудований на звичайний вертикальний макет (flex-col,
+    // не absolute-позиціонування): заголовок з назвою камери -> кадр камери (50vh) -> міні-карта
+    // азимута/сектора (33vh, § components/BtwCameraMiniMap.tsx) -> контрастність + кнопка
+    // "уточнити". Власна камера користувача НЕ прибрана повністю — лишена маленьким
+    // picture-in-picture у куті кадру камери (для порівняння ракурсів, той самий сенс, що раніше
+    // давав повноекранний блендований фон).
+    const headingDelta =
+      heading != null ? Math.round(Math.abs((((((lockedCandidate.cameraAzimuth + 180) % 360) - heading + 540) % 360) - 180))) : null;
     return (
-      <div className="relative min-h-screen bg-black text-white">
-        {hasCamera && <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />}
-        {/* ВИПРАВЛЕНО — раніше <img> взагалі НЕ рендерився після invalid onError (умова була
-            thumbUrl && !thumbLoadFailed), тож наступний cache-bust тик src нижче не мав на
-            чому спрацювати — елемент просто не існував у DOM, і кадр ніколи не міг
-            "самовилікуватись" на наступному успішному опитуванні. Тепер <img> лишається
-            змонтованим завжди (просто прозорим під час збою), а onLoad повертає видимість. */}
-        {thumbUrl && (
-          <img
-            src={`${thumbUrl}${thumbUrl.includes('?') ? '&' : '?'}_t=${thumbRefreshTick}`}
-            alt="Camera feed"
-            className="absolute inset-0 h-full w-full object-cover"
-            style={{ opacity: thumbLoadFailed ? 0 : xrayOpacity / 100, mixBlendMode: 'screen' }}
-            onError={() => setThumbLoadFailed(true)}
-            onLoad={() => setThumbLoadFailed(false)}
-          />
-        )}
-        {thumbLoadFailed && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 px-6 text-center text-sm text-yellow-300">
-            ⚠️ Не удалось загрузить кадр с камеры — возможно, эта камера отдаёт не статичный снимок (нужен другой тип
-            прокси) или недоступна даже через VPN.
-          </div>
-        )}
-        <div className="absolute top-4 left-4 right-4 rounded-lg bg-black/50 px-3 py-2 text-sm">
-          <div className="flex items-center justify-between">
-            <span>
-              {Math.round(lockedCandidate.distanceM)} м · {lockedCandidate.orientationFit === 'OPPOSING' && '⚠️ встречный ракурс'}
-            </span>
-            <button onClick={exitLock} className="rounded-full bg-white/20 px-3 py-1">
-              ✕
-            </button>
-          </div>
-          {/* За прямим запитом користувача ("подсказывать при трансляции отличие ракурса
-              камеры от ракурса телефона") — точна категорія (ALIGNED/SIDE/OPPOSING) вже
-              порахована сервером із РЕАЛЬНОГО азимута камери (той самий orientationFit, що й
-              вище); тут — жива кількість градусів, що оновлюється разом із компасом, поки
-              триває перегляд.
-              ВИПРАВЛЕНО (реальний баг, знайдений користувачем на скріні — число тут
-              показувало ~84° одночасно з міткою "почти совпадает", хоча ALIGNED вимагає
+      <div className="flex min-h-screen flex-col bg-black text-white">
+        {/* Заголовок — назва камери зверху (за прямим запитом користувача). */}
+        <div className="flex items-center justify-between gap-2 bg-black px-4 py-3">
+          <span className="truncate text-base font-semibold">{lockedCandidate.cameraName ?? 'Камера'}</span>
+          <button onClick={exitLock} className="shrink-0 rounded-full bg-white/20 px-3 py-1">
+            ✕
+          </button>
+        </div>
+
+        {/* Компактна панель дистанції/ракурсу — раніше плаваюча поверх повноекранного відео,
+            тепер звичайний рядок під заголовком (той самий вміст, § коментарі нижче незмінні
+            по суті). */}
+        <div className="bg-black/60 px-4 py-1.5 text-xs text-gray-300">
+          {Math.round(lockedCandidate.distanceM)} м
+          {lockedCandidate.orientationFit === 'OPPOSING' && ' · ⚠️ встречный ракурс'}
+          {/* За прямим запитом користувача ("подсказывать при трансляции отличие ракурса камеры
+              от ракурса телефона") — точна категорія (ALIGNED/SIDE/OPPOSING) вже порахована
+              сервером із РЕАЛЬНОГО азимута камери; тут — жива кількість градусів, що оновлюється
+              разом із компасом. ВИПРАВЛЕНО (реальний баг, знайдений користувачем на скріні —
+              число показувало ~84° одночасно з міткою "почти совпадает", хоча ALIGNED вимагає
               delta≤45°): раніше тут наближали азимут камери через bearingToTarget (похибка до
-              fovAngle/2 — камери з широким FOV легко давали саме таку розбіжність). Тепер
-              рахуємо ТОЧНО ту саму формулу, що й classifyOrientationFit() на сервері
-              (btw-geometry.util.ts), але з РЕАЛЬНИМ cameraAzimuth — число завжди узгоджене з
-              міткою. */}
-          {heading != null && (
-            <p className="mt-1 text-xs text-gray-300">
-              Расхождение ракурса камеры и телефона: ~
-              {Math.round(Math.abs((((((lockedCandidate.cameraAzimuth + 180) % 360) - heading + 540) % 360) - 180)))}°{' '}
+              fovAngle/2). Тепер рахуємо ТОЧНО ту саму формулу, що й classifyOrientationFit() на
+              сервері (btw-geometry.util.ts), але з РЕАЛЬНИМ cameraAzimuth — число завжди
+              узгоджене з міткою. */}
+          {headingDelta != null && (
+            <>
+              {' '}
+              · расхождение ракурса ~{headingDelta}°{' '}
               {lockedCandidate.orientationFit === 'ALIGNED' && '(почти совпадает)'}
               {lockedCandidate.orientationFit === 'SIDE' && '(сбоку)'}
               {lockedCandidate.orientationFit === 'OPPOSING' && '(встречный)'}
-            </p>
+            </>
           )}
         </div>
-        <div className="absolute bottom-8 left-4 right-4 space-y-3">
+
+        {/* Кадр камери — CSS 50% екрана (за прямим запитом користувача). */}
+        <div className="relative w-full overflow-hidden bg-gray-900" style={{ height: '50vh' }}>
+          {/* ВИПРАВЛЕНО — раніше <img> взагалі НЕ рендерився після invalid onError (умова була
+              thumbUrl && !thumbLoadFailed), тож наступний cache-bust тик src нижче не мав на
+              чому спрацювати — елемент просто не існував у DOM, і кадр ніколи не міг
+              "самовилікуватись" на наступному успішному опитуванні. Тепер <img> лишається
+              змонтованим завжди (просто прозорим під час збою), а onLoad повертає видимість. */}
+          {thumbUrl && (
+            <img
+              src={`${thumbUrl}${thumbUrl.includes('?') ? '&' : '?'}_t=${thumbRefreshTick}`}
+              alt="Camera feed"
+              className="h-full w-full object-cover"
+              style={{ opacity: thumbLoadFailed ? 0 : 1, filter: `contrast(${xrayContrast}%)` }}
+              onError={() => setThumbLoadFailed(true)}
+              onLoad={() => setThumbLoadFailed(false)}
+            />
+          )}
+          {thumbLoadFailed && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 px-6 text-center text-sm text-yellow-300">
+              ⚠️ Не удалось загрузить кадр с камеры — возможно, эта камера отдаёт не статичный снимок (нужен другой тип
+              прокси) или недоступна даже через VPN.
+            </div>
+          )}
+          {/* Picture-in-picture власної камери користувача — те, що раніше було повноекранним
+              блендованим фоном (§ коментар на початку блоку), тепер невеликий інсет у куті для
+              порівняння ракурсів, не заважає кадру цільової камери. */}
+          {hasCamera && (
+            <video
+              ref={attachVideoRef}
+              muted
+              playsInline
+              className="absolute bottom-2 right-2 h-1/4 w-1/4 rounded border border-white/40 object-cover shadow-lg"
+            />
+          )}
+        </div>
+
+        {/* Міні-карта азимута/сектора огляду камери — 33% екрана (за прямим запитом
+            користувача, § components/BtwCameraMiniMap.tsx). */}
+        <div className="flex w-full items-center justify-center bg-black" style={{ height: '33vh' }}>
+          <div style={{ height: '100%', aspectRatio: '1 / 1' }}>
+            <BtwCameraMiniMap cameraAzimuth={lockedCandidate.cameraAzimuth} fovAngle={lockedCandidate.fovAngle} />
+          </div>
+        </div>
+
+        {/* Контрастність (§ заміна "рентген"-прозорості вище) + кнопка "уточнити". */}
+        <div className="flex-1 space-y-3 px-4 py-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-300">Прозрачность «рентген»: {xrayOpacity}%</label>
-            <input type="range" min={0} max={100} value={xrayOpacity} onChange={(e) => setXrayOpacity(Number(e.target.value))} className="w-full" />
+            <label className="mb-1 block text-xs text-gray-300">Контрастность кадра: {xrayContrast}%</label>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              value={xrayContrast}
+              onChange={(e) => setXrayContrast(Number(e.target.value))}
+              className="w-full"
+            />
           </div>
           {/* У5 ТЗ — кнопка "уточнить", доступна лише при захваті (не під час сканування) —
               vision-запит порівнює саме зафіксований кадр телефону з кадром цього конкретного
@@ -1087,7 +1175,7 @@ export default function BtwScanPage() {
   return (
     <div className="relative min-h-screen bg-black text-white">
       {hasCamera ? (
-        <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
+        <video ref={attachVideoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-center text-sm text-gray-400">
           Камера телефона недоступна — режим карты/списка (§3.2 ТЗ)
@@ -1168,26 +1256,48 @@ export default function BtwScanPage() {
             Власний overflow-y-auto + max-h — щоб довгий лог не розтягував контейнер понад
             компас-стрічку зверху. */}
         {showLog && (
-          <div className="max-h-[18vh] w-full max-w-[280px] overflow-y-auto rounded bg-black/70 p-2 text-[10px] leading-snug text-gray-200">
-            {logEntries.length === 0 ? (
-              <div className="text-center text-gray-500">Запросов пока нет</div>
-            ) : (
-              logEntries.map((e) => (
-                <div key={e.id} className="border-b border-white/10 py-0.5 last:border-b-0">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-gray-400">{e.time}</span>
-                    <span className={e.ok ? 'text-green-400' : 'text-red-400'}>{e.status ?? 'ERR'}</span>
-                  </div>
-                  <div className="truncate text-gray-200">
-                    {e.method} {e.url}
-                  </div>
-                  <div className="text-gray-400">
-                    {Math.round(e.durationMs)}мс · {formatBytes(e.sizeBytes)}
-                    {e.error && <span className="text-red-400"> · {e.error}</span>}
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="w-full max-w-[280px]">
+            {/* ДОДАНО — за прямим запитом користувача ("в логе не показывает запрос tiles - не
+                могу сделать выводы"): кнопка очищення. Log — модульний сінглтон (§ networkLog.
+                ts), що переживає навігацію між сторінками; Telegram WebView теж часто лишає
+                мінідодаток "призупиненим" замість справжнього релоаду при повторному відкритті
+                — без явного очищення старі записи з попереднього тесту легко переплутати з
+                поточним. */}
+            <div className="mb-1 flex justify-end">
+              <button onClick={() => clearNetworkLog()} className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-gray-400">
+                Очистить
+              </button>
+            </div>
+            <div className="max-h-[18vh] overflow-y-auto rounded bg-black/70 p-2 text-[10px] leading-snug text-gray-200">
+              {logEntries.length === 0 ? (
+                <div className="text-center text-gray-500">Запросов пока нет</div>
+              ) : (
+                logEntries.map((e) =>
+                  // ДОДАНО — синтетичні "note"-записи (§ logNote(), networkLog.ts) показують
+                  // РІШЕННЯ ("чому мережевого запиту не було"), не сам запит — окремий, коротший
+                  // рендер (жовтий/зелений текст замість method+url+статус+розмір).
+                  e.kind === 'note' ? (
+                    <div key={e.id} className={`border-b border-white/10 py-0.5 last:border-b-0 ${e.ok ? 'text-blue-300' : 'text-yellow-300'}`}>
+                      <span className="text-gray-500">{e.time}</span> {e.url}
+                    </div>
+                  ) : (
+                    <div key={e.id} className="border-b border-white/10 py-0.5 last:border-b-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-gray-400">{e.time}</span>
+                        <span className={e.ok ? 'text-green-400' : 'text-red-400'}>{e.status ?? 'ERR'}</span>
+                      </div>
+                      <div className="truncate text-gray-200">
+                        {e.method} {e.url}
+                      </div>
+                      <div className="text-gray-400">
+                        {Math.round(e.durationMs)}мс · {formatBytes(e.sizeBytes)}
+                        {e.error && <span className="text-red-400"> · {e.error}</span>}
+                      </div>
+                    </div>
+                  ),
+                )
+              )}
+            </div>
           </div>
         )}
 

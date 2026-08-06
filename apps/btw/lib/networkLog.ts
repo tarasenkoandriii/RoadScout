@@ -21,6 +21,15 @@ export interface NetworkLogEntry {
   durationMs: number;
   sizeBytes: number | null; // null — не вдалось визначити (§ measureResponseSize нижче)
   error: string | null;
+  // ДОДАНО — за прямим запитом користувача ("в логе не показывает запрос tiles - не могу
+  // сделать выводы"): коли btwLocalScanner.ts::init() НЕ доходить до завантаження тайлів
+  // взагалі (напр. `manifest.layers === null` — сервер каже "тайлів для цього міста ще немає"),
+  // жодного HTTP-запиту на самі тайли просто НЕ СТАЄТЬСЯ — у Log-панелі це виглядало як
+  // "порожньо", без жодного пояснення ЧОМУ. `kind: 'note'` — синтетичний, не-мережевий запис
+  // (§ logNote нижче) саме для таких РІШЕНЬ ("чому ні"), не лише запитів — тепер користувач
+  // бачить ПРИЧИНУ прямо в тому самому лозі, без потреби в USB-дебазі консолі браузера.
+  // Відсутнє (undefined) — звичайний HTTP-запис від loggedFetch(), як і раніше.
+  kind?: 'http' | 'note';
 }
 
 // Досить для "останні кілька хвилин активного сканування" (тик /api/scan кожні ~2с, § page.tsx)
@@ -80,6 +89,26 @@ async function measureResponseSize(res: Response): Promise<number | null> {
   } catch {
     return null; // не мало б траплятись за нашого патерну виклику — про всяк випадок не валимось
   }
+}
+
+// За прямим запитом користувача ("в логе не показывает запрос tiles - не могу сделать
+// выводы") — синтетичний, НЕ-мережевий запис у той самий Log (§ NetworkLogEntry.kind вище):
+// дозволяє показати ПРИЧИНУ, чому мережевий запит НЕ стався (напр. "тайлів для міста ще
+// немає", "IndexedDB-кеш влучив, мережа не потрібна", "Worker не підтримується") — саме ці
+// рішення й були "невидимі" раніше, бо Log показував лише те, що loggedFetch() реально
+// відправив.
+export function logNote(message: string, ok = true): void {
+  pushEntry({ id: nextId++, time: nowLabel(), method: ok ? 'ℹ' : '⚠', url: message, status: null, ok, durationMs: 0, sizeBytes: null, error: null, kind: 'note' });
+}
+
+// За прямим запитом користувача — кнопка "Очистить" у Log-панелі (page.tsx): без цього
+// повторний тест у ТІЙ САМІЙ сесії Telegram WebView (яка може лишатись "живою"/призупиненою
+// між відкриттями мінідодатку, не завжди справжній повний релоад сторінки) показує ЗАСТАРІЛІ
+// записи з попереднього тесту поверх нових — легко переплутати стару причину повільності з
+// поточною.
+export function clearNetworkLog(): void {
+  entries = [];
+  publish();
 }
 
 export async function loggedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

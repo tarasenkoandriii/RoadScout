@@ -21,6 +21,10 @@ import { loggedFetch } from './networkLog';
 // btwTileCache.ts).
 import { getCachedCityTiles, putCachedCityTiles } from './btwTileCache';
 import type { TileLayerVersions } from './btwTileCache';
+// За прямим запитом користувача — "в логе не показывает запрос tiles - не могу сделать
+// выводы" (§ детальний коментар біля logNote() у networkLog.ts): робить РІШЕННЯ init() (не
+// лише самі HTTP-запити) видимими в тій самій Log-панелі мінідодатку.
+import { logNote } from './networkLog';
 
 export interface LocalScanResult {
   direct: RankedCandidate[];
@@ -92,19 +96,31 @@ export class BtwLocalScanner {
   async init(cityName: string): Promise<boolean> {
     if (typeof Worker === 'undefined') {
       // SSR-рендер сторінки (Next.js) або дуже старий браузер без Worker — фолбек без спроби.
+      logNote('Локальный Worker не поддерживается браузером — используется серверный /api/scan', false);
       return false;
     }
 
     try {
       const manifestRes = await loggedFetch(`/api/manifest?city=${encodeURIComponent(cityName)}`);
-      if (!manifestRes.ok) return false;
+      if (!manifestRes.ok) {
+        logNote(`GET /api/manifest вернул ${manifestRes.status} — используется серверный /api/scan`, false);
+        return false;
+      }
       const manifest = (await manifestRes.json()) as BtwManifest;
 
       // §7.1 — доки сервер не має зібраних тайлів для цього міста (немає /btw/tiles/*
       // згенерованих скриптом — apps/api/scripts/generate-btw-tiles.ts, який я НЕ можу
       // виконати в цьому середовищі, бо потрібен живий Overpass+БД доступ), manifest.layers
       // лишається null і зберігається старий, уже перевірений сценарій.
-      if (!manifest.layers) return false;
+      if (!manifest.layers) {
+        // Саме ЦЕЙ випадок і був "невидимим" у Log-панелі (§ прямий запит користувача — "не
+        // показывает запрос tiles, не могу сделать выводы"): тайли для міста `cityName` ще не
+        // готові на сервері (getManifest() -> scanMode:'server-fallback-only') — жодного
+        // запиту на buildings.bin/cameras.json/streets.json просто НЕ буде, це очікувано, а не
+        // збій мережі.
+        logNote(`Тайлы для города "${cityName}" ещё не готовы на сервере (layers=null) — используется серверный /api/scan`, false);
+        return false;
+      }
 
       // За прямим запитом користувача — "закешировать данные уровня города на старте мини апп
       // на уровне устройства - и обновлять кеш только по необходимости" (§ btwTileCache.ts).
@@ -129,7 +145,9 @@ export class BtwLocalScanner {
         buildingsBuf = cached.buildingsBuf;
         camerasJson = cached.camerasJson;
         streetsJson = cached.streetsJson;
+        logNote(`Тайлы города "${cityName}" взяты из локального кеша (IndexedDB) — без сети`);
       } else {
+        logNote(`Тайлы города "${cityName}" не в кеше устройства — загружаются 3 файла (buildings/cameras/streets)`);
         [buildingsBuf, camerasJson, streetsJson] = await Promise.all([
           fetchArrayBuffer(manifest.layers.buildings.url),
           fetchJson(manifest.layers.cameras.url),
@@ -148,6 +166,7 @@ export class BtwLocalScanner {
       this.worker.onerror = (ev) => {
         // eslint-disable-next-line no-console
         console.warn('[btwLocalScanner] worker error, disposing and falling back to server scan:', ev.message);
+        logNote(`Worker упал: ${ev.message} — используется серверный /api/scan`, false);
         this.dispose();
       };
 
@@ -163,12 +182,16 @@ export class BtwLocalScanner {
       if (!ack.ok) {
         // eslint-disable-next-line no-console
         console.warn('[btwLocalScanner] loadTiles failed, falling back to server scan:', ack.error);
+        logNote(`Worker не смог загрузить тайлы: ${ack.error} — используется серверный /api/scan`, false);
         this.dispose();
+      } else {
+        logNote(`Локальный сканер готов для "${cityName}" — переключение с сервера`);
       }
       return this.ready;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn('[btwLocalScanner] init failed, falling back to server scan:', err);
+      logNote(`Локальный сканер не запустился: ${err instanceof Error ? err.message : String(err)} — используется серверный /api/scan`, false);
       this.dispose();
       return false;
     }

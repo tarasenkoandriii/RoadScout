@@ -107,6 +107,11 @@ export interface RankedCandidate {
   // скріні). Тепер віддаємо cam.azimuth напряму — той самий, що вже й classifyOrientationFit()
   // використовує, тож візуалізації клієнта завжди узгоджені з категорією.
   cameraAzimuth: number;
+  // ДОДАНО — за прямим запитом користувача (міні-карта азимута/сектора огляду на
+  // locked-екрані мінідодатку, apps/btw/components/BtwCameraMiniMap.tsx): раніше fovAngle
+  // рахувався лише ВСЕРЕДИНІ геометрії (passesConeFilter), клієнт його взагалі не отримував —
+  // без нього неможливо намалювати справжній сектор огляду камери, лише саму лінію азимута.
+  fovAngle: number;
 }
 
 // §4.5 ТЗ, Ф2 — геометрія конуса без окклюзії. cameraSeesPoint() з common/geometry.util.ts

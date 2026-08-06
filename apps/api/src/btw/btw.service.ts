@@ -613,6 +613,7 @@ export class BtwService {
         orientationFit,
         score,
         cameraAzimuth: cam.azimuth,
+        fovAngle: cam.fovAngle, // § детальний коментар біля RankedCandidate.fovAngle (btw-geometry.util.ts)
       });
     }
 
