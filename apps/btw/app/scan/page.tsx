@@ -423,9 +423,22 @@ function BtwScanPageInner() {
     // адмінську dev-подмену нижче: якщо користувач явно тапнув "Скан" на конкретній точці
     // вздовж маршруту (app/page.tsx, "Сопровождение в поездке"), саме її й треба показати,
     // а не випадково активну dev-подмену координат.
-    const routeLat = Number(searchParams?.get('lat'));
-    const routeLng = Number(searchParams?.get('lng'));
-    if (Number.isFinite(routeLat) && Number.isFinite(routeLng)) {
+    //
+    // ВИПРАВЛЕНО — живий баг, знайдений користувачем через скріншот Log-панелі (HUD показував
+    // "GPS: 0.00000, 0.00000", лейбл "точка на маршруте", і подальший `/api/nearest-city`
+    // впевнено обирав географічно випадкове "найближче" місто за (0,0)). Причина: коли `/scan`
+    // відкривають БЕЗ query-параметрів `lat`/`lng` узагалі (звичайний прямий вхід у сканер, не
+    // через "Сопровождение в поездке"), `searchParams?.get('lat')` повертає `null`, а
+    // `Number(null) === 0` (НЕ NaN!) — тож `Number.isFinite(routeLat)` хибно повертав `true`
+    // для відсутнього параметра, і ця гілка ЗАВЖДИ спрацьовувала з (0,0) замість того, щоб
+    // пропустити перевірку і дати шанс dev-подміні/реальній геолокації нижче. Тепер явно
+    // перевіряємо, що обидва raw-рядки СПРАВДІ присутні (не `null`), перш ніж парсити їх у
+    // число — відсутній параметр більше не маскується під "точку маршруту (0,0)".
+    const routeLatRaw = searchParams?.get('lat') ?? null;
+    const routeLngRaw = searchParams?.get('lng') ?? null;
+    const routeLat = routeLatRaw !== null ? Number(routeLatRaw) : NaN;
+    const routeLng = routeLngRaw !== null ? Number(routeLngRaw) : NaN;
+    if (routeLatRaw !== null && routeLngRaw !== null && Number.isFinite(routeLat) && Number.isFinite(routeLng)) {
       setPosition({ lat: routeLat, lng: routeLng, accuracyM: 5 });
       setRouteOverrideLabel(searchParams?.get('label') || 'точка на маршруте');
       usedOverride = true;
