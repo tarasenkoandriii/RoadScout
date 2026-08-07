@@ -48,6 +48,13 @@ const dict: Dictionary = {
   widget_incidents_source_tomtom: 'Quelle: TomTom Traffic',
   widget_incidents_source_none: 'Für diese Region ist keine Verkehrsquelle konfiguriert',
   widget_map_radius_note: 'Im Umkreis von {radius} km um deine Stadt',
+  widget_map_label: 'Regionskarte',
+  widget_layer_incidents: 'Vorfälle',
+  widget_layer_rain: 'Regen',
+  widget_layer_wind: 'Wind',
+  widget_layer_clouds: 'Bewölkung',
+  widget_layer_temp: 'Temperatur',
+  widget_layer_radar: 'Niederschlagsradar',
   widget_disclaimer: 'Die Stadt wird anhand deiner IP-Adresse ermittelt — ungefähr, ohne Abfrage deines genauen Standorts.',
 
   privacy_eyebrow: '// datenschutz',

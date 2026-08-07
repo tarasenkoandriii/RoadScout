@@ -48,6 +48,13 @@ const dict: Dictionary = {
   widget_incidents_source_tomtom: 'Sursă: TomTom Traffic',
   widget_incidents_source_none: 'Nicio sursă de trafic configurată pentru această regiune',
   widget_map_radius_note: 'În raza de {radius} km de orașul tău',
+  widget_map_label: 'Harta regiunii',
+  widget_layer_incidents: 'Incidente',
+  widget_layer_rain: 'Ploaie',
+  widget_layer_wind: 'Vânt',
+  widget_layer_clouds: 'Nori',
+  widget_layer_temp: 'Temperatură',
+  widget_layer_radar: 'Radar de precipitații',
   widget_disclaimer: 'Orașul este detectat din adresa ta IP — aproximativ, fără a cere acces la locația ta exactă.',
 
   privacy_eyebrow: '// confidențialitate',

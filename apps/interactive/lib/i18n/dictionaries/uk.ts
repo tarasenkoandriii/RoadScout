@@ -49,6 +49,13 @@ const dict: Dictionary = {
   widget_incidents_source_tomtom: 'Джерело: TomTom Traffic',
   widget_incidents_source_none: 'Джерело трафіку для цього регіону не налаштовано',
   widget_map_radius_note: 'У радіусі {radius} км від вашого міста',
+  widget_map_label: 'Карта регіону',
+  widget_layer_incidents: 'Інциденти',
+  widget_layer_rain: 'Дощ',
+  widget_layer_wind: 'Вітер',
+  widget_layer_clouds: 'Хмарність',
+  widget_layer_temp: 'Температура',
+  widget_layer_radar: 'Радар опадів',
   widget_disclaimer: 'Місто визначається за IP-адресою — приблизно, без запиту доступу до вашої точної геолокації.',
 
   privacy_eyebrow: '// приватність',

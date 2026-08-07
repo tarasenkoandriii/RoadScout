@@ -55,6 +55,16 @@ export interface Dictionary {
   // interpolate(), що вже footer_copyright з {year}) — радіус приходить з backend
   // (LandingIncidentsSummary.radiusKm), а не захардкоджений на фронті.
   widget_map_radius_note: string;
+  // ДОДАНО за прямим запитом користувача ("карту взять у windy - сделать как в админке с теми
+  // же селекторами слоев") — підпис над рядом вкладок-перемикачів шарів карти (Інциденти +
+  // 5 шарів Windy) у CityMapPanel.tsx.
+  widget_map_label: string;
+  widget_layer_incidents: string;
+  widget_layer_rain: string;
+  widget_layer_wind: string;
+  widget_layer_clouds: string;
+  widget_layer_temp: string;
+  widget_layer_radar: string;
   widget_disclaimer: string;
 
   privacy_eyebrow: string;

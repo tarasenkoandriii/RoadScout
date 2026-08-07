@@ -48,6 +48,13 @@ const dict: Dictionary = {
   widget_incidents_source_tomtom: 'Forrás: TomTom Traffic',
   widget_incidents_source_none: 'Ehhez a régióhoz nincs beállítva forgalmi forrás',
   widget_map_radius_note: '{radius} km-es körzetben a városodtól',
+  widget_map_label: 'Régió térkép',
+  widget_layer_incidents: 'Események',
+  widget_layer_rain: 'Eső',
+  widget_layer_wind: 'Szél',
+  widget_layer_clouds: 'Felhőzet',
+  widget_layer_temp: 'Hőmérséklet',
+  widget_layer_radar: 'Csapadékradar',
   widget_disclaimer: 'A várost az IP-címed alapján határozzuk meg — hozzávetőlegesen, a pontos helyzeted lekérése nélkül.',
 
   privacy_eyebrow: '// adatvédelem',

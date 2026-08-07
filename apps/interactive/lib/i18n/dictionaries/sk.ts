@@ -48,6 +48,13 @@ const dict: Dictionary = {
   widget_incidents_source_tomtom: 'Zdroj: TomTom Traffic',
   widget_incidents_source_none: 'Pre tento región nie je nakonfigurovaný žiadny zdroj dopravy',
   widget_map_radius_note: 'V okruhu {radius} km od vášho mesta',
+  widget_map_label: 'Mapa regiónu',
+  widget_layer_incidents: 'Incidenty',
+  widget_layer_rain: 'Dážď',
+  widget_layer_wind: 'Vietor',
+  widget_layer_clouds: 'Oblačnosť',
+  widget_layer_temp: 'Teplota',
+  widget_layer_radar: 'Radar zrážok',
   widget_disclaimer: 'Mesto sa určuje podľa IP adresy — približne, bez žiadosti o presnú polohu.',
 
   privacy_eyebrow: '// súkromie',
