@@ -141,7 +141,15 @@ interface ScanDebug {
   headingUncertaintyDeg: number;
 }
 
-type Phase = 'intro' | 'requesting' | 'scanning' | 'locked' | 'error';
+// ВИДАЛЕНО фазу 'intro' — за прямим запитом користувача («экран сканирование/+текст убрать -
+// теперь вся навигация мини апп через главное меню - этого достаточно»): раніше цей екран
+// (заголовок "Beyond the Wall", пояснювальний текст, кнопка "Начать сканирование") показувався
+// ПОВТОРНО тут, хоча вхід на `/scan` вже відбувається через усвідомлений тап користувача на
+// кнопці "Сканировать" головного меню (app/page.tsx) — тобто цей проміжний "чи ви впевнені?"
+// екран лише дублював навігаційне рішення, яке користувач щойно прийняв. Тепер запит дозволів
+// стартує одразу при монтуванні (див. useEffect нижче) — жодного додаткового тапу всередині
+// `/scan`.
+type Phase = 'requesting' | 'scanning' | 'locked' | 'error';
 
 // ДОДАНО (аудит 2026-08-06, doc/AUDIT-btw-route-planning.md) — Next.js 14 App Router вимагає,
 // щоб будь-який компонент, що викликає `useSearchParams()`, був обгорнутий у `<Suspense>` —
@@ -166,7 +174,7 @@ function BtwScanPageInner() {
   // `?lat=&lng=&label=` (з app/page.tsx, режим "Сопровождение в поездке") — ЄДИНА точка
   // перетину зі старим головним екраном, як і зазначено в ТЗ.
   const searchParams = useSearchParams();
-  const [phase, setPhase] = useState<Phase>('intro');
+  const [phase, setPhase] = useState<Phase>('requesting');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasCamera, setHasCamera] = useState(false);
   const [heading, setHeading] = useState<number | null>(null);
@@ -566,6 +574,26 @@ function BtwScanPageInner() {
     setPhase('scanning');
   }, [ensureBtwSession, searchParams, sharedLocation, sharedUsedDevOverride]);
 
+  // ДОДАНО — за прямим запитом користувача («экран сканирование/+текст убрать - теперь вся
+  // навигация мини апп через главное меню - этого достаточно»): раніше запит дозволів
+  // (requestPermissions) стартував лише по кліку кнопки "Начать сканирование" на видаленому
+  // екрані 'intro' (§ коментар біля Phase вище). Тепер, коли єдина точка входу — кнопка
+  // "Сканировать" головного меню, цей клік і є потрібним прямим жестом користувача — тому
+  // запит дозволів стартує одразу при монтуванні `/scan`, без зайвого екрана-підтвердження.
+  //
+  // ⚠️ ЧЕСНО — компроміс: на iOS Safari DeviceOrientationEvent.requestPermission() і
+  // getUserMedia() за специфікацією мають викликатись СИНХРОННО в обробнику прямого жесту
+  // (§8.2 ТЗ) — клік по кнопці "Сканировать" на головному екрані технічно є таким жестом, але
+  // через асинхронний client-side перехід сторінки до моменту, коли цей ефект тут спрацьовує,
+  // браузер може вже не визнавати його "свіжим". Якщо так станеться — запит впаде в `catch`
+  // нижче й покаже фазу 'error' з кнопкою "Повторить", тап по якій ГАРАНТОВАНО прямий жест і
+  // коректно отримає дозволи. На Android (де такого обмеження немає) — повністю безшовно; на
+  // iOS у гіршому разі — один додатковий тап "Повторить" замість прибраного екрана.
+  useEffect(() => {
+    requestPermissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleOrientation(e: DeviceOrientationEvent & { webkitCompassHeading?: number }) {
     const raw = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? 360 - e.alpha : null);
     if (raw == null) return;
@@ -690,10 +718,10 @@ function BtwScanPageInner() {
   // переключаться сразу"): навіть із попереднім фіксом вище завантаження тайлів усе одно
   // чекало на `scanCitySlug`, а той — на РЕАЛЬНУ GPS-позицію, яка стає відомою лише ПІСЛЯ
   // getCurrentPosition() (до 8с таймаут сам по собі, § requestPermissions()). Тепер тригер —
-  // `citySlugToLoad = scanCitySlug ?? speculativeCitySlug` (§ btwCityCache.ts) — і фаза
-  // 'intro' ДОДАНА в активні: якщо на цьому пристрої вже є "здогадка" з минулої сесії,
-  // завантаження тайлів стартує ОДРАЗУ при відкритті мінідодатку, ще ДО натискання кнопки
-  // "почати" й задовго до того, як GPS взагалі відповість — паралельно з усією ланцюжкою
+  // `citySlugToLoad = scanCitySlug ?? speculativeCitySlug` (§ btwCityCache.ts): якщо на цьому
+  // пристрої вже є "здогадка" з минулої сесії, завантаження тайлів стартує ОДРАЗУ при
+  // відкритті `/scan` (фаза 'requesting' — тепер уже перша й початкова, § видалена фаза
+  // 'intro' вище), задовго до того, як GPS взагалі відповість — паралельно з усією ланцюжкою
   // дозволів, а не після неї. `loadedCitySlugRef` — яке саме місто зараз завантажене/
   // завантажується: коли реальний `scanCitySlug` нарешті приходить і збігається зі здогадкою
   // (типовий випадок — той самий пристрій, та сама людина, те саме місто) — ефект НІЧОГО не
@@ -703,7 +731,7 @@ function BtwScanPageInner() {
   // показати кандидатів НЕ того міста.
   useEffect(() => {
     const citySlugToLoad = scanCitySlug ?? speculativeCitySlug;
-    const active = (phase === 'intro' || phase === 'requesting' || phase === 'scanning') && citySlugToLoad != null;
+    const active = (phase === 'requesting' || phase === 'scanning') && citySlugToLoad != null;
     if (!active) {
       if (localScannerRef.current) {
         localScannerRef.current.dispose();
@@ -1096,24 +1124,6 @@ function BtwScanPageInner() {
     const interval = setInterval(() => setThumbRefreshTick((t) => t + 1), 3000);
     return () => clearInterval(interval);
   }, [phase]);
-
-  if (phase === 'intro') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-6 text-white text-center">
-        <h1 className="text-2xl font-bold">Beyond the Wall</h1>
-        <p className="text-sm text-gray-300 max-w-xs">
-          Наведите телефон вокруг себя — приложение покажет, в каких направлениях есть публичная камера, которая видит то, что скрыто от вас
-          препятствием.
-        </p>
-        <p className="text-xs text-gray-500 max-w-xs">
-          Показываются только публичные, проверенные камеры. Наведение на жильё и социальные объекты заблокировано. История не хранится.
-        </p>
-        <button onClick={requestPermissions} className="rounded-full bg-white px-8 py-3 font-semibold text-black">
-          Начать сканирование
-        </button>
-      </div>
-    );
-  }
 
   if (phase === 'requesting') {
     return (
