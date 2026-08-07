@@ -32,6 +32,22 @@ export function middleware(request: Request) {
   const url = new URL(request.url);
   const { pathname } = url;
 
+  // ВИПРАВЛЕНО (реальний баг, знайдений користувачем на живому Vercel-деплої: `GET /api/geo`
+  // повертав 404, хоча `app/api/geo/route.ts` реально є в білді) — цей middleware, на відміну
+  // від apps/landing (де взагалі немає жодного `/api/*` роуту), тепер обслуговує CityWidget
+  // (§ TZ-btw-landing-v2.md §3.2), який ходить у СВІЙ ЖЕ `/api/geo`. Матчер нижче раніше НЕ
+  // виключав `/api/*` — тож запит `/api/geo` не мав "мовного префіксу" (`/uk`, `/en`, ...),
+  // middleware вважав це звичайною сторінкою і РЕДІРЕКТИВ на `/uk/api/geo` (307), якого не
+  // існує (Route Handler лежить рівно в `app/api/geo/route.ts`, не під `app/[lang]/api/...`)
+  // — звідси і 404 в мережевій вкладці (спершу 307, потім 404 на кінцевому URL). Захист у
+  // двох місцях: `matcher` нижче (щоб middleware для `/api/*` взагалі не запускався — дешевше)
+  // ТА цей явний ранній return (про всяк випадок, якщо під `app/api/` з'явиться ще один роут,
+  // а хтось поправить matcher і забуде цей нюанс — той самий "belt and suspenders" підхід, що
+  // вже прийнятий в інших місцях проєкту для критичної деградації).
+  if (pathname.startsWith('/api/')) {
+    return;
+  }
+
   const hasLangPrefix = LANGUAGE_CODES.some((code) => pathname === `/${code}` || pathname.startsWith(`/${code}/`));
   if (hasLangPrefix) {
     return;
@@ -43,5 +59,5 @@ export function middleware(request: Request) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)'],
+  matcher: ['/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)'],
 };
