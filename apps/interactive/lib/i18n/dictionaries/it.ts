@@ -1,0 +1,80 @@
+import { Dictionary } from '../dictionary.types';
+
+const dict: Dictionary = {
+  skipLink: 'Vai al contenuto',
+
+  hero_eyebrow: '// pianifica in anticipo',
+  hero_title_line1: 'Pianifica il tuo percorso —',
+  hero_title_line2: 'sappi cosa ti aspetta',
+  hero_subtitle:
+    "Un'app gratuita su Telegram crea un percorso per auto o bicicletta e mostra subito cosa c'è lungo la strada: telecamere, meteo, incidenti noti e condizioni del traffico. Durante il tragitto ti guida e ricalcola automaticamente il percorso se te ne allontani.",
+  cta_open: 'Apri in Telegram →',
+
+  problem_eyebrow: '// perché è importante',
+  problem_title: 'Sulla strada raramente sai in anticipo cosa ti aspetta',
+  problem_text:
+    "Il meteo cambia, capitano incidenti, compaiono nuove telecamere — e di solito lo scopri solo quando sei già in viaggio, quando è difficile reagire. Beyond the Wall crea il tuo percorso e mostra cosa c'è lungo la strada prima ancora di partire, poi continua a monitorare mentre guidi o pedali.",
+
+  steps_eyebrow: '// come funziona',
+  steps_title: 'Dal punto A al punto B — con il quadro completo del tragitto',
+  step1_title: 'Imposta i punti A e B',
+  step1_text: "Posizione attuale, un luogo salvato o inserimento manuale — poi scegli un profilo: auto o bicicletta.",
+  step2_title: 'Vedi il percorso in anticipo',
+  step2_text: "Telecamere, meteo, incidenti noti e traffico lungo il percorso — ancora prima di partire.",
+  step3_title: 'Viaggia con guida dal vivo',
+  step3_text: "Il monitoraggio in tempo reale segnala se ti allontani dal percorso e lo ricalcola automaticamente.",
+  step4_title: '«Cosa hai davanti»',
+  step4_text: "Un elenco di ciò che si trova qualche centinaio di metri più avanti — un tocco per vedere i dettagli.",
+
+  audience_eyebrow: '// per chi è pensato',
+  audience_title: 'Al volante o in bicicletta',
+  audience_cyclist_title: 'Bicicletta',
+  audience_cyclist_text: "Un percorso adatto al profilo del ciclista, con avvisi su telecamere e condizioni lungo la strada.",
+  audience_driver_title: 'Auto',
+  audience_driver_text: "Un percorso per auto, traffico in tempo reale e ricalcolo automatico se la strada è chiusa o te ne allontani.",
+
+  widget_eyebrow: '// proprio ora',
+  widget_title: 'Cosa succede nella tua città',
+  widget_subtitle: "Rileviamo la tua città dal tuo indirizzo IP (senza richiedere la posizione esatta) e mostriamo il meteo in tempo reale e gli incidenti stradali noti nelle vicinanze.",
+  widget_loading: 'Rilevamento della tua città…',
+  widget_error: 'Impossibile caricare i dati — riprova ad aggiornare la pagina più tardi.',
+  widget_unavailable: 'Non ci sono ancora dati disponibili per la tua regione — la copertura cresce gradualmente.',
+  widget_weather_label: 'Meteo',
+  widget_weather_hazard: '⚠ Possibili condizioni stradali pericolose',
+  widget_incidents_label: 'Incidenti stradali nelle vicinanze',
+  widget_incidents_empty: 'Al momento nessun incidente noto nelle vicinanze.',
+  widget_incidents_source_511ny: 'Fonte: 511NY (stato di New York)',
+  widget_incidents_source_tomtom: 'Fonte: TomTom Traffic',
+  widget_incidents_source_none: 'Nessuna fonte di traffico configurata per questa regione',
+  widget_disclaimer: 'La città viene rilevata dal tuo indirizzo IP — in modo approssimativo, senza richiedere la tua posizione esatta.',
+
+  privacy_eyebrow: '// privacy',
+  privacy_title: 'Il tuo percorso resta con te',
+  privacy_text:
+    "Durante un viaggio, le coordinate vengono elaborate localmente, sul tuo telefono — il server non riceve mai un flusso della tua posizione. Il blocco «cosa succede nella tua città» sopra usa solo una città approssimativa dal tuo indirizzo IP, senza posizione esatta e senza richieste salvate.",
+  privacy_point1: 'Le coordinate del viaggio non vengono inviate al server come dati identificati',
+  privacy_point2: "La città per il widget in tempo reale viene rilevata tramite IP — non GPS, senza permesso di posizione",
+  privacy_point3: 'Le richieste al server non salvano nulla e non sono collegate a nessuno',
+
+  faq_eyebrow: '// domande frequenti',
+  faq_title: 'Domande frequenti',
+  faq_q1: 'È gratis?',
+  faq_a1: "Sì, completamente — in questa fase non ci sono abbonamenti né funzioni a pagamento.",
+  faq_q2: "L'app mi tiene sotto controllo tutto il tempo?",
+  faq_a2: "No. Il monitoraggio in tempo reale funziona solo mentre sei attivamente in viaggio con l'app aperta, e puoi terminarlo in qualsiasi momento.",
+  faq_q3: 'Cosa succede se esco dal percorso pianificato?',
+  faq_a3: "L'app nota la deviazione e propone — o crea automaticamente — un nuovo percorso, senza ricerca manuale.",
+  faq_q4: 'I dati su meteo e incidenti sono disponibili per ogni città?',
+  faq_a4:
+    "No — la copertura dipende dalla fonte: gli incidenti sul percorso tramite 511NY sono disponibili solo nello stato di New York, TomTom copre più regioni dove è configurato, e il meteo cresce insieme all'elenco delle città. Dove non ci sono dati, lo diciamo onestamente.",
+  faq_q5: 'Come fa questa pagina a conoscere la mia città?',
+  faq_a5: "Dall'indirizzo IP del tuo browser — in modo approssimativo, a livello di città, senza richiedere l'accesso alla tua posizione esatta.",
+
+  final_title: 'Provalo subito',
+  footer_copyright: '© {year} Beyond the Wall',
+  footer_note: 'Cerchi solo uno scanner di telecamere? La nostra app classica è anche su Telegram — lo stesso bot.',
+
+  languageSelector_label: 'Lingua',
+};
+
+export default dict;

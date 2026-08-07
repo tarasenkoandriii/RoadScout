@@ -157,7 +157,27 @@ export function pointAtDistanceAlongRoute(route: LatLng[], distanceM: number): {
 
 // Nearest-segment projection — used by the LIVE_GPS provider to derive a plausible azimuth
 // (direction of travel) and an approximate route offset from a raw lat/lng GPS fix, since the
-// carrier feed only gives us a point, not a heading.
+// carrier feed only gives us a point, not a heading. Also used by `BtwRouteForecastService`
+// (route-along filtering of incidents/traffic) and, client-side, by the BTW trip-mode deviation
+// indicator/auto-reroute trigger (`apps/btw/lib/geometry.ts` — kept as an exact mirror of this
+// function, see comment there).
+//
+// ⚠️ ВИПРАВЛЕНО (аудит 2026-08-06, doc/AUDIT-btw-route-planning.md) — попередня версія
+// апроксимувала проєкцію `point` на сегмент через ПРЯМУ (не спроєктовану) відстань від
+// `segStart` до `point`, поділену на довжину сегмента. Це давало правильний результат ЛИШЕ
+// коли `point` лежить точно на лінії сегмента; для будь-якої точки, зміщеної вбік (типовий
+// випадок реального GPS-фікса при русі транспорту), частка завищувалась і "найближча точка"
+// хибно зсувалась вздовж сегмента навіть тоді, коли справжня найближча точка — початок/кінець
+// сегмента. Приклад: сегмент довжиною 1000м напрямку на північ, точка точно навпроти початку
+// сегмента (abeam) за 500м на схід — правильна відповідь: offset=0м, distance=500м; стара
+// формула давала offset=500м, distance≈707м.
+//
+// Нова версія — точна 2D-проекція (скалярний добуток) у локальній рівнокутній (flat-earth)
+// системі координат з початком у `segStart` (x — схід, y — північ, обидва в метрах,
+// довгота масштабується на cos(широта) для компенсації звуження меридіанів) — той самий
+// принцип точності, що вже описувався коментарем "sufficient at city scale (segments are short
+// relative to Earth's radius)", лише коректно застосований до самої проєкції, а не до вибору
+// частки вздовж сегмента.
 export function nearestPointOnRoute(
   route: LatLng[],
   point: LatLng,
@@ -175,14 +195,22 @@ export function nearestPointOnRoute(
     const segLength = haversineDistance(segStart, segEnd);
     const segAzimuth = bearing(segStart, segEnd);
 
-    // Approximate projection of `point` onto the segment using a simple equirectangular
-    // fraction — sufficient at city scale (segments are short relative to Earth's radius).
-    const toEndFraction = segLength === 0 ? 0 : Math.min(1, Math.max(0, haversineDistance(segStart, point) / segLength));
-    const candidatePoint = destinationPoint(segStart, segAzimuth, toEndFraction * segLength);
-    const distanceToRouteM = haversineDistance(candidatePoint, point);
+    const latRad = toRad(segStart.lat);
+    const toLocalXY = (p: LatLng) => ({
+      x: toRad(p.lng - segStart.lng) * Math.cos(latRad) * EARTH_RADIUS_M,
+      y: toRad(p.lat - segStart.lat) * EARTH_RADIUS_M,
+    });
+    const segVec = toLocalXY(segEnd);
+    const pointVec = toLocalXY(point);
+    const segLenSq = segVec.x * segVec.x + segVec.y * segVec.y;
+    const rawFraction = segLenSq === 0 ? 0 : (pointVec.x * segVec.x + pointVec.y * segVec.y) / segLenSq;
+    const clampedFraction = Math.min(1, Math.max(0, rawFraction));
+    const crossX = pointVec.x - clampedFraction * segVec.x;
+    const crossY = pointVec.y - clampedFraction * segVec.y;
+    const distanceToRouteM = Math.sqrt(crossX * crossX + crossY * crossY);
 
     if (distanceToRouteM < best.distanceToRouteM) {
-      best = { azimuth: segAzimuth, offsetMeters: cumulative + toEndFraction * segLength, distanceToRouteM };
+      best = { azimuth: segAzimuth, offsetMeters: cumulative + clampedFraction * segLength, distanceToRouteM };
     }
     cumulative += segLength;
   }

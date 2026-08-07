@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { bboxAroundPoint, LatLng } from '../../lib/geometry';
 import { ensureBtwSession, fetchDevLocationOverride } from '../../lib/btwSession';
 import { loggedFetch } from '../../lib/networkLog';
@@ -37,6 +37,7 @@ const SCALE_OPTIONS = [
 // ЦЬОГО telegram-акаунту через /admin/btw-dev-tools (те саме, що вже відбувається на екрані
 // сканування) — сервер тут так само не дізнається нічого понад те, що адмін сам туди вписав.
 export default function BtwMapPage() {
+  const router = useRouter();
   const [center, setCenter] = useState<LatLng | null>(null);
   const [scaleIndex, setScaleIndex] = useState(1); // за замовчуванням 1 км
   const [cameras, setCameras] = useState<MapCamera[]>([]);
@@ -132,9 +133,24 @@ export default function BtwMapPage() {
   return (
     <div className="relative min-h-screen bg-black text-white">
       <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between gap-2 bg-black/70 px-4 py-3">
-        <Link href="/" className="rounded-full bg-white/20 px-3 py-1.5 text-sm">
-          ← Сканирование
-        </Link>
+        {/* ВИПРАВЛЕНО (аудит 2026-08-06, doc/AUDIT-btw-route-planning.md) — раніше тут був
+            жорстко зашитий `<Link href="/scan">`, який вважав, що на `/map` можна потрапити
+            ЛИШЕ з екрана сканування. Це стало неправильним, щойно головний екран (`app/page.tsx`)
+            отримав власну кнопку "Карта" (§ route-planning): користувач, який відкрив мапу з
+            головного екрана і тиснув "← Сканирование" очікуючи повернутись туди, звідки прийшов,
+            замість цього потрапляв на екран сканування — незрозумілий "глухий кут" навігації.
+            `router.back()` — стандартний "поверни туди, звідки прийшли", коректний для ОБОХ
+            точок входу (з `/` і з `/scan`); фолбек на `/` лише якщо історії браузера немає
+            (наприклад, прямий deep-link на `/map`). */}
+        <button
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+            else router.push('/');
+          }}
+          className="rounded-full bg-white/20 px-3 py-1.5 text-sm"
+        >
+          ← Назад
+        </button>
         <div className="flex gap-1">
           {SCALE_OPTIONS.map((opt, i) => (
             <button

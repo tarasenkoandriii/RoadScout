@@ -66,8 +66,22 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+interface PointCacheEntry {
+  data: WeatherPoint;
+  expiresAt: number;
+}
+
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 минут — сводка погоды не нужна свежее этого, а свободный API вежливо не долбить
 const FETCH_TIMEOUT_MS = 8000;
+
+// За прямим запитом користувача (doc/TZ-btw-landing-v2.md §3.3/§3.7) — окремий кеш саме для
+// довільних координат (не з довідника `City`), ключ — округлені lat/lng, а не назва міста
+// (назви від відвідувачів лендингу можуть повторюватись/бути неточними, координати — ні).
+// TTL коротший за CACHE_TTL_MS вище — тут очікується набагато ширший розкид точок (кожне
+// унікальне місто відвідувача), тримати їх довго в пам'яті сенсу менше, ніж фіксовану City-
+// сітку зі снапшоту.
+const POINT_CACHE_TTL_MS = 10 * 60 * 1000;
+const POINT_CACHE_KEY_PRECISION = 1; // ~11км — досить грубо, щоб сусідні відвідувачі того ж міста ділили один запис кешу
 
 // Фоллбэк на случай пустого справочника City (например, свежая БД до прогона
 // sql/cities-seed.sql) — чтобы сводка погоды не была пустой, а не потому что это "правильный"
@@ -81,6 +95,7 @@ const FALLBACK_POINT: ReferencePoint = { name: 'Київ', lat: 50.4501, lng: 30
 export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
   private cache: CacheEntry | null = null;
+  private readonly pointCache = new Map<string, PointCacheEntry>();
 
   constructor(private readonly cities: CitiesService) {}
 
@@ -94,6 +109,29 @@ export class WeatherService {
     const points = await Promise.all(referencePoints.map((p) => this.fetchOne(p)));
     this.cache = { data: points, expiresAt: now + CACHE_TTL_MS };
     return points;
+  }
+
+  // ДОДАНО за прямим запитом користувача (doc/TZ-btw-landing-v2.md §3.3, відкрите питання §3.7,
+  // вирішене на користь варіанту (а) — розширити WeatherService на довільні координати, а не
+  // обмежувати IP-віджет лендингу лише містами з довідника `City`). Публічна обгортка над вже
+  // наявним `fetchOne()` — той самий провайдер (Open-Meteo) і той самий формат `WeatherPoint`
+  // (включно з `error` при збої), просто для точки, якої може не бути в довіднику `City` —
+  // жодних змін у `getSnapshot()`/`getReferencePoints()` не знадобилось.
+  async getPointWeather(point: { name: string; lat: number; lng: number }): Promise<WeatherPoint> {
+    const key = this.buildPointCacheKey(point.lat, point.lng);
+    const now = Date.now();
+    const cached = this.pointCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const data = await this.fetchOne(point);
+    this.pointCache.set(key, { data, expiresAt: now + POINT_CACHE_TTL_MS });
+    return data;
+  }
+
+  private buildPointCacheKey(lat: number, lng: number): string {
+    return `${lat.toFixed(POINT_CACHE_KEY_PRECISION)},${lng.toFixed(POINT_CACHE_KEY_PRECISION)}`;
   }
 
   private async getReferencePoints(): Promise<ReferencePoint[]> {

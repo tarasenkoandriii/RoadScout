@@ -1,10 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { BtwService } from './btw.service';
 import { TelegramAuthGuard } from '../auth/telegram-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { AuthService } from '../auth/auth.service';
 import { setSessionCookie } from '../auth/session-cookie.util';
+// За прямим запитом користувача — doc/TZ-btw-landing-v2.md §3 (лендинг apps/interactive,
+// «интерактивность по айпи посетителя - погода и инциденты по городу»).
+import { BtwLandingSnapshotService } from './btw-landing-snapshot.service';
 
 // Beyond the Wall (BTW) — контролер, §7 ТЗ (doc/BTW-tz.md). Автентифікація —
 // TelegramAuthGuard (той самий шаблон, що вже використовується по всьому проєкту —
@@ -23,6 +26,7 @@ export class BtwController {
   constructor(
     private readonly btwService: BtwService,
     private readonly authService: AuthService,
+    private readonly landingSnapshotService: BtwLandingSnapshotService,
   ) {}
 
   // За прямим запитом користувача — реальний вхід для BTW mini-app. Викликається клієнтом
@@ -135,6 +139,38 @@ export class BtwController {
     return this.btwService.listViewpoints(req.telegramId);
   }
 
+  // §3.1 doc/TZ-btw-route-planning.md — за прямим запитом користувача: "добавить модель и её
+  // сохранение/удаление на сервере". Той самий шаблон, що viewpoints вище — apps/btw викликає
+  // це як `/api/saved-places` (next.config.js rewrite `/api/:path*` -> `${apiUrl}/btw/:path*`).
+  @UseGuards(TelegramAuthGuard)
+  @Post('saved-places')
+  saveSavedPlace(@Req() req: any, @Body() body: { label: string; lat: number; lng: number; address?: string }) {
+    return this.btwService.saveSavedPlace(req.telegramId, body.label, body.lat, body.lng, body.address);
+  }
+
+  @UseGuards(TelegramAuthGuard)
+  @Get('saved-places')
+  listSavedPlaces(@Req() req: any) {
+    return this.btwService.listSavedPlaces(req.telegramId);
+  }
+
+  @UseGuards(TelegramAuthGuard)
+  @Delete('saved-places/:id')
+  removeSavedPlace(@Req() req: any, @Param('id') id: string) {
+    return this.btwService.removeSavedPlace(req.telegramId, id);
+  }
+
+  // §6.1/§6.3 doc/TZ-btw-route-planning.md — за прямим запитом користувача: "маршрутизация не
+  // вызывается — ключа OpenRouteService пока нет (§6.3) исправь". Апс btw викликає це як
+  // `/api/route` (той самий rewrite `/api/:path*` -> `${apiUrl}/btw/:path*`, що вже
+  // saved-places вище). З guard'ом — той самий принцип, що вже §7.3 ТЗ вимагає для lock/thumb:
+  // без автентифікації анонімний клієнт міг би спалити денну/хвилинну квоту ORS-ключа.
+  @UseGuards(TelegramAuthGuard)
+  @Post('route')
+  buildRoute(@Body() body: { pointA: { lat: number; lng: number }; pointB: { lat: number; lng: number }; profile: 'driving-car' | 'cycling-regular' | 'foot-walking' }) {
+    return this.btwService.buildRoute(body.pointA, body.pointB, body.profile);
+  }
+
   @UseGuards(TelegramAuthGuard)
   @Post('report')
   report(@Req() req: any, @Body() body: { cameraId?: string; reason: string }) {
@@ -165,6 +201,23 @@ export class BtwController {
   @Get('coverage')
   coverage(@Query('swLat') swLat: string, @Query('swLng') swLng: string, @Query('neLat') neLat: string, @Query('neLng') neLng: string) {
     return this.btwService.coverage(parseFloat(swLat), parseFloat(swLng), parseFloat(neLat), parseFloat(neLng));
+  }
+
+  // За прямим запитом користувача — doc/TZ-btw-landing-v2.md §3.3: живий блок «що у вашому
+  // місті» на новому лендингу apps/interactive. Анонімний, без guard — той самий рівень
+  // публічності, що вже /btw/coverage/nearest-city вище (§3.5 ТЗ: сервер не отримує нічого
+  // ідентифікованого — лише lat/lng, які лендинг сам уже отримав із заголовків Vercel geo-IP
+  // на СВОЄМУ боці; цей ендпоінт про них навіть не знає, приймає голі координати як вхід).
+  // cityLabel — лише косметика для відображення (§3.2 ТЗ: сама логіка working завжди йде по
+  // координатах, не по текстовій назві міста).
+  @Get('landing-snapshot')
+  landingSnapshot(@Query('lat') latRaw: string, @Query('lng') lngRaw: string, @Query('cityLabel') cityLabel?: string) {
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      throw new BadRequestException('lat/lng must be valid coordinates');
+    }
+    return this.landingSnapshotService.getSnapshot(lat, lng, cityLabel?.trim() || 'Ваш регион');
   }
 
   // За прямим запитом користувача — розбір живого бага (хардкод 'kyiv' незалежно від реальної/

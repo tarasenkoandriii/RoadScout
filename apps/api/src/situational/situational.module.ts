@@ -16,5 +16,11 @@ import { CitiesModule } from '../cities/cities.module';
   imports: [PrismaModule, CitiesModule],
   controllers: [SituationalController],
   providers: [WeatherService, RoadIncidentsService, FiveElevenNyService, TomTomTrafficService],
+  // ДОДАНО — за прямим запитом користувача "полностью реализовать п 1 и п 2 по тз"
+  // (doc/TZ-btw-route-planning.md §7.1/§7.2, Этап 2): `BtwRouteForecastService`
+  // (apps/api/src/btw/btw-route-forecast.service.ts) накладає погоду/інциденти/трафік на
+  // побудований маршрут — потребує ін'єкції цих сервісів у `BtwModule`, раніше не було
+  // потреби експортувати їх за межі цього модуля.
+  exports: [WeatherService, RoadIncidentsService, FiveElevenNyService, TomTomTrafficService],
 })
 export class SituationalModule {}

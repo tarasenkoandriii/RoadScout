@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Polygon, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Polygon, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { buildSectorPolygon, LatLng } from '../lib/geometry';
@@ -35,6 +35,11 @@ interface MapViewProps {
   // режиму. Викликається з межами поточного viewport (bbox), НЕ з "позицією користувача" —
   // сервер отримує лише область карти, куди користувач сам перемістився.
   onBoundsChange?: (bounds: { swLat: number; swLng: number; neLat: number; neLng: number }) => void;
+  // За прямим запитом користувача — «маршрутизация не вызывается — ключа OpenRouteService пока
+  // нет (§6.3) исправь» (doc/TZ-btw-route-planning.md §6.1): реальна лінія побудованого
+  // маршруту (декодований polyline від OpenRouteService, apps/btw/app/page.tsx). Необов'язковий
+  // — без нього MapView поводиться точно так само, як і раніше (превʼю без маршруту).
+  route?: LatLng[];
 }
 
 // За прямим запитом користувача — "можливість пересувати мапу при натисканні двома
@@ -92,7 +97,7 @@ function BoundsReporter({ onBoundsChange }: { onBoundsChange?: MapViewProps['onB
   return null;
 }
 
-export default function MapView({ center, zoom, cameras, onBoundsChange }: MapViewProps) {
+export default function MapView({ center, zoom, cameras, onBoundsChange, route }: MapViewProps) {
   return (
     <MapContainer
       center={[center.lat, center.lng]}
@@ -110,6 +115,10 @@ export default function MapView({ center, zoom, cameras, onBoundsChange }: MapVi
           сервер як ідентифікована точка (див. коментар у btw.service.ts::coverage()), лише
           використовується локально для відображення й для обчислення bbox запиту. */}
       <Circle center={[center.lat, center.lng]} radius={15} pathOptions={{ color: '#3b82f6', fillOpacity: 0.6 }} />
+
+      {route && route.length > 1 && (
+        <Polyline positions={route.map((p) => [p.lat, p.lng])} pathOptions={{ color: '#facc15', weight: 4, opacity: 0.9 }} />
+      )}
 
       {cameras.map((cam) => {
         const polygon = buildSectorPolygon(cam);

@@ -1,0 +1,80 @@
+import { Dictionary } from '../dictionary.types';
+
+const dict: Dictionary = {
+  skipLink: 'Przejdź do treści',
+
+  hero_eyebrow: '// zaplanuj z wyprzedzeniem',
+  hero_title_line1: 'Zaplanuj trasę —',
+  hero_title_line2: 'wiedz, co jest przed tobą',
+  hero_subtitle:
+    'Darmowa aplikacja w Telegramie buduje trasę dla samochodu lub roweru i od razu pokazuje, co na niej jest: kamery, pogodę, znane zdarzenia i sytuację na drodze. W trasie prowadzi cię i sama przelicza trasę, jeśli z niej zjedziesz.',
+  cta_open: 'Otwórz w Telegramie →',
+
+  problem_eyebrow: '// po co to',
+  problem_title: 'Na drodze rzadko wiadomo z wyprzedzeniem, co cię czeka',
+  problem_text:
+    'Pogoda się zmienia, zdarzają się wypadki, pojawiają się nowe kamery — a dowiadujesz się o tym dopiero w trasie, gdy trudno cokolwiek zmienić. Beyond the Wall buduje trasę i pokazuje, co na niej jest, zanim wyruszysz, a potem pilnuje tego dalej, gdy jedziesz.',
+
+  steps_eyebrow: '// jak to działa',
+  steps_title: 'Z punktu A do punktu B — z pełnym obrazem po drodze',
+  step1_title: 'Wskaż punkty A i B',
+  step1_text: 'Bieżąca lokalizacja, zapisane miejsce lub ręcznie — i wybierz profil: samochód czy rower.',
+  step2_title: 'Zobacz trasę z wyprzedzeniem',
+  step2_text: 'Kamery, pogoda, znane zdarzenia i ruch na trasie — jeszcze przed wyjazdem.',
+  step3_title: 'Jedź pod opieką',
+  step3_text: 'Śledzenie na żywo poinformuje, jeśli zjedziesz z trasy, i samo ją przeliczy.',
+  step4_title: '„Co przed tobą"',
+  step4_text: 'Lista tego, co jest kilkaset metrów przed tobą — jedno dotknięcie, by zobaczyć szczegóły.',
+
+  audience_eyebrow: '// dla kogo',
+  audience_title: 'Za kierownicą czy na rowerze',
+  audience_cyclist_title: 'Rower',
+  audience_cyclist_text: 'Trasa dopasowana do profilu rowerzysty, z ostrzeżeniami o kamerach i warunkach po drodze.',
+  audience_driver_title: 'Samochód',
+  audience_driver_text: 'Trasa dla samochodu, ruch na żywo i automatyczne przeliczanie, jeśli droga jest zamknięta lub zjedziesz z trasy.',
+
+  widget_eyebrow: '// właśnie teraz',
+  widget_title: 'Co dzieje się w twoim mieście',
+  widget_subtitle: 'Rozpoznajemy miasto po adresie IP (bez prośby o dokładną lokalizację) i pokazujemy aktualną pogodę oraz znane zdarzenia drogowe w pobliżu.',
+  widget_loading: 'Rozpoznajemy twoje miasto…',
+  widget_error: 'Nie udało się załadować danych — spróbuj odświeżyć stronę później.',
+  widget_unavailable: 'Dla twojego regionu nie ma jeszcze danych — zasięg stopniowo rośnie.',
+  widget_weather_label: 'Pogoda',
+  widget_weather_hazard: '⚠ Możliwe niebezpieczne warunki na drodze',
+  widget_incidents_label: 'Zdarzenia drogowe w pobliżu',
+  widget_incidents_empty: 'Obecnie nie znaleziono znanych zdarzeń w pobliżu.',
+  widget_incidents_source_511ny: 'Źródło: 511NY (stan Nowy Jork)',
+  widget_incidents_source_tomtom: 'Źródło: TomTom Traffic',
+  widget_incidents_source_none: 'Brak skonfigurowanego źródła ruchu dla tego regionu',
+  widget_disclaimer: 'Miasto jest rozpoznawane po adresie IP — w przybliżeniu, bez prośby o dokładną lokalizację.',
+
+  privacy_eyebrow: '// prywatność',
+  privacy_title: 'Twoja trasa zostaje przy tobie',
+  privacy_text:
+    'Podczas podróży współrzędne są przetwarzane lokalnie, na twoim telefonie — serwer nie otrzymuje strumienia twojej lokalizacji. Powyższy blok „co w twoim mieście" korzysta jedynie z przybliżonego miasta po adresie IP, bez dokładnej lokalizacji i bez zapisywania zapytań.',
+  privacy_point1: 'Współrzędne w trasie nie są wysyłane na serwer jako dane zidentyfikowane',
+  privacy_point2: 'Miasto dla widżetu na żywo jest rozpoznawane po IP — nie po GPS, bez zgody na lokalizację',
+  privacy_point3: 'Zapytania do serwera niczego nie zapisują i nie są powiązane z nikim',
+
+  faq_eyebrow: '// pytania',
+  faq_title: 'Najczęstsze pytania',
+  faq_q1: 'Czy to jest darmowe?',
+  faq_a1: 'Tak, całkowicie — na tym etapie nie ma żadnej subskrypcji ani płatnych funkcji.',
+  faq_q2: 'Czy aplikacja śledzi mnie cały czas?',
+  faq_a2: 'Nie. Śledzenie na żywo działa tylko wtedy, gdy aktywnie prowadzisz podróż w otwartej aplikacji, i możesz je zakończyć w dowolnym momencie.',
+  faq_q3: 'Co jeśli zjadę z zaplanowanej trasy?',
+  faq_a3: 'Aplikacja zauważy odchylenie i zaproponuje — albo automatycznie zbuduje — nową trasę, bez ręcznego szukania.',
+  faq_q4: 'Czy dane o pogodzie i zdarzeniach są dostępne dla każdego miasta?',
+  faq_a4:
+    'Nie — zasięg zależy od źródła: zdarzenia na trasie przez 511NY są dostępne tylko w stanie Nowy Jork, TomTom obejmuje więcej regionów tam, gdzie skonfigurowano, a pogoda rośnie wraz z listą miast. Tam, gdzie danych nie ma, mówimy o tym wprost.',
+  faq_q5: 'Skąd strona zna moje miasto?',
+  faq_a5: 'Z adresu IP przeglądarki — w przybliżeniu, na poziomie miasta, bez prośby o dostęp do dokładnej lokalizacji.',
+
+  final_title: 'Wypróbuj już teraz',
+  footer_copyright: '© {year} Beyond the Wall',
+  footer_note: 'Szukasz zwykłego skanera kamer? Nasza klasyczna aplikacja jest też w Telegramie — ten sam bot.',
+
+  languageSelector_label: 'Język',
+};
+
+export default dict;

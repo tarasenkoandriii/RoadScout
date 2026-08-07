@@ -28,8 +28,32 @@ async function bootstrap() {
   // NOTE: browsers reject `credentials: true` combined with a wildcard origin —
   // ADMIN_ORIGIN must be a concrete origin (e.g. https://admin.example.com) once
   // cookie-based Telegram sessions are in use, not '*'.
+  //
+  // ВИПРАВЛЕНО/РОЗШИРЕНО за прямим запитом користувача — doc/TZ-btw-landing-v2.md §4: новий
+  // публічний ендпоінт `/btw/landing-snapshot` (btw-landing-snapshot.service.ts) тепер
+  // викликається з БРАУЗЕРА окремого фронтенд-проєкту `apps/interactive`, чий origin раніше
+  // не потрапляв у CORS взагалі (тут був лише один жорстко заданий ADMIN_ORIGIN). Замість
+  // розширення на wildcard (несумісний із `credentials: true`, до того ж послабив би CORS і
+  // для чутливих ендпоінтів під AdminGuard/TelegramAuthGuard) — origin тепер СПИСОК
+  // (`CORS_ALLOWED_ORIGINS`, через кому), з ADMIN_ORIGIN у фолбеку заради зворотної
+  // сумісності зі старим deployment-конфігом, де ще немає нової змінної. Сам факт, що
+  // origin у списку — це НЕ те саме, що авторизація: адмінські/telegram-ендпоінти й далі
+  // захищені власними guard'ами (JWT), а не лише перевіркою origin.
+  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? process.env.ADMIN_ORIGIN ?? 'http://localhost:3001')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3001',
+    origin: (origin, callback) => {
+      // Без Origin-заголовка (curl, серверні виклики, той самий запит із самого apps/api) —
+      // пропускаємо, той самий дефолт, що вже неявно був раніше (enableCors без функції теж
+      // не блокує запити без Origin).
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
   });
 

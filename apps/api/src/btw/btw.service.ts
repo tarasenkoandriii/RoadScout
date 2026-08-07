@@ -1,4 +1,13 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import axios from 'axios';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +15,8 @@ import { OcclusionService } from '../occlusion/occlusion.service';
 import { AzimuthHeuristicService } from '../scraper/azimuth-heuristic.service';
 import { GrokCameraAssistService } from '../common/grok-camera-assist.service';
 import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
+import { OpenRouteServiceClient, OpenRouteServiceError, RoutingProfile } from '../routing/openrouteservice.service';
+import { BtwRouteForecastService, RouteForecast } from './btw-route-forecast.service';
 import { haversineDistance, bearing } from '../common/geometry.util';
 import {
   ObserverPose,
@@ -72,6 +83,19 @@ export interface ScanResult {
   };
 }
 
+// ДОДАНО (аудит 2026-08-06 доку route-planning'а, doc/AUDIT-btw-route-planning.md) — спільна
+// перевірка "координати — скінченні числа" для нових ендпоінтів `/btw/route`/`/btw/saved-places`
+// (§ детальний розбір — коментарі біля buildRoute()/saveSavedPlace() нижче). Module-scope
+// функція, не метод класу — не потребує `this`, використовується з кількох місць.
+function assertFiniteLatLng(lat: unknown, lng: unknown, label = 'point'): void {
+  if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new BadRequestException(`${label}.lat must be a finite number between -90 and 90`);
+  }
+  if (typeof lng !== 'number' || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new BadRequestException(`${label}.lng must be a finite number between -180 and 180`);
+  }
+}
+
 // Beyond the Wall (BTW) — сервісний шар. Реалізує §7 ТЗ (doc/BTW-tz.md), з чесними
 // спрощеннями там, де повна реалізація вимагає інфраструктури поза обсягом цього кроку —
 // див. doc/AUDIT-btw.md для повного переліку.
@@ -98,6 +122,14 @@ export class BtwService {
     // тієї самої env-змінної (REGISTRY_SCAN_PROXY_URL/Webshare/*), два екземпляри просто двічі
     // ліниво збудують однакові агенти — жодного конфлікту стану.
     private readonly registryProxy: RegistryProxyService,
+    // За прямим запитом користувача — «маршрутизация не вызывается — ключа OpenRouteService
+    // пока нет (§6.3) исправь» (doc/TZ-btw-route-planning.md §6.1/§6.3). Реальний HTTP-клієнт
+    // ORS Directions API — src/routing/openrouteservice.service.ts.
+    private readonly openRouteService: OpenRouteServiceClient,
+    // За прямим запитом користувача — «полностью реализовать п 1 и п 2 по тз» (§8, Этапы 1-2):
+    // камери/погода/інциденти/трафік/FIXED_ROUTE-зустрічі вздовж вже побудованого маршруту —
+    // src/btw/btw-route-forecast.service.ts.
+    private readonly routeForecast: BtwRouteForecastService,
   ) {}
 
   // У5 ТЗ (§5) — "не чаще 1 раза в 30 с". ВИПРАВЛЕНО за прямим запитом користувача (аудит
@@ -895,6 +927,112 @@ export class BtwService {
 
   async listViewpoints(telegramId: string) {
     return this.prisma.btwViewpoint.findMany({ where: { telegramId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  // §3.1 doc/TZ-btw-route-planning.md — за прямим запитом користувача: "добавить модель и её
+  // сохранение/удаление на сервере" (заміна тимчасового localStorage-сховища на пристрої,
+  // apps/btw/lib/btwSavedPlaces.ts — детальний розбір у AUDIT-btw-route-planning.md). Той
+  // самий шаблон CRUD, що вже saveViewpoint()/listViewpoints() вище — жодного шифрування тут
+  // теж немає (той самий чесний компроміс, що і §11.4 ТЗ для BtwViewpoint), просто без
+  // heading, бо для точки маршруту він не потрібен.
+  //
+  // ДОДАНО (аудит 2026-08-06, doc/AUDIT-btw-route-planning.md) — `@Body()` у btw.controller.ts
+  // типізовано простим TS-інтерфейсом, не class-validator DTO (той самий патерн, що й решта
+  // цього контролера) — глобальний `ValidationPipe` тут нічого не перевіряє. Без явної перевірки
+  // тут `lat`/`lng`, що прийшли NaN/нескінченними/поза розумним діапазоном (наприклад, зламаний
+  // клієнт або ручний curl-запит), потрапили б прямо в `prisma.savedPlace.create()` — Postgres
+  // прийняв би NaN у `Float`-колонку мовчки, зіпсувавши запис назавжди (жоден подальший маршрут/
+  // мапа коректно не відобразили б цю точку). `assertFiniteLatLng()` — чесний 400 замість цього.
+  async saveSavedPlace(telegramId: string, label: string, lat: number, lng: number, address?: string) {
+    assertFiniteLatLng(lat, lng);
+    if (!label || !label.trim()) {
+      throw new BadRequestException('label is required');
+    }
+    return this.prisma.savedPlace.create({ data: { telegramId, label, lat, lng, address } });
+  }
+
+  async listSavedPlaces(telegramId: string) {
+    return this.prisma.savedPlace.findMany({ where: { telegramId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  // Перевірка власності ПЕРЕД видаленням — на відміну від viewpoints (де досі немає жодного
+  // DELETE-ендпоінту взагалі, тож питання не поставало), тут воно є з самого початку: без
+  // перевірки один telegram-юзер міг би видалити чуже збережене місце, знаючи лише його `id`
+  // (cuid непередбачувані, але це все одно неправильний контроль доступу, а не "досить
+  // складно вгадати"). 404, а не 403, на чужий запис — не розкриваємо навіть факт існування.
+  async removeSavedPlace(telegramId: string, id: string) {
+    const existing = await this.prisma.savedPlace.findUnique({ where: { id } });
+    if (!existing || existing.telegramId !== telegramId) {
+      throw new NotFoundException(`SavedPlace ${id} not found`);
+    }
+    await this.prisma.savedPlace.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
+  // За прямим запитом користувача — «маршрутизация не вызывается — ключа OpenRouteService пока
+  // нет (§6.3) исправь»: реальний виклик OpenRouteService Directions API (§6.1/§6.3 ТЗ),
+  // замінює попередній клієнтський стаб-повідомлення (apps/btw/app/page.tsx::handleBuildRoute).
+  // Мапимо OpenRouteServiceError у конкретні HTTP-статуси, а не єдиний загальний 500 — клієнт
+  // (app/page.tsx) показує РІЗНІ чесні повідомлення залежно від причини (not_configured vs
+  // no_route vs rate_limited), тож статус/код мають донести, яка саме це причина.
+  async buildRoute(pointA: { lat: number; lng: number }, pointB: { lat: number; lng: number }, profile: RoutingProfile) {
+    // ДОДАНО (аудит 2026-08-06, doc/AUDIT-btw-route-planning.md) — раніше відсутній `pointA`/
+    // `pointB` (напр. клієнт з багом, або ручний запит без body) не перехоплювалось: звертання
+    // до `pointA.lat` всередині `OpenRouteServiceClient.getRoute()` кидало звичайний TypeError,
+    // який НЕ є `OpenRouteServiceError` — падав крізь `catch` нижче в НЕОБРОБЛЕНИЙ 500 замість
+    // чесного 400 (клієнт показав би загальне "OpenRouteService временно недоступен", хоча
+    // причина зовсім інша — некоректний запит, не збій зовнішнього сервісу). Явна перевірка тут
+    // — той самий принцип "чесний код помилки замість непояснимого 500", що вже вся решта цього
+    // методу застосовує до `OpenRouteServiceError`.
+    assertFiniteLatLng(pointA?.lat, pointA?.lng, 'pointA');
+    assertFiniteLatLng(pointB?.lat, pointB?.lng, 'pointB');
+    if (profile !== 'driving-car' && profile !== 'cycling-regular' && profile !== 'foot-walking') {
+      throw new BadRequestException('profile must be one of driving-car, cycling-regular, foot-walking');
+    }
+
+    try {
+      const route = await this.openRouteService.getRoute(pointA, pointB, profile);
+      const forecast = await this.getForecastSafely(route.points, route.distanceMeters, route.durationSeconds);
+      return { profile, ...route, ...forecast };
+    } catch (err) {
+      if (err instanceof OpenRouteServiceError) {
+        switch (err.kind) {
+          case 'not_configured':
+          case 'invalid_key':
+            // Проблема конфігурації сервера (відсутній/невірний ключ), не дій користувача —
+            // 503, не 400.
+            throw new HttpException({ code: err.kind, message: err.message }, HttpStatus.SERVICE_UNAVAILABLE);
+          case 'rate_limited':
+            throw new HttpException({ code: err.kind, message: err.message }, HttpStatus.TOO_MANY_REQUESTS);
+          case 'no_route':
+            throw new HttpException({ code: err.kind, message: err.message }, HttpStatus.BAD_REQUEST);
+          default:
+            throw new HttpException({ code: 'upstream_error', message: err.message }, HttpStatus.BAD_GATEWAY);
+        }
+      }
+      throw err;
+    }
+  }
+
+  // Маршрут (route.points/distance/duration) — це головне, заради чого користувач тапнув
+  // кнопку; накладення камер/погоди/інцидентів/трафіку (§4/§7 ТЗ, Этап 2) — ДОДАТКОВА цінність
+  // поверх нього. Якщо якийсь із цих запитів впаде (напр. PostGIS-міграція не прогнана, або
+  // зовнішній API 511NY/TomTom тимчасово недоступний) — користувач все одно повинен побачити
+  // побудований маршрут, а не отримати 500 через щось другорядне. Тому тут — м'яка деградація
+  // до "порожнього" прогнозу з логуванням, а не прокидання помилки далі в buildRoute().
+  private async getForecastSafely(points: { lat: number; lng: number }[], distanceMeters: number, durationSeconds: number): Promise<RouteForecast> {
+    try {
+      return await this.routeForecast.getForecast(points, distanceMeters, durationSeconds);
+    } catch (err) {
+      this.logger.warn(`BtwRouteForecastService.getForecast failed, returning route without along-route data: ${(err as Error).message}`);
+      return {
+        camerasAlongRoute: [],
+        weather: null,
+        incidents: [],
+        traffic: { source: null, configured: false, events: [] },
+        fixedRouteEncounters: [],
+      };
+    }
   }
 
   // За прямим запитом користувача — вибір міста зі списку (замість ручного вводу lat/lng
