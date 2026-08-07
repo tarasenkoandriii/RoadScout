@@ -41,11 +41,13 @@ const dict: Dictionary = {
   widget_unavailable: 'Pre váš región zatiaľ nie sú dostupné dáta — pokrytie postupne rastie.',
   widget_weather_label: 'Počasie',
   widget_weather_hazard: '⚠ Možné nebezpečné podmienky na ceste',
+  widget_forecast_label: 'Predpoveď na 2 dni',
   widget_incidents_label: 'Dopravné incidenty v okolí',
   widget_incidents_empty: 'Momentálne neboli nájdené žiadne známe incidenty v okolí.',
   widget_incidents_source_511ny: 'Zdroj: 511NY (štát New York)',
   widget_incidents_source_tomtom: 'Zdroj: TomTom Traffic',
   widget_incidents_source_none: 'Pre tento región nie je nakonfigurovaný žiadny zdroj dopravy',
+  widget_map_radius_note: 'V okruhu {radius} km od vášho mesta',
   widget_disclaimer: 'Mesto sa určuje podľa IP adresy — približne, bez žiadosti o presnú polohu.',
 
   privacy_eyebrow: '// súkromie',

@@ -13,37 +13,46 @@ interface ReferencePoint {
   lng: number;
 }
 
+// ДОДАНО за прямим запитом користувача (doc/TZ-btw-landing-v2.md — "добавить значок ясно/
+// осадки и тд" до IP-віджета лендингу apps/interactive) — категорія іконки для рендеру на
+// фронтенді. Свідомо ОКРЕМИЙ, менш деталізований набір, ніж текстові `label` нижче (наприклад
+// "Дощ слабкий"/"Дощ сильний" — це один і той самий `iconKind: 'rain'`, різниця в силі опадів
+// відображається текстом, не окремою іконкою) — фронтенд не повинен тримати копію WMO-таблиці
+// лише заради вибору картинки.
+export type WeatherIconKind = 'clear' | 'partly-cloudy' | 'cloudy' | 'fog' | 'drizzle' | 'rain' | 'snow' | 'showers' | 'thunderstorm';
+
 // WMO weather codes (используются Open-Meteo) -> человекочитаемая метка + признак "опасно для
-// дорог" (туман/гололедица/сильный дождь/гроза — то, что должно привлечь внимание на карте).
-const WEATHER_CODE_INFO: Record<number, { label: string; hazard: boolean }> = {
-  0: { label: 'Ясно', hazard: false },
-  1: { label: 'Малооблачно', hazard: false },
-  2: { label: 'Переменная облачность', hazard: false },
-  3: { label: 'Пасмурно', hazard: false },
-  45: { label: 'Туман', hazard: true },
-  48: { label: 'Изморозь/туман', hazard: true },
-  51: { label: 'Морось слабая', hazard: false },
-  53: { label: 'Морось умеренная', hazard: false },
-  55: { label: 'Морось сильная', hazard: true },
-  56: { label: 'Ледяная морось слабая', hazard: true },
-  57: { label: 'Ледяная морось сильная', hazard: true },
-  61: { label: 'Дождь слабый', hazard: false },
-  63: { label: 'Дождь умеренный', hazard: false },
-  65: { label: 'Дождь сильный', hazard: true },
-  66: { label: 'Ледяной дождь слабый', hazard: true },
-  67: { label: 'Ледяной дождь сильный', hazard: true },
-  71: { label: 'Снег слабый', hazard: false },
-  73: { label: 'Снег умеренный', hazard: true },
-  75: { label: 'Снег сильный', hazard: true },
-  77: { label: 'Снежная крупа', hazard: true },
-  80: { label: 'Ливень слабый', hazard: false },
-  81: { label: 'Ливень умеренный', hazard: true },
-  82: { label: 'Ливень сильный', hazard: true },
-  85: { label: 'Снегопад слабый', hazard: true },
-  86: { label: 'Снегопад сильный', hazard: true },
-  95: { label: 'Гроза', hazard: true },
-  96: { label: 'Гроза с градом', hazard: true },
-  99: { label: 'Сильная гроза с градом', hazard: true },
+// дорог" (туман/гололедица/сильный дождь/гроза — то, что должно привлечь внимание на карте) +
+// категория иконки (см. WeatherIconKind выше).
+const WEATHER_CODE_INFO: Record<number, { label: string; hazard: boolean; icon: WeatherIconKind }> = {
+  0: { label: 'Ясно', hazard: false, icon: 'clear' },
+  1: { label: 'Малооблачно', hazard: false, icon: 'partly-cloudy' },
+  2: { label: 'Переменная облачность', hazard: false, icon: 'partly-cloudy' },
+  3: { label: 'Пасмурно', hazard: false, icon: 'cloudy' },
+  45: { label: 'Туман', hazard: true, icon: 'fog' },
+  48: { label: 'Изморозь/туман', hazard: true, icon: 'fog' },
+  51: { label: 'Морось слабая', hazard: false, icon: 'drizzle' },
+  53: { label: 'Морось умеренная', hazard: false, icon: 'drizzle' },
+  55: { label: 'Морось сильная', hazard: true, icon: 'drizzle' },
+  56: { label: 'Ледяная морось слабая', hazard: true, icon: 'drizzle' },
+  57: { label: 'Ледяная морось сильная', hazard: true, icon: 'drizzle' },
+  61: { label: 'Дождь слабый', hazard: false, icon: 'rain' },
+  63: { label: 'Дождь умеренный', hazard: false, icon: 'rain' },
+  65: { label: 'Дождь сильный', hazard: true, icon: 'rain' },
+  66: { label: 'Ледяной дождь слабый', hazard: true, icon: 'rain' },
+  67: { label: 'Ледяной дождь сильный', hazard: true, icon: 'rain' },
+  71: { label: 'Снег слабый', hazard: false, icon: 'snow' },
+  73: { label: 'Снег умеренный', hazard: true, icon: 'snow' },
+  75: { label: 'Снег сильный', hazard: true, icon: 'snow' },
+  77: { label: 'Снежная крупа', hazard: true, icon: 'snow' },
+  80: { label: 'Ливень слабый', hazard: false, icon: 'showers' },
+  81: { label: 'Ливень умеренный', hazard: true, icon: 'showers' },
+  82: { label: 'Ливень сильный', hazard: true, icon: 'showers' },
+  85: { label: 'Снегопад слабый', hazard: true, icon: 'snow' },
+  86: { label: 'Снегопад сильный', hazard: true, icon: 'snow' },
+  95: { label: 'Гроза', hazard: true, icon: 'thunderstorm' },
+  96: { label: 'Гроза с градом', hazard: true, icon: 'thunderstorm' },
+  99: { label: 'Сильная гроза с градом', hazard: true, icon: 'thunderstorm' },
 };
 
 export interface WeatherPoint {
@@ -56,9 +65,26 @@ export interface WeatherPoint {
   visibilityM: number | null;
   weatherCode: number | null;
   conditionLabel: string;
+  iconKind: WeatherIconKind | null;
   isHazard: boolean;
   observedAt: string | null;
   error?: string; // this point's own fetch failed — surfaced per-point rather than failing the whole snapshot
+}
+
+// ДОДАНО за прямим запитом користувача — прогноз на 2 дні для IP-віджета лендингу
+// (doc/TZ-btw-landing-v2.md, "добавить прогноз погоды на два дня"). Свідомо ОКРЕМИЙ тип від
+// `WeatherPoint` (а не "той самий WeatherPoint з масивом днів") — денний прогноз Open-Meteo
+// віддає лише max/min температуру й один weather_code на добу, не весь набір полів поточних
+// умов (вологість/вітер/видимість), тож змішувати їх в один тип було б оманливо (виглядало б,
+// ніби прогноз має ті самі поля, що й "зараз").
+export interface WeatherForecastDay {
+  dateIso: string; // YYYY-MM-DD, локальна дата ТОЧКИ (не сервера) — див. timezone=auto нижче
+  weatherCode: number | null;
+  conditionLabel: string;
+  iconKind: WeatherIconKind | null;
+  isHazard: boolean;
+  tempMaxC: number | null;
+  tempMinC: number | null;
 }
 
 interface CacheEntry {
@@ -68,6 +94,11 @@ interface CacheEntry {
 
 interface PointCacheEntry {
   data: WeatherPoint;
+  expiresAt: number;
+}
+
+interface ForecastCacheEntry {
+  data: WeatherForecastDay[];
   expiresAt: number;
 }
 
@@ -83,6 +114,11 @@ const FETCH_TIMEOUT_MS = 8000;
 const POINT_CACHE_TTL_MS = 10 * 60 * 1000;
 const POINT_CACHE_KEY_PRECISION = 1; // ~11км — досить грубо, щоб сусідні відвідувачі того ж міста ділили один запис кешу
 
+// Прогноз на кілька днів вперед не потребує оновлення так часто, як поточні умови (10 хв
+// вище) — довший TTL, менше зайвих викликів Open-Meteo для того самого візерунку відвідувачів.
+const FORECAST_CACHE_TTL_MS = 30 * 60 * 1000;
+const FORECAST_DAYS = 2; // "прогноз погоды на два дня" — за прямим запитом користувача
+
 // Фоллбэк на случай пустого справочника City (например, свежая БД до прогона
 // sql/cities-seed.sql) — чтобы сводка погоды не была пустой, а не потому что это "правильный"
 // список городов (единственный источник правды — таблица City, см. комментарий выше).
@@ -96,6 +132,7 @@ export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
   private cache: CacheEntry | null = null;
   private readonly pointCache = new Map<string, PointCacheEntry>();
+  private readonly forecastCache = new Map<string, ForecastCacheEntry>();
 
   constructor(private readonly cities: CitiesService) {}
 
@@ -134,6 +171,61 @@ export class WeatherService {
     return `${lat.toFixed(POINT_CACHE_KEY_PRECISION)},${lng.toFixed(POINT_CACHE_KEY_PRECISION)}`;
   }
 
+  // ДОДАНО за прямим запитом користувача (doc/TZ-btw-landing-v2.md, "добавить прогноз погоды
+  // на два дня") — окремий виклик Open-Meteo з `daily=...` замість `current=...`. Свідомо
+  // `timezone=auto` (НЕ жорстко закодований 'Europe/Kyiv', як у `fetchOne()` вище) — той метод
+  // обслуговує лише українські міста з довідника `City`, а цей — відвідувача лендингу з БУДЬ-
+  // ЯКОЮ точкою світу; денні межі прогнозу (що вважається "сьогодні"/"завтра") мають рахуватись
+  // від ЛОКАЛЬНОГО часового поясу цієї точки, інакше дата могла б "з'їхати" на добу для
+  // відвідувачів з інших часових поясів.
+  async getPointForecast(point: { lat: number; lng: number }): Promise<WeatherForecastDay[]> {
+    const key = this.buildPointCacheKey(point.lat, point.lng);
+    const now = Date.now();
+    const cached = this.forecastCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    try {
+      const res = await axios.get('https://api.open-meteo.com/v1/forecast', {
+        params: {
+          latitude: point.lat,
+          longitude: point.lng,
+          daily: 'weather_code,temperature_2m_max,temperature_2m_min',
+          forecast_days: FORECAST_DAYS,
+          timezone: 'auto',
+        },
+        timeout: FETCH_TIMEOUT_MS,
+      });
+
+      const daily = res.data?.daily ?? {};
+      const dates: string[] = daily.time ?? [];
+      const codes: (number | null)[] = daily.weather_code ?? [];
+      const maxTemps: (number | null)[] = daily.temperature_2m_max ?? [];
+      const minTemps: (number | null)[] = daily.temperature_2m_min ?? [];
+
+      const days: WeatherForecastDay[] = dates.map((dateIso, i) => {
+        const code = codes[i] ?? null;
+        const info = code !== null ? WEATHER_CODE_INFO[code] : undefined;
+        return {
+          dateIso,
+          weatherCode: code,
+          conditionLabel: info?.label ?? 'Нет данных',
+          iconKind: info?.icon ?? null,
+          isHazard: info?.hazard ?? false,
+          tempMaxC: maxTemps[i] ?? null,
+          tempMinC: minTemps[i] ?? null,
+        };
+      });
+
+      this.forecastCache.set(key, { data: days, expiresAt: now + FORECAST_CACHE_TTL_MS });
+      return days;
+    } catch (err) {
+      this.logger.warn(`Forecast fetch failed for ${key}: ${(err as Error).message}`);
+      return []; // деградація — порожній прогноз, а не крах усього віджету (той самий принцип, що getSnapshot()/fetchOne())
+    }
+  }
+
   private async getReferencePoints(): Promise<ReferencePoint[]> {
     const cities = await this.cities.list();
     if (cities.length === 0) {
@@ -169,6 +261,7 @@ export class WeatherService {
         visibilityM: current.visibility ?? null,
         weatherCode: code,
         conditionLabel: info?.label ?? 'Нет данных',
+        iconKind: info?.icon ?? null,
         isHazard: info?.hazard ?? false,
         observedAt: current.time ?? null,
       };
@@ -184,6 +277,7 @@ export class WeatherService {
         visibilityM: null,
         weatherCode: null,
         conditionLabel: 'Нет данных',
+        iconKind: null,
         isHazard: false,
         observedAt: null,
         error: (err as Error).message,

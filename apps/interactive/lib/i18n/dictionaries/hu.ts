@@ -41,11 +41,13 @@ const dict: Dictionary = {
   widget_unavailable: 'A régiódhoz még nincs adat — a lefedettség folyamatosan bővül.',
   widget_weather_label: 'Időjárás',
   widget_weather_hazard: '⚠ Veszélyes útviszonyok lehetségesek',
+  widget_forecast_label: '2 napos előrejelzés',
   widget_incidents_label: 'Közúti események a közelben',
   widget_incidents_empty: 'Jelenleg nincs ismert esemény a közelben.',
   widget_incidents_source_511ny: 'Forrás: 511NY (New York állam)',
   widget_incidents_source_tomtom: 'Forrás: TomTom Traffic',
   widget_incidents_source_none: 'Ehhez a régióhoz nincs beállítva forgalmi forrás',
+  widget_map_radius_note: '{radius} km-es körzetben a városodtól',
   widget_disclaimer: 'A várost az IP-címed alapján határozzuk meg — hozzávetőlegesen, a pontos helyzeted lekérése nélkül.',
 
   privacy_eyebrow: '// adatvédelem',

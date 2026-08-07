@@ -42,11 +42,13 @@ const dict: Dictionary = {
   widget_unavailable: 'Для вашого регіону поки немає даних — покриття зростає поступово.',
   widget_weather_label: 'Погода',
   widget_weather_hazard: '⚠ Можливі небезпечні умови на дорозі',
+  widget_forecast_label: 'Прогноз на 2 дні',
   widget_incidents_label: 'Дорожні інциденти поруч',
   widget_incidents_empty: 'Наразі відомих інцидентів поруч не знайдено.',
   widget_incidents_source_511ny: 'Джерело: 511NY (штат Нью-Йорк)',
   widget_incidents_source_tomtom: 'Джерело: TomTom Traffic',
   widget_incidents_source_none: 'Джерело трафіку для цього регіону не налаштовано',
+  widget_map_radius_note: 'У радіусі {radius} км від вашого міста',
   widget_disclaimer: 'Місто визначається за IP-адресою — приблизно, без запиту доступу до вашої точної геолокації.',
 
   privacy_eyebrow: '// приватність',

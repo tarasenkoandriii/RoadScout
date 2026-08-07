@@ -42,11 +42,19 @@ export interface Dictionary {
   widget_unavailable: string;
   widget_weather_label: string;
   widget_weather_hazard: string;
+  // ДОДАНО за прямим запитом користувача ("добавить прогноз погоды на два дня меньшим шрифтом") —
+  // підпис над рядком 2-денного прогнозу під поточними умовами у CityWidget.
+  widget_forecast_label: string;
   widget_incidents_label: string;
   widget_incidents_empty: string;
   widget_incidents_source_511ny: string;
   widget_incidents_source_tomtom: string;
   widget_incidents_source_none: string;
+  // ДОДАНО за прямим запитом користувача ("инциденты отображать на карте региона") — підпис під
+  // схематичною картою інцидентів, інтерпольований параметром {radius} (той самий механізм
+  // interpolate(), що вже footer_copyright з {year}) — радіус приходить з backend
+  // (LandingIncidentsSummary.radiusKm), а не захардкоджений на фронті.
+  widget_map_radius_note: string;
   widget_disclaimer: string;
 
   privacy_eyebrow: string;

@@ -41,11 +41,13 @@ const dict: Dictionary = {
   widget_unavailable: 'Aún no hay datos disponibles para tu región — la cobertura crece poco a poco.',
   widget_weather_label: 'Clima',
   widget_weather_hazard: '⚠ Posibles condiciones peligrosas en la vía',
+  widget_forecast_label: 'Pronóstico a 2 días',
   widget_incidents_label: 'Incidentes viales cercanos',
   widget_incidents_empty: 'Por ahora no se encontraron incidentes conocidos cerca.',
   widget_incidents_source_511ny: 'Fuente: 511NY (estado de Nueva York)',
   widget_incidents_source_tomtom: 'Fuente: TomTom Traffic',
   widget_incidents_source_none: 'No hay fuente de tráfico configurada para esta región',
+  widget_map_radius_note: 'En un radio de {radius} km de tu ciudad',
   widget_disclaimer: 'La ciudad se detecta a partir de tu dirección IP — de forma aproximada, sin pedir acceso a tu ubicación exacta.',
 
   privacy_eyebrow: '// privacidad',

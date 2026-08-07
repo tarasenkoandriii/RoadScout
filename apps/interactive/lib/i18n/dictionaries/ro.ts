@@ -41,11 +41,13 @@ const dict: Dictionary = {
   widget_unavailable: 'Nu există încă date pentru regiunea ta — acoperirea crește treptat.',
   widget_weather_label: 'Vreme',
   widget_weather_hazard: '⚠ Posibile condiții periculoase pe drum',
+  widget_forecast_label: 'Prognoză pe 2 zile',
   widget_incidents_label: 'Incidente rutiere din apropiere',
   widget_incidents_empty: 'Momentan nu au fost găsite incidente cunoscute în apropiere.',
   widget_incidents_source_511ny: 'Sursă: 511NY (statul New York)',
   widget_incidents_source_tomtom: 'Sursă: TomTom Traffic',
   widget_incidents_source_none: 'Nicio sursă de trafic configurată pentru această regiune',
+  widget_map_radius_note: 'În raza de {radius} km de orașul tău',
   widget_disclaimer: 'Orașul este detectat din adresa ta IP — aproximativ, fără a cere acces la locația ta exactă.',
 
   privacy_eyebrow: '// confidențialitate',

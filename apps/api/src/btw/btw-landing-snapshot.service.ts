@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { WeatherService } from '../situational/weather.service';
+import { WeatherService, WeatherForecastDay, WeatherIconKind } from '../situational/weather.service';
 import { FiveElevenNyService } from '../situational/five11ny.service';
 import { TomTomTrafficService, centerRadiusToBoundingBox } from '../situational/tomtom.service';
 import { haversineDistance } from '../common/geometry.util';
@@ -39,13 +39,22 @@ export interface LandingSnapshotIncident {
   title: string;
   severity: string;
   distanceKm: number;
+  // ДОДАНО за прямим запитом користувача ("инциденты отображать на карте региона") — координати
+  // потрібні фронтенду, щоб позначити інцидент на власній міні-карті (радар відносно
+  // відвідувача), а не лише в текстовому списку.
+  lat: number;
+  lng: number;
 }
 
 export interface LandingWeatherSummary {
   available: boolean;
   tempC: number | null;
   conditionLabel: string;
+  iconKind: WeatherIconKind | null;
   isHazard: boolean;
+  // ДОДАНО за прямим запитом користувача ("добавить прогноз погоды на два дня") — той самий
+  // формат, що WeatherService.getPointForecast() вже повертає, без трансформації.
+  forecast: WeatherForecastDay[];
 }
 
 export interface LandingIncidentsSummary {
@@ -55,6 +64,10 @@ export interface LandingIncidentsSummary {
   // ДОДАНО (§3.3 ТЗ — «coverageNote... обов'язкове, не опціональне») — чому саме items
   // порожній/непорожній, щоб фронт міг чесно показати причину, а не просто "нічого немає".
   coverageNote: 'ny-state' | 'tomtom' | 'not-configured';
+  // ДОДАНО за прямим запитом користувача (карта регіону) — радіус пошуку інцидентів, той самий
+  // INCIDENT_RADIUS_KM, що використаний для фільтрації нижче. Віддається клієнту явно, щоб
+  // фронтенд не тримав власну копію цього числа лише заради масштабу карти/підпису під нею.
+  radiusKm: number;
 }
 
 export interface LandingSnapshot {
@@ -98,15 +111,35 @@ export class BtwLandingSnapshotService {
     if (point.error || point.tempC === null) {
       return this.emptyWeather();
     }
-    return { available: true, tempC: point.tempC, conditionLabel: point.conditionLabel, isHazard: point.isHazard };
+
+    // Прогноз запитуємо ОКРЕМО від поточних умов і НЕ через спільний `safeCall()` верхнього
+    // рівня (той обгортає весь `getWeather()` разом) — тут власний try/catch, щоб збій саме
+    // прогнозу (наприклад, Open-Meteo віддав `daily` в неочікуваному форматі) не позбавляв
+    // відвідувача вже отриманих поточних умов, лишаючи `forecast: []` замість краху всього
+    // погодного блоку.
+    let forecast: WeatherForecastDay[] = [];
+    try {
+      forecast = await this.weather.getPointForecast({ lat, lng });
+    } catch (err) {
+      this.logger.warn(`forecast failed for landing snapshot, degrading to empty forecast only: ${(err as Error).message}`);
+    }
+
+    return {
+      available: true,
+      tempC: point.tempC,
+      conditionLabel: point.conditionLabel,
+      iconKind: point.iconKind,
+      isHazard: point.isHazard,
+      forecast,
+    };
   }
 
   private emptyWeather(): LandingWeatherSummary {
-    return { available: false, tempC: null, conditionLabel: 'Нет данных', isHazard: false };
+    return { available: false, tempC: null, conditionLabel: 'Нет данных', iconKind: null, isHazard: false, forecast: [] };
   }
 
   private emptyIncidents(): LandingIncidentsSummary {
-    return { source: null, configured: false, items: [], coverageNote: 'not-configured' };
+    return { source: null, configured: false, items: [], coverageNote: 'not-configured', radiusKm: INCIDENT_RADIUS_KM };
   }
 
   private isInNyState(lat: number, lng: number): boolean {
@@ -120,7 +153,7 @@ export class BtwLandingSnapshotService {
     // відміну від TomTom нижче, де bbox передається в сам запит).
     if (this.isInNyState(lat, lng)) {
       if (!this.fiveElevenNy.isConfigured()) {
-        return { source: '511NY', configured: false, items: [], coverageNote: 'not-configured' };
+        return { source: '511NY', configured: false, items: [], coverageNote: 'not-configured', radiusKm: INCIDENT_RADIUS_KM };
       }
       const events = await this.fiveElevenNy.getEvents();
       const nearby = events
@@ -132,18 +165,21 @@ export class BtwLandingSnapshotService {
         source: '511NY',
         configured: true,
         coverageNote: 'ny-state',
+        radiusKm: INCIDENT_RADIUS_KM,
         items: nearby.map(({ event, distanceKm }) => ({
           id: event.id,
           source: '511NY' as const,
           title: event.description ?? event.eventType,
           severity: event.severity,
           distanceKm: Math.round(distanceKm * 10) / 10,
+          lat: event.lat,
+          lng: event.lng,
         })),
       };
     }
 
     if (!this.tomTom.isConfigured()) {
-      return { source: 'TomTom', configured: false, items: [], coverageNote: 'not-configured' };
+      return { source: 'TomTom', configured: false, items: [], coverageNote: 'not-configured', radiusKm: INCIDENT_RADIUS_KM };
     }
     const bbox = centerRadiusToBoundingBox(lat, lng, INCIDENT_RADIUS_KM);
     const incidents = await this.tomTom.getIncidents(bbox);
@@ -151,12 +187,15 @@ export class BtwLandingSnapshotService {
       source: 'TomTom',
       configured: true,
       coverageNote: 'tomtom',
+      radiusKm: INCIDENT_RADIUS_KM,
       items: incidents.slice(0, MAX_INCIDENTS).map((incident) => ({
         id: incident.id,
         source: 'TomTom' as const,
         title: incident.description ?? incident.iconCategoryLabel,
         severity: incident.magnitudeLabel,
         distanceKm: Math.round((haversineDistance({ lat, lng }, { lat: incident.lat, lng: incident.lng }) / 1000) * 10) / 10,
+        lat: incident.lat,
+        lng: incident.lng,
       })),
     };
   }
