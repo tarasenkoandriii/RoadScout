@@ -294,7 +294,16 @@ function BtwScanPageInner() {
     };
   }, []);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // ВИПРАВЛЕНО (реальний збій `next build` на Vercel, знайдений користувачем: "Cannot assign
+  // to 'current' because it is a read-only property") — `useRef<HTMLVideoElement>(null)` з
+  // ЯВНИМ типовим аргументом БЕЗ `| null` потрапляє під overload `useRef<T>(initialValue: T |
+  // null): RefObject<T>` (не `MutableRefObject<T>`), тож `.current` типізується як read-only.
+  // Це не проявлялось локально (проєкт тут ніколи не проганявся через реальний `tsc`/`next
+  // build`, лише ізольовані ручні перевірки), а `attachVideoRef` нижче навмисно й далі
+  // ПРИСВОЮЄ `videoRef.current = el` (callback-ref патерн, § коментар нижче) — потрібен саме
+  // mutable ref. `HTMLVideoElement | null` як явний типовий аргумент відповідає натомість
+  // overload `useRef<T>(initialValue: T): MutableRefObject<T>`, де T вже сам включає `null`.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   // ВИПРАВЛЕНО (реальний баг, знайдений під час перебудови locked-екрана вище — § "добавить
   // мини-карту/изображение камеры 50%"): `getUserMedia()` у requestPermissions() викликає
   // `videoRef.current.srcObject = stream` у ФАЗІ 'requesting' — а `<video>`-елемент НІКОЛИ не
