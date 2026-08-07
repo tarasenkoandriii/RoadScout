@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     "Une application gratuite sur Telegram construit un itinéraire pour la voiture ou le vélo et montre immédiatement ce qui s'y trouve : caméras, météo, incidents connus et état de la route. En chemin, elle vous guide et recalcule automatiquement l'itinéraire si vous vous en écartez.",
   cta_open: 'Ouvrir dans Telegram →',
+  hero_image_alt:
+    'Vue depuis le volant et depuis le vélo avec une superposition AR : radar à 120 m et itinéraire sûr sans caméra pour le cycliste',
 
   problem_eyebrow: '// pourquoi c’est utile',
   problem_title: 'Sur la route, on sait rarement à l’avance ce qui nous attend',

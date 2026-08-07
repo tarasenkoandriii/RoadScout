@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'Bezplatná aplikácia v Telegrame vytvorí trasu pre auto alebo bicykel a hneď ukáže, čo je na nej: kamery, počasie, známe incidenty a situáciu na ceste. Počas jazdy ťa vedie a sama trasu prepočíta, ak z nej zídeš.',
   cta_open: 'Otvoriť v Telegrame →',
+  hero_image_alt:
+    'Pohľad spoza volantu auta a z bicykla s AR vrstvou: rýchlostná kamera 120 m vpredu a bezpečná trasa bez kamier pre cyklistu',
 
   problem_eyebrow: '// prečo je to potrebné',
   problem_title: 'Na ceste zvyčajne vopred nevieš, čo ťa čaká',

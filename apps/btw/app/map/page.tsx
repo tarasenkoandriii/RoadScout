@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { bboxAroundPoint, LatLng } from '../../lib/geometry';
-import { ensureBtwSession, fetchDevLocationOverride } from '../../lib/btwSession';
+import { bboxAroundPoint } from '../../lib/geometry';
+import type { LatLng } from '../../lib/geometry';
+import { useLocation } from '../../lib/locationContext';
 import { loggedFetch } from '../../lib/networkLog';
 import type { MapCamera } from '../../components/MapView';
 
@@ -38,12 +39,15 @@ const SCALE_OPTIONS = [
 // сканування) — сервер тут так само не дізнається нічого понад те, що адмін сам туди вписав.
 export default function BtwMapPage() {
   const router = useRouter();
+  // ВИПРАВЛЕНО — за прямим запитом користувача «запрашивать местоположение при входе в мини
+  // апп»: позиція більше НЕ запитується окремо цим екраном — вона вже визначена (або
+  // визначається) провайдером `<LocationProvider>` в app/layout.tsx, спільним для всіх трьох
+  // роутів. Тут лише читаємо вже наявний результат через useLocation().
+  const { location, locating, usedDevOverride, permissionDenied } = useLocation();
   const [center, setCenter] = useState<LatLng | null>(null);
   const [scaleIndex, setScaleIndex] = useState(1); // за замовчуванням 1 км
   const [cameras, setCameras] = useState<MapCamera[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [usedDevOverride, setUsedDevOverride] = useState(false);
 
   const scale = SCALE_OPTIONS[scaleIndex];
 
@@ -65,64 +69,31 @@ export default function BtwMapPage() {
     }
   }, []);
 
-  // Одноразове зчитування позиції ЛИШЕ для центрування мапи при відкритті режиму — НЕ
-  // зберігається, НЕ надсилається нікуди як ідентифікована точка (див. коментар вище).
-  //
-  // ВИПРАВЛЕНО — спершу перевіряємо dev-override (те саме джерело, що вже працює на екрані
-  // сканування), і лише якщо його немає — реальний navigator.geolocation, як і раніше.
+  // Центруємо мапу, щойно провайдер визначив позицію (реальну, dev-override, чи відмову) —
+  // замість власного виклику navigator.geolocation, як було раніше.
   useEffect(() => {
-    let cancelled = false;
-
-    function useRealGeolocation() {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (cancelled) return;
-          const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setCenter(c);
-          setLoading(false);
-          fetchCamerasForBounds(bboxAroundPoint(c, SCALE_OPTIONS[1].radiusM));
-        },
-        () => {
-          if (cancelled) return;
-          setError('Геолокация недоступна — укажите область на карте вручную (панорамирование двумя пальцами)');
-          setLoading(false);
-          // Розумний дефолт, щоб мапа взагалі щось показала навіть без геолокації — Київ,
-          // центр (та сама логіка, що /btw/manifest?city=kyiv за замовчуванням).
-          const fallback = { lat: 50.4501, lng: 30.5234 };
-          setCenter(fallback);
-          fetchCamerasForBounds(bboxAroundPoint(fallback, SCALE_OPTIONS[1].radiusM));
-        },
-        { enableHighAccuracy: false, timeout: 8000 },
-      );
+    if (center != null) return; // вже відцентровано — панорамування користувача не чіпаємо
+    if (location != null) {
+      setCenter(location);
+      fetchCamerasForBounds(bboxAroundPoint(location, SCALE_OPTIONS[1].radiusM));
+      return;
     }
-
-    (async () => {
-      await ensureBtwSession();
-      if (cancelled) return;
-      const override = await fetchDevLocationOverride();
-      if (cancelled) return;
-      if (override != null) {
-        setCenter({ lat: override.lat, lng: override.lng });
-        setUsedDevOverride(true);
-        setLoading(false);
-        fetchCamerasForBounds(bboxAroundPoint({ lat: override.lat, lng: override.lng }, SCALE_OPTIONS[1].radiusM));
-        return;
-      }
-      useRealGeolocation();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (permissionDenied) {
+      setError('Геолокация недоступна — укажите область на карте вручную (панорамирование двумя пальцами)');
+      // Розумний дефолт, щоб мапа взагалі щось показала навіть без геолокації — Київ,
+      // центр (та сама логіка, що /btw/manifest?city=kyiv за замовчуванням).
+      const fallback = { lat: 50.4501, lng: 30.5234 };
+      setCenter(fallback);
+      fetchCamerasForBounds(bboxAroundPoint(fallback, SCALE_OPTIONS[1].radiusM));
+    }
+  }, [location, permissionDenied, center, fetchCamerasForBounds]);
 
   function handleScaleChange(index: number) {
     setScaleIndex(index);
     if (center) fetchCamerasForBounds(bboxAroundPoint(center, SCALE_OPTIONS[index].radiusM));
   }
 
-  if (loading || center == null) {
+  if (locating || center == null) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black text-white">
         <p>Определяем область карты…</p>

@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     "Un'app gratuita su Telegram crea un percorso per auto o bicicletta e mostra subito cosa c'è lungo la strada: telecamere, meteo, incidenti noti e condizioni del traffico. Durante il tragitto ti guida e ricalcola automaticamente il percorso se te ne allontani.",
   cta_open: 'Apri in Telegram →',
+  hero_image_alt:
+    'Vista dal volante dell’auto e dalla bicicletta con overlay AR: autovelox a 120 m e un percorso sicuro senza telecamere per il ciclista',
 
   problem_eyebrow: '// perché è importante',
   problem_title: 'Sulla strada raramente sai in anticipo cosa ti aspetta',

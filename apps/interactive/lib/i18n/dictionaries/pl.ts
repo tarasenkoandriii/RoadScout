@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'Darmowa aplikacja w Telegramie buduje trasę dla samochodu lub roweru i od razu pokazuje, co na niej jest: kamery, pogodę, znane zdarzenia i sytuację na drodze. W trasie prowadzi cię i sama przelicza trasę, jeśli z niej zjedziesz.',
   cta_open: 'Otwórz w Telegramie →',
+  hero_image_alt:
+    'Widok zza kierownicy auta i z roweru z nakładką AR: fotoradar 120 m przed nami oraz bezpieczna trasa bez kamer dla rowerzysty',
 
   problem_eyebrow: '// po co to',
   problem_title: 'Na drodze rzadko wiadomo z wyprzedzeniem, co cię czeka',

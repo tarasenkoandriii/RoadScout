@@ -11,6 +11,11 @@ export interface Dictionary {
   hero_title_line2: string;
   hero_subtitle: string;
   cta_open: string;
+  // ДОДАНО за прямим запитом користувача ("картинку использовать как hero image into
+  // interactive landing") — alt-текст фотореалістичного hero-зображення (водій + велосипедист
+  // з AR-накладенням: камера попереду й безпечний маршрут без камер), що замінило декоративну
+  // SVG-панель "мапа маршруту" (§ детальний коментар у app/[lang]/page.tsx).
+  hero_image_alt: string;
 
   problem_eyebrow: string;
   problem_title: string;

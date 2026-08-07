@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'A free Telegram app builds a route for driving or cycling and immediately shows what is on it: cameras, weather, known incidents, and road conditions. On the way, it guides you and reroutes automatically if you drift off course.',
   cta_open: 'Open in Telegram →',
+  hero_image_alt:
+    'A driver’s and a cyclist’s view with an AR overlay: a speed camera 120 m ahead, and a safe, camera-free route for the cyclist',
 
   problem_eyebrow: '// why this matters',
   problem_title: 'On the road, you rarely know what is coming',

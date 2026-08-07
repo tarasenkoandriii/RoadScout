@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'Az ingyenes Telegram-alkalmazás útvonalat épít autóhoz vagy kerékpárhoz, és rögtön megmutatja, mi van rajta: kamerák, időjárás, ismert események és az útviszonyok. Út közben vezet, és automatikusan újratervez, ha letérsz.',
   cta_open: 'Megnyitás Telegramban →',
+  hero_image_alt:
+    'Kilátás az autó kormánya és a kerékpár mögül AR-rátéttel: sebességmérő kamera 120 m-re, illetve biztonságos, kameramentes útvonal a kerékpárosnak',
 
   problem_eyebrow: '// miért fontos ez',
   problem_title: 'Az úton ritkán tudod előre, mi vár rád',

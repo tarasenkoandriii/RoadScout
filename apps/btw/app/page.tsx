@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ensureBtwSession, fetchDevLocationOverride } from '../lib/btwSession';
-import type { LatLng } from '../lib/geometry';
+import { useLocation } from '../lib/locationContext';
 import { listSavedPlaces } from '../lib/btwSavedPlaces';
 import type { SavedPlace } from '../lib/btwSavedPlaces';
 import BtwPlacePicker from '../components/BtwPlacePicker';
@@ -83,9 +82,12 @@ const PROFILE_OPTIONS: { value: RoutingProfile; label: string; icon: string }[] 
 ];
 
 export default function BtwHomePage() {
-  const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
-  const [usedDevOverride, setUsedDevOverride] = useState(false);
-  const [locating, setLocating] = useState(true);
+  // ЗМІНЕНО — за прямим запитом користувача «запрашивать местоположение при входе в мини апп»:
+  // позиція більше НЕ визначається окремим ефектом цієї сторінки — вона вже запитана рівно один
+  // раз при вході в мінідодаток (`<LocationProvider>`, app/layout.tsx, § lib/locationContext.tsx),
+  // спільно з /map і /scan. Тут лишається лише похідна від неї логіка, специфічна саме для цього
+  // екрана (дефолт точки А — нижче).
+  const { location: currentLocation, usedDevOverride, locating } = useLocation();
 
   // §2.1 шаг 2 — точка А за замовчуванням "текущее местоположение", як тільки воно визначене.
   const [pointA, setPointA] = useState<PickedPlace | null>(null);
@@ -120,52 +122,20 @@ export default function BtwHomePage() {
     listSavedPlaces().then(setSavedPlaces);
   }, []);
 
-  // Той самий патерн визначення позиції, що вже /map (app/map/page.tsx) і /scan
-  // (app/scan/page.tsx) — dev-override (адмінський /admin/btw-dev-tools) перевіряється ПЕРШИМ,
-  // потім реальна геолокація; жодних нових шляхів визначення позиції тут не винаходилось.
+  // Дефолт точки А "текущее местоположение" (§2.1 шаг 2) — щойно спільна позиція з
+  // <LocationProvider> стає відомою. Залежність саме від `currentLocation` (не `[]`, як у
+  // старому інлайн-ефекті) — контекст резолвиться асинхронно ПІСЛЯ першого рендера цієї
+  // сторінки, тож без залежності цей ефект просто ніколи б не спрацював повторно, коли позиція
+  // нарешті прийде. `prev ?? ...` лишає ручний вибір користувача недоторканим, якщо він устиг
+  // обрати точку А сам до того, як геолокація відповіла.
   useEffect(() => {
-    let cancelled = false;
+    if (!currentLocation) return;
+    setPointA((prev) => prev ?? { label: 'Текущее местоположение', lat: currentLocation.lat, lng: currentLocation.lng });
+  }, [currentLocation]);
 
-    function useRealGeolocation() {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (cancelled) return;
-          const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setCurrentLocation(c);
-          setPointA((prev) => prev ?? { label: 'Текущее местоположение', lat: c.lat, lng: c.lng });
-          setLocating(false);
-        },
-        () => {
-          if (cancelled) return;
-          setLocating(false); // немає геолокації — точка А просто лишається невибраною, користувач обирає вручну через пікер
-        },
-        { enableHighAccuracy: false, timeout: 8000 },
-      );
-    }
-
-    (async () => {
-      await ensureBtwSession();
-      if (cancelled) return;
-      const override = await fetchDevLocationOverride();
-      if (cancelled) return;
-      if (override != null) {
-        const c = { lat: override.lat, lng: override.lng };
-        setCurrentLocation(c);
-        setPointA((prev) => prev ?? { label: 'Текущее местоположение', lat: c.lat, lng: c.lng });
-        setUsedDevOverride(true);
-        setLocating(false);
-        return;
-      }
-      useRealGeolocation();
-    })();
-
+  useEffect(() => {
     refreshSavedPlaces();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshSavedPlaces]);
 
   function handlePicked(place: PickedPlace) {
     if (pickerFor === 'A') setPointA(place);
@@ -211,25 +181,33 @@ export default function BtwHomePage() {
   return (
     <div className="min-h-screen bg-black pb-8 text-white">
       {/* Верхня панель — за стилем скріна (тёмна закруглена панель зверху), без вигаданої
-          "программы лояльности" Uklon — цього немає в ТЗ цього проєкту. */}
+          "программы лояльности" Uklon — цього немає в ТЗ цього проєкту.
+          ЗМІНЕНО — за прямим запитом користувача «перенести вход в карту ... в главное меню на
+          новую кнопку "карта" ... теперь вся навигация мини апп через главное меню»: маленьке
+          текстове посилання "Карта" тут прибрано — воно переїхало нижче, у ряд швидких дій,
+          повноцінною кнопкою того ж візуального рівня, що "Сканировать"/"Места" (не другорядним
+          посиланням у шапці). */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <div className="flex items-center gap-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-400 text-lg">👁</span>
           <span className="text-base font-semibold">Beyond the Wall</span>
         </div>
-        <Link href="/map" className="rounded-full bg-white/10 px-3 py-1.5 text-xs text-gray-300">
-          Карта
-        </Link>
       </div>
 
-      {/* Ряд швидких дій — за стилем скріна (іконка + підпис), навмисно лише ДВА пункти,
-          рішені прямим запитом користувача (§2.4 — «Сканировать» окремою кнопкою; §2.3 —
-          керування збереженими місцями), без вигаданих зайвих пунктів на кшталт Uklon
-          "Доставка"/"Подорожі"/"Квіти", яких немає в ТЗ цього продукту. */}
+      {/* Ряд швидких дій — за стилем скріна (іконка + підпис). ЗМІНЕНО — за прямим запитом
+          користувача: додано третій пункт "Карта" (раніше — окреме маленьке посилання в шапці,
+          § коментар вище) — тепер це ЄДИНИЙ вхід у карту камер поблизости з усього мінідодатку;
+          друге посилання на /map, що раніше було на екрані сканування ("Открыть карту камер
+          поблизости"), прибрано (app/scan/page.tsx) — уся навігація тепер через це головне
+          меню, як і попросив користувач. */}
       <div className="flex gap-6 px-4 py-2">
         <Link href="/scan" className="flex flex-col items-center gap-1.5">
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 text-2xl">📷</span>
           <span className="text-xs text-gray-300">Сканировать</span>
+        </Link>
+        <Link href="/map" className="flex flex-col items-center gap-1.5">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 text-2xl">🗺️</span>
+          <span className="text-xs text-gray-300">Карта</span>
         </Link>
         <button onClick={() => setPickerFor('B')} className="flex flex-col items-center gap-1.5">
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 text-2xl">★</span>

@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'Una app gratuita en Telegram crea una ruta para coche o bicicleta y muestra de inmediato qué hay en ella: cámaras, clima, incidentes conocidos y el estado de la vía. Durante el trayecto te guía y recalcula la ruta automáticamente si te desvías.',
   cta_open: 'Abrir en Telegram →',
+  hero_image_alt:
+    'Vista desde el volante del coche y desde la bicicleta con una capa AR: radar de velocidad a 120 m y una ruta segura sin cámaras para el ciclista',
 
   problem_eyebrow: '// por qué importa',
   problem_title: 'En la carretera rara vez sabes de antemano qué te espera',

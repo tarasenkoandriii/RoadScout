@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'O aplicație gratuită în Telegram construiește un traseu pentru mașină sau bicicletă și arată imediat ce se află pe el: camere, vreme, incidente cunoscute și starea drumului. Pe drum, te ghidează și recalculează automat traseul dacă te abați de la el.',
   cta_open: 'Deschide în Telegram →',
+  hero_image_alt:
+    'Vedere din spatele volanului și de pe bicicletă cu suprapunere AR: cameră radar la 120 m înainte și un traseu sigur, fără camere, pentru biciclist',
 
   problem_eyebrow: '// de ce contează',
   problem_title: 'Pe drum, rareori știi din timp ce te așteaptă',

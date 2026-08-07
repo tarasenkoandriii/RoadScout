@@ -11,14 +11,17 @@ import CityWidget from '../../components/CityWidget';
 // сценарій швидкого сканування (пішохід) свідомо НЕ дублюється тут — він лишається на
 // apps/landing.
 //
-// ⚠️ ЧЕСНО — на відміну від apps/landing, тут НЕМАЄ фотореалістичних ілюстрацій (ті, що вже є
-// в design-source, зроблені під камера-сканування, не під планування маршруту — нові
-// фотореалістичні сцени тут не запитувались і не виготовлялись). Замість цього — той самий
-// легкий SVG-іконковий підхід (mask-image + currentColor), що вже був у першій версії
-// apps/landing до фотореалістичного апдейту; секція "скріншоти" з першого ТЗ (§2.5) тут
-// свідомо пропущена — реальних знімків режиму сопровождения на цей момент немає, а видавати
-// намальовані макети за "справжній інтерфейс" суперечило б принципу чесних скріншотів (§2.5
-// doc/TZ-btw-landing.md).
+// ⚠️ ЧЕСНО — секція "скріншоти" з першого ТЗ (§2.5) тут свідомо пропущена — реальних знімків
+// режиму сопровождения на цей момент немає, а видавати намальовані макети за "справжній
+// інтерфейс" суперечило б принципу чесних скріншотів (§2.5 doc/TZ-btw-landing.md). Решта
+// секцій — той самий легкий SVG-іконковий підхід (mask-image + currentColor), що вже був у
+// першій версії apps/landing до фотореалістичного апдейту.
+//
+// ОНОВЛЕНО за прямим запитом користувача ("картинку использовать как hero image into
+// interactive landing") — hero-секція раніше мала лише декоративну SVG-панель (тут НЕ було
+// фотореалістичних ілюстрацій, на відміну від apps/landing); тепер там реальне фото
+// (public/images/hero-drive-cycle.webp) — водій за кермом і велосипедист з AR-накладенням
+// попереджень, той самий сценарій "авто/велосипед", що й секція нижче (§ ДЛЯ КОГО).
 
 const TELEGRAM_APP_URL = process.env.NEXT_PUBLIC_TELEGRAM_MINIAPP_URL ?? 'https://t.me/RoadScoutBot/beyondthewall';
 
@@ -84,16 +87,28 @@ export default function InteractiveLandingPage() {
             </div>
           </div>
 
-          {/* Декоративна панель замість фотореалістичного hero (§ коментар вгорі файлу) —
-              стилізована "мапа маршруту": лінія А->Б + великий іконка-маршрут по центру. */}
-          <div className="relative flex aspect-square items-center justify-center rounded-3xl border border-white/10 bg-gradient-to-br from-primary/20 via-surface to-bg p-10 sm:aspect-[4/3]">
-            <Icon src="/icons/route.svg" className="h-32 w-32 text-primary/70 sm:h-40 sm:w-40" />
-            <span className="absolute left-8 top-8 flex h-9 w-9 items-center justify-center rounded-full bg-primary font-mono text-sm font-medium text-bg">
-              A
-            </span>
-            <span className="absolute bottom-8 right-8 flex h-9 w-9 items-center justify-center rounded-full bg-success font-mono text-sm font-medium text-bg">
-              B
-            </span>
+          {/* ДОДАНО за прямим запитом користувача ("картинку использовать как hero image into
+              interactive landing") — замінює попередню декоративну SVG-панель "мапа маршруту"
+              (§ коментар вгорі файлу пояснював ЧОМУ раніше не було фотореалістичного hero:
+              "нові фотореалістичні сцени тут не запитувались і не виготовлялись" — тепер
+              запитались і виготовились). Зображення саме по собі й є ілюстрацією ціннісної
+              пропозиції: зліва — вигляд з-за керма авто, справа (через AR-розлом) — вигляд з
+              велосипеда з накладеними попередженнями "SPEED CAMERA 120m" / "SAFE ROUTE No
+              cameras ahead", тобто той самий сценарій "авто/велосипед" з секції нижче (§ ДЛЯ
+              КОГО). aspect-[4/3] (а не native 3:2 чи aspect-square) — свідомий компроміс: кадрує
+              трохи неба/капота зверху-знизу, але зберігає ПОВНУ ширину композиції (від рук на
+              кермі зліва до значка камери справа) на всіх viewport, на відміну від aspect-square,
+              що на мобільних обрізало б бічний контент. */}
+          <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-2xl shadow-black/40">
+            <img
+              src="/images/hero-drive-cycle.webp"
+              alt={t('hero_image_alt')}
+              className="aspect-[4/3] w-full object-cover"
+              width={1280}
+              height={853}
+              loading="eager"
+              fetchPriority="high"
+            />
           </div>
         </div>
       </section>

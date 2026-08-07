@@ -11,9 +11,13 @@
 // скопійована 1:1, без жодної зміни поведінки.
 
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ensureBtwSession, fetchDevLocationOverride } from '../../lib/btwSession';
+// За прямим запитом користувача — "запрашивать местоположение при входе в мини апп": позиція,
+// визначена провайдером app/layout.tsx одразу при вході, тепер повторно використовується тут,
+// щоб не запитувати геолокацію вдруге при тапі "Начать сканирование" (§ детальний розбір нижче,
+// біля requestPermissions()).
+import { useLocation } from '../../lib/locationContext';
 import BtwRadar from '../../components/BtwRadar';
 // За прямим запитом користувача — "добавить на экране отображения камеры мини-карту на 33%
 // экрана с отображением азимута и сектора обзора этой камеры" (§ детальний розбір у самому
@@ -209,6 +213,9 @@ function BtwScanPageInner() {
   const [showLog, setShowLog] = useState(true);
   const [logEntries, setLogEntries] = useState<NetworkLogEntry[]>([]);
   const [usedDevOverride, setUsedDevOverride] = useState(false);
+  // ДОДАНО — вже визначена (чи ще визначається) позиція зі спільного провайдера
+  // app/layout.tsx, запитана одразу при вході в мінідодаток (див. requestPermissions() нижче).
+  const { location: sharedLocation, usedDevOverride: sharedUsedDevOverride } = useLocation();
   // ДОДАНО — §2.2 ТЗ, скан для конкретної точки маршруту (див. коментар біля useSearchParams
   // вище) — окремий від `usedDevOverride` прапорець/підпис, щоб не плутати "адмінська підміна
   // координат" із "навмисно відкрито для ось цієї точки на маршруті".
@@ -444,6 +451,27 @@ function BtwScanPageInner() {
       usedOverride = true;
     }
 
+    // ДОДАНО — за прямим запитом користувача «поскольку весь роутинг и сканирование начинается
+    // с определения местоположения - запрашивать местоположение при входе в мини апп»: якщо
+    // спільний провайдер (app/layout.tsx) уже встиг визначити позицію ДО цього кліка (типовий
+    // випадок — він запускається одразу при вході, задовго до "Начать сканирование"), не
+    // питаємо геолокацію вдруге — просто переносимо вже готовий результат сюди. Для dev-
+    // override поведінка ідентична до гілки нижче (жодного geolocation/watchPosition виклику).
+    // Для реальної позиції — додатково підписуємось на watchPosition тут-таки, щоб зберегти
+    // живе оновлення під час сканування, як і раніше.
+    if (!usedOverride && sharedLocation != null) {
+      setPosition({ lat: sharedLocation.lat, lng: sharedLocation.lng, accuracyM: sharedUsedDevOverride ? 5 : 50 });
+      if (sharedUsedDevOverride) setUsedDevOverride(true);
+      usedOverride = true;
+      if (!sharedUsedDevOverride) {
+        navigator.geolocation.watchPosition(
+          (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: pos.coords.accuracy }),
+          () => {},
+          { enableHighAccuracy: true },
+        );
+      }
+    }
+
     if (!usedOverride) {
       const override = await fetchDevLocationOverride();
       if (override != null) {
@@ -536,7 +564,7 @@ function BtwScanPageInner() {
     }
 
     setPhase('scanning');
-  }, [ensureBtwSession, searchParams]);
+  }, [ensureBtwSession, searchParams, sharedLocation, sharedUsedDevOverride]);
 
   function handleOrientation(e: DeviceOrientationEvent & { webkitCompassHeading?: number }) {
     const raw = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? 360 - e.alpha : null);
@@ -1083,11 +1111,6 @@ function BtwScanPageInner() {
         <button onClick={requestPermissions} className="rounded-full bg-white px-8 py-3 font-semibold text-black">
           Начать сканирование
         </button>
-        {/* За прямим запитом користувача — окремий режим "міні-карта" (мітки камер і
-            секторів огляду поблизу, панорамування двома пальцями, перемикач масштабу). */}
-        <Link href="/map" className="text-sm text-gray-400 underline">
-          Открыть карту камер поблизости
-        </Link>
       </div>
     );
   }

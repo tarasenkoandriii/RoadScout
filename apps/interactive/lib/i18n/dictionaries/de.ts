@@ -9,6 +9,8 @@ const dict: Dictionary = {
   hero_subtitle:
     'Eine kostenlose Telegram-App plant eine Route fürs Auto oder Fahrrad und zeigt sofort, was auf ihr liegt: Kameras, Wetter, bekannte Vorfälle und die Verkehrslage. Unterwegs führt sie dich und berechnet die Route automatisch neu, wenn du davon abweichst.',
   cta_open: 'In Telegram öffnen →',
+  hero_image_alt:
+    'Blick aus dem Auto und vom Fahrrad mit AR-Einblendung: Blitzer 120 m voraus und eine sichere, kamerafreie Route für den Radfahrer',
 
   problem_eyebrow: '// warum das wichtig ist',
   problem_title: 'Unterwegs weißt du selten im Voraus, was dich erwartet',
