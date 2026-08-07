@@ -12,6 +12,13 @@
 // цього рядка CSP `default-src 'self'` мовчки заблокував би сам iframe (frame-src за
 // замовчуванням успадковує default-src) — реальний, а не гіпотетичний бag: без явного дозволу
 // картка Windy була б порожньою/консоль показувала CSP violation.
+//
+// ДОДАНО за прямим запитом користувача ("добавить еще карту дорог") — img-src тепер додатково
+// дозволяє *.tile.openstreetmap.org (той самий публічний растровий тайл-сервер, що вже
+// apps/admin/components/NyTrafficMap.tsx/SituationalMap.tsx використовують через
+// react-leaflet TileLayer, тут без піддомену-обгортки {s}, бо CSP не підтримує такий шаблон —
+// *.tile.openstreetmap.org покриває всі a/b/c-піддомени одразу). Без цього рядка тайли дорог
+// мовчки не завантажилися б — та сама причина, що вже задокументована вище для Windy-iframe.
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -20,7 +27,7 @@ const securityHeaders = [
   {
     key: 'Content-Security-Policy',
     value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https:; frame-src https://embed.windy.com; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https:; frame-src https://embed.windy.com; frame-ancestors 'none'",
   },
 ];
 

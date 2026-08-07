@@ -50,6 +50,7 @@ const dict: Dictionary = {
   widget_map_radius_note: 'Im Umkreis von {radius} km um deine Stadt',
   widget_map_label: 'Regionskarte',
   widget_layer_incidents: 'Vorfälle',
+  widget_layer_roads: 'Straßen',
   widget_layer_rain: 'Regen',
   widget_layer_wind: 'Wind',
   widget_layer_clouds: 'Bewölkung',

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useI18n } from './I18nProvider';
 import WeatherIcon from './WeatherIcon';
 import WindyWidget, { WindyOverlay } from './WindyWidget';
@@ -10,21 +11,32 @@ import type { LandingWeatherSummary, LandingIncidentsSummary } from '../lib/land
 // За прямим запитом користувача — "виджет погоды уменьшить и сделать отдельно - оформить
 // отдельным прямоугольником и разместить внахлест на карте слева вверху" + "карту взять у windy
 // - сделать как в админке с теми же селекторами слоев, поверх нанести слой инцидентов - по
-// возможности отдельный слой".
+// возможности отдельный слой" + "добавить еще карту дорог которую можно взять из blob" +
+// "перенести виджет погоды над списком инцидентов и сделать немного крупнее - прогноз плохо
+// читается" (ОСТАННЄ ПЕРЕВАЖАЄ найперше: картка погоди БІЛЬШЕ НЕ плаваюча/накладена на карту —
+// винесена в окремий блок над списком інцидентів праворуч, крупнішим шрифтом).
 //
 // ⚠️ ЧЕСНО (та сама причина, що вже задокументована в
 // apps/admin/components/NySituationalPanel.tsx) — Windy embed є повноцінним iframe із власною
 // внутрішньою картою, а НЕ растровим tile-шаром, тому інциденти технічно НЕ можна намалювати як
 // прозорий шар ПОВЕРХ карти Windy. Замість цього — той самий компроміс, що вже прийнятий в
 // адмінці: один "слот" карти, що перемикається горизонтальним рядом вкладок (Windy-шари +
-// "Інциденти"), а не одночасне накладання. Єдина відмінність від адмінки — шар "Інциденти" тут
-// показує власну схематичну SVG-карту (CityIncidentsMap, без нових залежностей, той самий
-// підхід, що вже в цьому лендингу), а не справжню Leaflet-карту з OSM-тайлами (там, на відміну
-// від цього лендингу, react-leaflet вже є залежністю проєкту).
-type LayerKey = 'incidents' | WindyOverlay;
+// "Інциденти" + "Дороги"), а не одночасне накладання для ВСІХ шарів. Виняток — новий шар
+// "Дороги" (RoadMapLayer.tsx, react-leaflet + OSM-тайли, СПРАВЖНЯ карта, не iframe): там
+// інциденти дійсно накладені прозорим шаром маркерів ПОВЕРХ карти доріг, бо Leaflet це
+// технічно дозволяє (на відміну від Windy). Шар "Інциденти" (без доріг) лишається власною
+// схематичною SVG-картою (CityIncidentsMap, без нових залежностей) — простіший "радар"-вигляд
+// для тих, кому вистачає напрямку+відстані без реальної вулично-дорожньої мережі.
+type LayerKey = 'incidents' | 'roads' | WindyOverlay;
+
+// react-leaflet звертається до window/document при імпорті — на сервері (SSR/SSG) це падає,
+// тому карта доріг вантажиться лише на клієнті (ssr:false), той самий паттерн, що вже
+// apps/admin/components/NySituationalPanel.tsx використовує для NyTrafficMap.
+const RoadMapLayer = dynamic(() => import('./RoadMapLayer'), { ssr: false });
 
 const WINDY_LAYERS: WindyOverlay[] = ['rain', 'wind', 'clouds', 'temp', 'radar'];
 const MAP_HEIGHT_CLASS = 'h-72 w-full sm:h-80';
+const ROAD_MAP_ZOOM = 12;
 
 interface Props {
   center: { lat: number; lng: number };
@@ -50,6 +62,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
 
   const tabs: { key: LayerKey; label: string }[] = [
     { key: 'incidents', label: t('widget_layer_incidents') },
+    { key: 'roads', label: t('widget_layer_roads') },
     { key: 'rain', label: t('widget_layer_rain') },
     { key: 'wind', label: t('widget_layer_wind') },
     { key: 'clouds', label: t('widget_layer_clouds') },
@@ -78,51 +91,21 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
             ))}
           </div>
 
-          <div className="relative overflow-hidden rounded-xl border border-white/10 bg-surface">
-            {/* Плаваюча картка погоди — за прямим запитом користувача винесена в окремий
-                прямокутник і розміщена внахлест зверху зліва на карті, меншим шрифтом, ніж
-                раніше. Якщо погода недоступна (weather.available === false) — картка просто не
-                рендериться, а не показує фейкові/порожні значення (той самий принцип "чесно" з
-                widget_unavailable). */}
-            {weather.available && (
-              <div className="absolute left-2 top-2 z-10 max-w-[62%] rounded-lg border border-white/10 bg-surface/95 px-2.5 py-2 shadow-lg backdrop-blur-sm sm:max-w-[210px]">
-                <p className="mb-1 font-mono text-[8px] uppercase tracking-[0.1em] text-muted">{t('widget_weather_label')}</p>
-                <div className="flex items-center gap-1.5">
-                  <WeatherIcon kind={weather.iconKind} className="h-5 w-5 flex-none text-neutral" />
-                  <div className="min-w-0">
-                    <p className="font-display text-base font-semibold leading-tight text-neutral">
-                      {Math.round(weather.tempC as number)}°C
-                    </p>
-                    <p className="truncate text-[10px] leading-tight text-muted">{weather.conditionLabel}</p>
-                  </div>
-                </div>
-                {weather.isHazard && <p className="mt-1 text-[9px] leading-tight text-warning">{t('widget_weather_hazard')}</p>}
-                {weather.forecast.length > 0 && (
-                  <div className="mt-1.5 flex gap-2 border-t border-white/10 pt-1.5">
-                    {weather.forecast.map((day) => (
-                      <div key={day.dateIso} className="flex items-center gap-1 text-[9px] text-muted">
-                        <WeatherIcon kind={day.iconKind} className="h-3 w-3 flex-none text-muted" />
-                        <span className="capitalize">{formatForecastDay(day.dateIso, lang)}</span>
-                        <span className="whitespace-nowrap text-neutral">
-                          {day.tempMaxC !== null ? Math.round(day.tempMaxC) : '—'}°/{day.tempMinC !== null ? Math.round(day.tempMinC) : '—'}°
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {layer === 'incidents' ? (
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-surface">
+            {layer === 'incidents' && (
               <div className={`flex items-center justify-center ${MAP_HEIGHT_CLASS}`}>
                 <CityIncidentsMap center={center} incidents={incidents.items} radiusKm={incidents.radiusKm} />
               </div>
-            ) : (
+            )}
+            {layer === 'roads' && (
+              <RoadMapLayer center={center} incidents={incidents.items} zoom={ROAD_MAP_ZOOM} heightClassName={MAP_HEIGHT_CLASS} />
+            )}
+            {layer !== 'incidents' && layer !== 'roads' && (
               <WindyWidget lat={center.lat} lng={center.lng} zoom={8} overlay={layer} heightClassName={`${MAP_HEIGHT_CLASS} border-0`} />
             )}
           </div>
 
-          {layer === 'incidents' && (
+          {(layer === 'incidents' || layer === 'roads') && (
             <p className="mt-1 text-center font-mono text-[10px] text-muted">
               {t('widget_map_radius_note', { radius: incidents.radiusKm })}
             </p>
@@ -130,6 +113,43 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
         </div>
 
         <div>
+          {/* За прямим запитом користувача — "перенести виджет погоды над списком инцидентов и
+              сделать немного крупнее - прогноз плохо читается": картка погоди більше не
+              плаваюча/накладена на карту (як у попередній ітерації), а власний блок над списком
+              інцидентів, крупнішим шрифтом (особливо рядок прогнозу — саме на нього була
+              скарга). Якщо погода недоступна — блок просто не рендериться (той самий принцип
+              "чесно", що й раніше). */}
+          {weather.available && (
+            <div className="mb-4 rounded-xl border border-white/10 bg-surface/60 p-3">
+              <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-muted">{t('widget_weather_label')}</p>
+              <div className="flex items-center gap-2.5">
+                <WeatherIcon kind={weather.iconKind} className="h-9 w-9 flex-none text-neutral" />
+                <div className="min-w-0">
+                  <p className="font-display text-2xl font-semibold leading-tight text-neutral">
+                    {Math.round(weather.tempC as number)}°C
+                  </p>
+                  <p className="truncate text-xs text-muted">{weather.conditionLabel}</p>
+                </div>
+              </div>
+              {weather.isHazard && <p className="mt-1.5 text-xs text-warning">{t('widget_weather_hazard')}</p>}
+              {weather.forecast.length > 0 && (
+                <div className="mt-2.5 flex gap-3 border-t border-white/10 pt-2.5">
+                  {weather.forecast.map((day) => (
+                    <div key={day.dateIso} className="flex items-center gap-1.5">
+                      <WeatherIcon kind={day.iconKind} className="h-5 w-5 flex-none text-muted" />
+                      <div className="leading-tight">
+                        <p className="text-[11px] capitalize text-muted">{formatForecastDay(day.dateIso, lang)}</p>
+                        <p className="text-[11px] font-medium text-neutral">
+                          {day.tempMaxC !== null ? Math.round(day.tempMaxC) : '—'}°/{day.tempMinC !== null ? Math.round(day.tempMinC) : '—'}°
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-muted">{t('widget_incidents_label')}</p>
           {incidents.configured ? (
             <div>

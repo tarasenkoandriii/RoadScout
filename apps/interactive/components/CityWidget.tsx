@@ -14,8 +14,8 @@ import type { LandingSnapshot } from '../lib/landing-snapshot.types';
 //
 // РОЗШИРЕНО за прямим запитом користувача — сам компонент тепер лише завантажує дані й керує
 // станом (loading/error/unavailable/ready); вся верстка погоди+карти+інцидентів винесена в
-// CityMapPanel.tsx (плаваюча картка погоди поверх карти Windy/схематичного радару інцидентів).
-// Типи відповіді бекенду — у спільному lib/landing-snapshot.types.ts, а не тут.
+// CityMapPanel.tsx (плаваюча картка погоди поверх карти Windy/схематичного радару інцидентів/
+// карти доріг). Типи відповіді бекенду — у спільному lib/landing-snapshot.types.ts, а не тут.
 
 interface GeoResponse {
   available: boolean;
@@ -25,6 +25,17 @@ interface GeoResponse {
 }
 
 type WidgetState = 'loading' | 'unavailable' | 'error' | 'ready';
+
+// ⚠️ ЧЕСНО / ТИМЧАСОВО — за прямим запитом користувача ("в дебаг целях сейчас карту рисовать
+// вокруг центра нью-йорка - заспуфить"): поки новий шар "Дороги" (RoadMapLayer.tsx) і сценарій
+// 511NY не перевірені візуально на реальному деплої, позиція відвідувача ПРИМУСОВО підміняється
+// на центр Нью-Йорка (в межах NY_STATE_BBOX бекенду — саме тому спрацює саме 511NY-джерело
+// інцидентів, а не TomTom). Справжній виклик /api/geo нижче лишається НЕДОТОРКАНИМ — досить
+// виставити прапорець у false (і прибрати цей коментар/константу), щоб повернути реальну
+// IP-геолокацію без жодних інших змін коду. Не забути прибрати перед тим, як показувати цей
+// лендинг реальним відвідувачам — інакше ВСІ побачать нью-йоркський віджет замість свого міста.
+const DEBUG_FORCE_NYC = true;
+const NYC_DEBUG_CENTER = { lat: 40.7128, lng: -74.006 };
 
 export default function CityWidget() {
   const { t } = useI18n();
@@ -45,7 +56,18 @@ export default function CityWidget() {
         const geo: GeoResponse = await geoRes.json();
         if (cancelled) return;
 
-        if (!geo.available || geo.lat === undefined || geo.lng === undefined) {
+        // Точка, яку реально використовуємо нижче — або дебаг-спуф (NYC_DEBUG_CENTER, поки
+        // DEBUG_FORCE_NYC=true), або справжня IP-геолокація з /api/geo. Обчислюється в одну
+        // змінну (а не окремими lat/lng-перевірками нижче по коду), щоб TypeScript міг звузити
+        // тип до "гарантовано number" одним `if (!point) return;` замість двох незалежних
+        // перевірок geo.lat/geo.lng, які інакше не narrow-яться після присвоєння в let.
+        const point = DEBUG_FORCE_NYC
+          ? { lat: NYC_DEBUG_CENTER.lat, lng: NYC_DEBUG_CENTER.lng, cityLabel: 'Нью-Йорк (debug-спуф)' }
+          : !geo.available || geo.lat === undefined || geo.lng === undefined
+            ? null
+            : { lat: geo.lat, lng: geo.lng, cityLabel: geo.cityLabel ?? undefined };
+
+        if (!point) {
           setState('unavailable');
           return;
         }
@@ -59,15 +81,15 @@ export default function CityWidget() {
           return;
         }
 
-        const params = new URLSearchParams({ lat: String(geo.lat), lng: String(geo.lng) });
-        if (geo.cityLabel) params.set('cityLabel', geo.cityLabel);
+        const params = new URLSearchParams({ lat: String(point.lat), lng: String(point.lng) });
+        if (point.cityLabel) params.set('cityLabel', point.cityLabel);
 
         const snapRes = await fetch(`${apiBase}/btw/landing-snapshot?${params.toString()}`);
         if (!snapRes.ok) throw new Error(`landing-snapshot HTTP ${snapRes.status}`);
         const data: LandingSnapshot = await snapRes.json();
         if (cancelled) return;
 
-        setVisitorGeo({ lat: geo.lat, lng: geo.lng });
+        setVisitorGeo({ lat: point.lat, lng: point.lng });
         setSnapshot(data);
         setState('ready');
       } catch {

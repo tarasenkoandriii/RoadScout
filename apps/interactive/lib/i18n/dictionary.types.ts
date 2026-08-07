@@ -60,6 +60,9 @@ export interface Dictionary {
   // 5 шарів Windy) у CityMapPanel.tsx.
   widget_map_label: string;
   widget_layer_incidents: string;
+  // ДОДАНО за прямим запитом користувача ("добавить еще карту дорог") — вкладка "Дороги"
+  // (RoadMapLayer.tsx, react-leaflet + OSM-тайли) серед перемикачів шарів карти.
+  widget_layer_roads: string;
   widget_layer_rain: string;
   widget_layer_wind: string;
   widget_layer_clouds: string;

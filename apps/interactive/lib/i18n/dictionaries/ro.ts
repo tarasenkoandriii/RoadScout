@@ -50,6 +50,7 @@ const dict: Dictionary = {
   widget_map_radius_note: 'În raza de {radius} km de orașul tău',
   widget_map_label: 'Harta regiunii',
   widget_layer_incidents: 'Incidente',
+  widget_layer_roads: 'Drumuri',
   widget_layer_rain: 'Ploaie',
   widget_layer_wind: 'Vânt',
   widget_layer_clouds: 'Nori',

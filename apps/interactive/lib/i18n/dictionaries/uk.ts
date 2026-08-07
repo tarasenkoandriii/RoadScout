@@ -51,6 +51,7 @@ const dict: Dictionary = {
   widget_map_radius_note: 'У радіусі {radius} км від вашого міста',
   widget_map_label: 'Карта регіону',
   widget_layer_incidents: 'Інциденти',
+  widget_layer_roads: 'Дороги',
   widget_layer_rain: 'Дощ',
   widget_layer_wind: 'Вітер',
   widget_layer_clouds: 'Хмарність',
