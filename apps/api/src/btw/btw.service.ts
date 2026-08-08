@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OcclusionService } from '../occlusion/occlusion.service';
 import { AzimuthHeuristicService } from '../scraper/azimuth-heuristic.service';
 import { GrokCameraAssistService } from '../common/grok-camera-assist.service';
+import { GeocodingService, CityHint } from '../common/geocoding.service';
 import { RegistryProxyService } from '../scraper/proxy/registry-proxy.service';
 import { OpenRouteServiceClient, OpenRouteServiceError, RoutingProfile } from '../routing/openrouteservice.service';
 import { BtwRouteForecastService, RouteForecast } from './btw-route-forecast.service';
@@ -131,6 +132,12 @@ export class BtwService {
     // камери/погода/інциденти/трафік/FIXED_ROUTE-зустрічі вздовж вже побудованого маршруту —
     // src/btw/btw-route-forecast.service.ts.
     private readonly routeForecast: BtwRouteForecastService,
+    // ДОДАНО за прямим запитом користувача («ввод точек А и Б маршрута сейчас просто
+    // плейсхолдеры - ничего не вводится и не редактируется - исправь») — searchAddress()
+    // нижче. GeocodingService зареєстрований у CommonModule як @Global() (див. common.module.ts)
+    // — тут НЕ потрібно нічого додавати в imports BtwModule, той самий принцип, що вже
+    // AzimuthHeuristicService/GrokCameraAssistService вище.
+    private readonly geocoding: GeocodingService,
   ) {}
 
   // У5 ТЗ (§5) — "не чаще 1 раза в 30 с". ВИПРАВЛЕНО за прямим запитом користувача (аудит
@@ -1339,5 +1346,54 @@ export class BtwService {
     }
 
     return { slug: best.slug, name: best.name, distanceM: Math.round(bestDistanceM) };
+  }
+
+  // ДОДАНО за прямим запитом користувача («ввод точек А и Б маршрута сейчас просто плейсхолдеры
+  // - ничего не вводится и не редактируется - исправь») — реальний пошук адреси за текстом для
+  // полів "Откуда"/"Куда" на головному екрані apps/btw (app/page.tsx, через
+  // components/BtwPlacePicker.tsx). До цього моменту єдиним способом "ввести" точку вручну був
+  // прямий ввід координат lat/lng (§ коментар класу BtwPlacePicker) — робочий, але не те, що
+  // людина очікує від поля "Куда едем?" типу Uklon/Google Maps.
+  //
+  // GeocodingService.searchAddressCandidates() (не searchPlaceOSM — та повертає лише ОДИН
+  // найкращий результат, для адмінки) — той самий безкоштовний Nominatim, без потреби в
+  // GOOGLE_GEOCODING_API_KEY (§ коментар класу GeocodingService: "БЕСПЛАТНОЕ и не требующее
+  // API-ключа джерело").
+  //
+  // near (lat/lng) — необов'язковий: якщо передано, підказуємо Nominatim найближче з засіяних
+  // міст як CityHint (той самий механізм, що вже geocode()/searchPlace() вище використовують
+  // для адмінки) — той самий текст "вулиця Хрещатик 1" по-різному резолвиться в Києві й у
+  // Варшаві, а мінідодаток якраз знає приблизне місце користувача (LocationProvider). Якщо
+  // найближче місто занадто далеко (>150 км, той самий поріг, що nearestCity() вище) або lat/lng
+  // не передано зовсім — просто НЕ передаємо hint, а не кидаємо помилку: пошук і без нього
+  // працює (дефолтний ухил на "Україна" всередині GeocodingService), підказка міста — лише
+  // покращення релевантності, не обов'язкова умова.
+  async searchAddress(query: string, lat?: number, lng?: number): Promise<{ label: string; lat: number; lng: number }[]> {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) return []; // той самий здоровий глузд, що вже клієнтський debounce — не турбувати Nominatim односимвольними запитами
+
+    let cityHint: CityHint | null = null;
+    if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
+      const cities = await this.prisma.city.findMany({
+        select: { name: true, lat: true, lng: true, countryCode: true, countryName: true },
+      });
+      let best: (typeof cities)[number] | null = null;
+      let bestDistanceM = Infinity;
+      for (const city of cities) {
+        const d = haversineDistance({ lat, lng }, { lat: city.lat, lng: city.lng });
+        if (d < bestDistanceM) {
+          best = city;
+          bestDistanceM = d;
+        }
+      }
+      if (best && bestDistanceM <= 150_000) {
+        cityHint = { name: best.name, lat: best.lat, lng: best.lng, countryCode: best.countryCode, countryName: best.countryName };
+      }
+    }
+
+    const results = await this.geocoding.searchAddressCandidates(trimmed, cityHint, 5);
+    return results
+      .filter((r) => r.formattedAddress || r.name)
+      .map((r) => ({ label: (r.formattedAddress ?? r.name) as string, lat: r.lat, lng: r.lng }));
   }
 }

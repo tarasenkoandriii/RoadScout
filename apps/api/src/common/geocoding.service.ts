@@ -223,6 +223,58 @@ export class GeocodingService {
     }
   }
 
+  // ДОДАНО за прямим запитом користувача (apps/btw — «ввод точек А и Б маршрута сейчас просто
+  // плейсхолдеры - ничего не вводится и не редактируется - исправь»): на відміну від
+  // searchPlaceOSM() вище (повертає лише НАЙКРАЩОГО кандидата — для адмінки, де людина сама
+  // формулює точний запит), тут потрібен СПИСОК варіантів для звичайного текстового поля
+  // адреси в мінідодатку (людина вводить довільний текст на ходу, перший результат Nominatim
+  // не завжди те, що мала на увазі) — той самий Nominatim-запит, той самий throttleNominatim()
+  // (один спільний лічильник на весь сервіс — і адмінка, і мінідодаток однаково поважають ліміт
+  // 1 запит/с), але мапимо ВСІ результати, не тільки data[0].
+  async searchAddressCandidates(query: string, cityHint?: CityHint | null, limit = 5): Promise<PlaceSearchResult[]> {
+    await this.throttleNominatim();
+
+    const countryCode = (cityHint?.countryCode ?? 'UA').toLowerCase();
+    const countryName = cityHint?.countryName ?? COUNTRY_NAME_BY_CODE[countryCode.toUpperCase()] ?? countryCode;
+    const fullQuery = cityHint ? `${query}, ${cityHint.name}, ${countryName}` : `${query}, ${countryName}`;
+
+    const params = new URLSearchParams({
+      q: fullQuery,
+      format: 'jsonv2',
+      limit: String(limit),
+      countrycodes: countryCode,
+      'accept-language': 'uk',
+    });
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'RoadScout-BTW/1.0 (route point address search)' },
+      });
+      const data = await res.json();
+      if (!Array.isArray(data)) return [];
+
+      const results: PlaceSearchResult[] = [];
+      for (const item of data) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        results.push({
+          lat,
+          lng,
+          name: typeof item.display_name === 'string' ? item.display_name : null,
+          formattedAddress: typeof item.display_name === 'string' ? item.display_name : null,
+          confidence: data.length === 1 ? 1.0 : 0.6,
+          candidateCount: data.length,
+        });
+      }
+      return results;
+    } catch (err) {
+      this.logger.warn(`Nominatim candidate search failed for "${query}": ${(err as Error).message}`);
+      return [];
+    }
+  }
+
   private async throttleNominatim(): Promise<void> {
     const minGapMs = 1000;
     const elapsed = Date.now() - this.lastNominatimCallAt;

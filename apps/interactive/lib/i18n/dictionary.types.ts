@@ -76,13 +76,17 @@ export interface Dictionary {
   widget_disclaimer: string;
 
   // ДОДАНО за прямим запитом користувача ("добавь на интерактивный лендинг feature map") —
-  // підсумковий "оглядовий" блок перед FAQ/фінальним CTA: телефон по центру (растрове фото,
-  // public/images/feature-map-phone.webp) + 8 функціональних блоків навколо, з'єднаних SVG-
-  // лініями (components/FeatureMap.tsx). НА ВІДМІНУ від растрового референсу користувача
-  // (BTW_FeatureMap_Desktop_*.png/webp — той самий, що прикладений з поміткою "невнятные
-  // надписи") — весь текст тут ЖИВИЙ HTML/i18n, не запечений у растр: референс мав нечитабельні
-  // "галюциновані" підписи саме тому, що текст був згенерований разом із зображенням AI-
-  // моделлю, без жодного зв'язку зі справжнім багатомовним словником цього лендингу.
+  // підсумковий "оглядовий" блок перед FAQ/фінальним CTA (components/FeatureMap.tsx).
+  //
+  // ОНОВЛЕНО (детальний розбір — components/FeatureMap.tsx) двічі: спершу растровий композит
+  // користувача "рука+телефон+радіальне світіння" (v1) з живими i18n-підписами у напівпрозорих
+  // scrim-блоках поверх; тепер — НОВИЙ растровий композит користувача (8 іконок променями
+  // навколо телефону в руці, AR-сканування камери на дорозі) за прямим запитом користувача
+  // ("используй на интерактивном лендинге в разделе feature map растровое изображение -
+  // генерировать только тексты белым шрифтом на прозрачном фоне и центровать на иконку и
+  // размещать справа от неё"): підписи — прозорий текстовий шар (без scrim-блоку), білий текст
+  // із text-shadow для читабельності, вертикально відцентрований на іконці, зліва впритул до
+  // іконки. В обох версіях текст лишається ЖИВИМ HTML/i18n, не запеченим у растр.
   feature_map_eyebrow: string;
   feature_map_title: string;
   feature_map_subtitle: string;
@@ -91,18 +95,25 @@ export interface Dictionary {
   feature_ar_scan_text: string;
   feature_on_device_title: string;
   feature_on_device_text: string;
-  feature_registry_title: string;
-  feature_registry_text: string;
+  feature_live_map_title: string;
+  feature_live_map_text: string;
   feature_drive_mode_title: string;
   feature_drive_mode_text: string;
   feature_confirm_title: string;
   feature_confirm_text: string;
-  feature_marketplace_title: string;
-  feature_marketplace_text: string;
+  feature_navigation_title: string;
+  feature_navigation_text: string;
   feature_payment_title: string;
   feature_payment_text: string;
-  feature_kill_switch_title: string;
-  feature_kill_switch_text: string;
+  feature_mode_switch_title: string;
+  feature_mode_switch_text: string;
+  // ДОДАНО (v4) за прямим запитом користувача ("правка текстов по количеству иконок (теперь
+  // 10)", оновлений BTWfeatureiconsi18nv2.json) — 2 нові пункти заповнюють 2 іконки, що в v3
+  // навмисно лишались без підпису (верхні лівий/правий кути растру, § FeatureMap.tsx).
+  feature_community_title: string;
+  feature_community_text: string;
+  feature_camera_detection_title: string;
+  feature_camera_detection_text: string;
 
   privacy_eyebrow: string;
   privacy_title: string;

@@ -228,6 +228,20 @@ export class BtwController {
     return this.btwService.nearestCity(parseFloat(lat), parseFloat(lng));
   }
 
+  // ДОДАНО за прямим запитом користувача («ввод точек А и Б маршрута сейчас просто плейсхолдеры
+  // - ничего не вводится и не редактируется - исправь») — пошук адреси за текстом для полів
+  // "Откуда"/"Куда" (apps/btw/components/BtwPlacePicker.tsx). Публічний, БЕЗ TelegramAuthGuard —
+  // той самий рівень приватності, що вже /btw/nearest-city вище: сервер отримує лише текст
+  // запиту й, опційно, приблизну позицію (яку клієнт і так уже показує на мапі), нічого не
+  // прив'язує до telegramId. lat/lng — опційні (BtwService.searchAddress трактує їх відсутність
+  // як "без міської підказки", не як помилку).
+  @Get('geocode-search')
+  searchAddress(@Query('q') q: string, @Query('lat') lat?: string, @Query('lng') lng?: string) {
+    const parsedLat = lat != null && lat !== '' ? parseFloat(lat) : undefined;
+    const parsedLng = lng != null && lng !== '' ? parseFloat(lng) : undefined;
+    return this.btwService.searchAddress(q ?? '', parsedLat, parsedLng);
+  }
+
   // За прямим запитом користувача — програмний спуфінг GPS для дебагу (не апаратний).
   // Гейт — DEV_AUTO_LOGIN, той самий, що вже вимикає auth.service.ts::devLogin() у
   // продакшені (BtwService.assertDevToolsEnabled() кидає 404, якщо вимкнено).

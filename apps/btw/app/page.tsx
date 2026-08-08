@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLocation } from '../lib/locationContext';
 import { listSavedPlaces } from '../lib/btwSavedPlaces';
 import type { SavedPlace } from '../lib/btwSavedPlaces';
@@ -73,6 +74,31 @@ const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 // Старий головний екран (сканування "обведи телефоном навколо себе") НІКУДИ НЕ ЗНІК —
 // переїхав на /scan (app/scan/page.tsx), доступний з кнопки "Сканировать" нижче — рішення §0/
 // §2.4 ТЗ, зафіксоване раніше в цій же сесії.
+//
+// ДОДАНО за прямим запитом користувача («при дев режиме сделай так чтобы когда тянешь главный
+// экран пальцем вправо то переключалось на режим карты - как если бы выбрал карту в меню - с
+// возможностью вернуться назад») — свайп пальцем вправо на головному екрані переходить на /map,
+// той самий перехід, що вже робить кнопка "Карта" в ряду швидких дій нижче (`router.push('/map')`,
+// НЕ окрема копія логіки /map — просто інший спосіб потрапити туди ж). Повернення назад уже
+// існує без жодних змін: кнопка "← Назад" на /map (app/map/page.tsx) викликає `router.back()`,
+// що коректно повертає саме на головний екран, звідки був зроблений свайп.
+//
+// ВИПРАВЛЕНО за прямим уточненням користувача («режим с картой активен для пользователя со
+// спуфингом координат через админку - этот тестовый пользователь имелся ввиду») — раніше тут
+// гейт був на `process.env.NODE_ENV !== 'production'` (білд-тайм dev/prod), що явно НЕ те, що
+// малось на увазі: жест має бути активний саме для конкретного ТЕСТОВОГО telegram-юзера, якому
+// адмін вручну підмінив координати через адмінку (/admin/btw-dev-tools) — тобто для НАЖИВО в
+// проді запущеного мінідодатку, просто з боку цього одного акаунту. Тому гейт — саме
+// `usedDevOverride` з `useLocation()` (lib/locationContext.tsx): той самий прапорець, що вже
+// показує жовте попередження "используется подмена координат (dev)" на цьому ж екрані нижче
+// (і на /map) — жест активний РІВНО в тих самих умовах, в яких показується те попередження.
+// Звичайні telegram-користувачі (без підміни координат) цього жесту не побачать.
+//
+// Пороги свайпу — досить широкий горизонтальний рух (SWIPE_MIN_DX), який лишається переважно
+// горизонтальним (|dy| < SWIPE_MAX_DY), щоб не плутати з вертикальним скролом списку "Вдоль
+// маршрута"/"Сохранённые места" нижче на екрані.
+const SWIPE_MIN_DX = 80;
+const SWIPE_MAX_DY = 60;
 
 // §6.4 ТЗ — рішено: явний вибір профілю, driving-car за замовчуванням.
 const PROFILE_OPTIONS: { value: RoutingProfile; label: string; icon: string }[] = [
@@ -82,6 +108,34 @@ const PROFILE_OPTIONS: { value: RoutingProfile; label: string; icon: string }[] 
 ];
 
 export default function BtwHomePage() {
+  const router = useRouter();
+
+  // ДОДАНО за прямим запитом користувача (§ коментар над компонентом вище) — реф, не useState:
+  // координати початку дотику не повинні спричиняти ре-рендер компонента на кожен touchstart,
+  // це суто внутрішній стан жесту між touchstart і touchend.
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handleSwipeTouchStart(e: React.TouchEvent) {
+    // pickerFor: не починаємо відстежувати жест, поки відкритий BtwPlacePicker (bottom-sheet
+    // рендериться всередині цього ж кореневого div — § JSX нижче) — свайп вправо всередині
+    // модалки вибору точки А/Б не мав би несподівано закидати на карту.
+    if (!usedDevOverride || pickerFor || e.touches.length !== 1) return;
+    swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+
+  function handleSwipeTouchEnd(e: React.TouchEvent) {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!usedDevOverride || pickerFor || !start) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (dx > SWIPE_MIN_DX && Math.abs(dy) < SWIPE_MAX_DY) {
+      router.push('/map');
+    }
+  }
+
   // ЗМІНЕНО — за прямим запитом користувача «запрашивать местоположение при входе в мини апп»:
   // позиція більше НЕ визначається окремим ефектом цієї сторінки — вона вже запитана рівно один
   // раз при вході в мінідодаток (`<LocationProvider>`, app/layout.tsx, § lib/locationContext.tsx),
@@ -179,7 +233,11 @@ export default function BtwHomePage() {
   const showLocatingPlaceholder = locating && !tripActive;
 
   return (
-    <div className="min-h-screen bg-black pb-8 text-white">
+    <div
+      className="min-h-screen bg-black pb-8 text-white"
+      onTouchStart={handleSwipeTouchStart}
+      onTouchEnd={handleSwipeTouchEnd}
+    >
       {/* Верхня панель — за стилем скріна (тёмна закруглена панель зверху), без вигаданої
           "программы лояльности" Uklon — цього немає в ТЗ цього проєкту.
           ЗМІНЕНО — за прямим запитом користувача «перенести вход в карту ... в главное меню на
