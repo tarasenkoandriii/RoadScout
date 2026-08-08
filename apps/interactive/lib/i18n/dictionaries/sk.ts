@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Prejsť na obsah',
 
+  header_slogan: 'Slúžiť a chrániť',
+
   hero_eyebrow: '// naplánuj vopred',
   hero_title_line1: 'Naplánuj trasu —',
   hero_title_line2: 'vedz, čo ťa čaká',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// prečo je to potrebné',
   problem_title: 'Na ceste zvyčajne vopred nevieš, čo ťa čaká',
   problem_text:
-    'Počasie sa mení, stávajú sa nehody, objavujú sa nové kamery — a zistíš to väčšinou až na ceste, keď je ťažké niečo zmeniť. Beyond the Wall vytvorí trasu a ukáže, čo je na nej, ešte pred odchodom, a potom to sleduje ďalej, kým si na ceste.',
+    'Počasie sa mení, stávajú sa nehody, objavujú sa nové kamery — a zistíš to väčšinou až na ceste, keď je ťažké niečo zmeniť. Beyond the Wall vytvorí trasu a ukáže, čo je na nej, ešte pred odchodom, a potom je s tebou ako pomocník, kým si na ceste.',
 
   steps_eyebrow: '// ako to funguje',
   steps_title: 'Z bodu A do bodu B — s úplným obrazom cesty',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: 'Aktuálna poloha, uložené miesto alebo ručne — a vyber profil: auto alebo bicykel.',
   step2_title: 'Pozri si trasu vopred',
   step2_text: 'Kamery, počasie, známe incidenty a doprava na trase — ešte pred štartom.',
-  step3_title: 'Choď pod dohľadom',
-  step3_text: 'Živé sledovanie ťa upozorní, ak zídeš z trasy, a samo ju prepočíta.',
+  step3_title: 'Cestuj s pomocníkom',
+  step3_text: 'Pomocník ťa upozorní, ak zídeš z trasy, a sám ju prepočíta.',
   step4_title: '„Čo je pred tebou"',
   step4_text: 'Zoznam toho, čo je pár stoviek metrov pred tebou — jedno ťuknutie na podrobnosti.',
 

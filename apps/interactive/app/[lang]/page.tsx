@@ -66,7 +66,11 @@ export default function InteractiveLandingPage() {
       <SkipLink />
 
       {/* ============ ШАПКА ============ */}
-      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-end px-6 pt-4 sm:pt-6">
+      {/* ДОДАНО за прямим запитом користувача ("добавить на лендинг слоган сверху - служить и
+          защищать") — короткий слоган зліва в фіксованій шапці, видимий на будь-якій секції під
+          час скролу (та сама fixed-шапка, що вже мала лише LanguageSelector справа). */}
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-3 px-6 pt-4 sm:pt-6">
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted/80">{t('header_slogan')}</p>
         <div className="pointer-events-auto">
           <LanguageSelector />
         </div>

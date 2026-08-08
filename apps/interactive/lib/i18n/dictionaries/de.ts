@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Zum Inhalt springen',
 
+  header_slogan: 'Dienen und schützen',
+
   hero_eyebrow: '// vorausplanen',
   hero_title_line1: 'Plane deine Route —',
   hero_title_line2: 'wisse, was vor dir liegt',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// warum das wichtig ist',
   problem_title: 'Unterwegs weißt du selten im Voraus, was dich erwartet',
   problem_text:
-    'Das Wetter ändert sich, es passieren Vorfälle, neue Kameras tauchen auf — und meist erfährst du das erst unterwegs, wenn es schwer ist zu reagieren. Beyond the Wall plant deine Route und zeigt, was darauf liegt, bevor du losfährst, und behält es auch unterwegs im Blick.',
+    'Das Wetter ändert sich, es passieren Vorfälle, neue Kameras tauchen auf — und meist erfährst du das erst unterwegs, wenn es schwer ist zu reagieren. Beyond the Wall plant deine Route und zeigt, was darauf liegt, bevor du losfährst, und bleibt unterwegs als Helfer an deiner Seite.',
 
   steps_eyebrow: '// so funktioniert es',
   steps_title: 'Von Punkt A nach Punkt B — mit dem vollen Bild unterwegs',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: 'Aktueller Standort, ein gespeicherter Ort oder manuelle Eingabe — dann Profil wählen: Auto oder Fahrrad.',
   step2_title: 'Die Route im Voraus sehen',
   step2_text: 'Kameras, Wetter, bekannte Vorfälle und Verkehr auf der Strecke — schon vor der Abfahrt.',
-  step3_title: 'Mit Live-Begleitung fahren',
-  step3_text: 'Die Live-Verfolgung meldet Abweichungen von der Route und berechnet sie automatisch neu.',
+  step3_title: 'Fahre mit einem Helfer',
+  step3_text: 'Der Helfer meldet sich, wenn du von der Route abweichst, und berechnet sie automatisch neu.',
   step4_title: '„Was vor dir liegt"',
   step4_text: 'Eine Liste dessen, was einige hundert Meter voraus liegt — ein Tipp für die Details.',
 

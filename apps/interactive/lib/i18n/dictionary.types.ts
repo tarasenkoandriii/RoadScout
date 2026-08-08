@@ -6,6 +6,11 @@
 export interface Dictionary {
   skipLink: string;
 
+  // ДОДАНО за прямим запитом користувача ("добавить на лендинг слоган сверху - служить и
+  // защищать") — короткий слоган у фіксованій шапці (app/[lang]/page.tsx, поруч із
+  // LanguageSelector), видимий на кожній секції лендингу під час скролу.
+  header_slogan: string;
+
   hero_eyebrow: string;
   hero_title_line1: string;
   hero_title_line2: string;

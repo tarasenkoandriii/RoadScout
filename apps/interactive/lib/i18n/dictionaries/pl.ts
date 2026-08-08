@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Przejdź do treści',
 
+  header_slogan: 'Służyć i chronić',
+
   hero_eyebrow: '// zaplanuj z wyprzedzeniem',
   hero_title_line1: 'Zaplanuj trasę —',
   hero_title_line2: 'wiedz, co jest przed tobą',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// po co to',
   problem_title: 'Na drodze rzadko wiadomo z wyprzedzeniem, co cię czeka',
   problem_text:
-    'Pogoda się zmienia, zdarzają się wypadki, pojawiają się nowe kamery — a dowiadujesz się o tym dopiero w trasie, gdy trudno cokolwiek zmienić. Beyond the Wall buduje trasę i pokazuje, co na niej jest, zanim wyruszysz, a potem pilnuje tego dalej, gdy jedziesz.',
+    'Pogoda się zmienia, zdarzają się wypadki, pojawiają się nowe kamery — a dowiadujesz się o tym dopiero w trasie, gdy trudno cokolwiek zmienić. Beyond the Wall buduje trasę i pokazuje, co na niej jest, zanim wyruszysz, a potem towarzyszy ci jako pomocnik, gdy jedziesz.',
 
   steps_eyebrow: '// jak to działa',
   steps_title: 'Z punktu A do punktu B — z pełnym obrazem po drodze',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: 'Bieżąca lokalizacja, zapisane miejsce lub ręcznie — i wybierz profil: samochód czy rower.',
   step2_title: 'Zobacz trasę z wyprzedzeniem',
   step2_text: 'Kamery, pogoda, znane zdarzenia i ruch na trasie — jeszcze przed wyjazdem.',
-  step3_title: 'Jedź pod opieką',
-  step3_text: 'Śledzenie na żywo poinformuje, jeśli zjedziesz z trasy, i samo ją przeliczy.',
+  step3_title: 'Jedź z pomocnikiem',
+  step3_text: 'Pomocnik podpowie, jeśli zjedziesz z trasy, i sam ją przeliczy.',
   step4_title: '„Co przed tobą"',
   step4_text: 'Lista tego, co jest kilkaset metrów przed tobą — jedno dotknięcie, by zobaczyć szczegóły.',
 

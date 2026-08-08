@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Ugrás a tartalomra',
 
+  header_slogan: 'Szolgálni és védeni',
+
   hero_eyebrow: '// tervezz előre',
   hero_title_line1: 'Tervezd meg az utat —',
   hero_title_line2: 'tudd, mi vár rád',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// miért fontos ez',
   problem_title: 'Az úton ritkán tudod előre, mi vár rád',
   problem_text:
-    'Az időjárás változik, balesetek történnek, új kamerák jelennek meg — és ezt általában csak útközben tudod meg, amikor már nehéz reagálni. A Beyond the Wall megépíti az útvonalat, és indulás előtt megmutatja, mi van rajta, majd útközben is figyeli tovább.',
+    'Az időjárás változik, balesetek történnek, új kamerák jelennek meg — és ezt általában csak útközben tudod meg, amikor már nehéz reagálni. A Beyond the Wall megépíti az útvonalat, és indulás előtt megmutatja, mi van rajta, majd útközben is veled marad segítőként.',
 
   steps_eyebrow: '// hogyan működik',
   steps_title: 'Az A pontból a B pontba — teljes képpel az útról',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: 'Jelenlegi hely, mentett hely vagy kézi megadás — majd válaszd ki a profilt: autó vagy kerékpár.',
   step2_title: 'Nézd meg előre az útvonalat',
   step2_text: 'Kamerák, időjárás, ismert események és forgalom az úton — még indulás előtt.',
-  step3_title: 'Utazz felügyelettel',
-  step3_text: 'Az élő követés jelzi, ha letérsz az útvonalról, és automatikusan újratervez.',
+  step3_title: 'Utazz segítővel',
+  step3_text: 'A segítő jelzi, ha letérsz az útvonalról, és automatikusan újratervez.',
   step4_title: '„Ami előtted van"',
   step4_text: 'Lista arról, mi van néhány száz méterrel előtted — egy koppintás a részletekhez.',
 

@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Skip to content',
 
+  header_slogan: 'To Serve and Protect',
+
   hero_eyebrow: '// plan ahead',
   hero_title_line1: 'Plan your route —',
   hero_title_line2: 'know what is ahead',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// why this matters',
   problem_title: 'On the road, you rarely know what is coming',
   problem_text:
-    'Weather changes, incidents happen, new cameras appear — and you usually find out only once you are already on the road, when it is hard to react. Beyond the Wall builds your route and shows what is on it before you leave, then keeps watching while you drive or ride.',
+    'Weather changes, incidents happen, new cameras appear — and you usually find out only once you are already on the road, when it is hard to react. Beyond the Wall builds your route and shows what is on it before you leave, then stays with you as a helper while you drive or ride.',
 
   steps_eyebrow: '// how it works',
   steps_title: 'From point A to point B — with the full picture along the way',
@@ -23,8 +25,11 @@ const dict: Dictionary = {
   step1_text: 'Current location, a saved place, or manual entry — then pick a profile: driving or cycling.',
   step2_title: 'See the route ahead',
   step2_text: 'Cameras, weather, known incidents, and traffic along the way — before you even start.',
-  step3_title: 'Ride with live guidance',
-  step3_text: 'Live tracking flags it if you drift off route, and reroutes automatically.',
+  // ЗМІНЕНО за прямим запитом користувача ("лендингфраза Їдь під наглядом идеология не следить
+  // а помогать - едь с помощником или подобное") — прибрано "tracking/watching" тон і тут, і в
+  // problem_text вище — застосунок позиціонується як помічник у дорозі, не наглядач.
+  step3_title: 'Drive with a helper',
+  step3_text: 'A helper by your side — it warns you if you drift off route, and reroutes automatically.',
   step4_title: '"What\'s ahead"',
   step4_text: 'A list of what is a few hundred meters ahead — one tap to see the details.',
 

@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Aller au contenu',
 
+  header_slogan: 'Servir et protéger',
+
   hero_eyebrow: '// planifiez à l’avance',
   hero_title_line1: 'Planifiez votre itinéraire —',
   hero_title_line2: 'sachez ce qui vous attend',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// pourquoi c’est utile',
   problem_title: 'Sur la route, on sait rarement à l’avance ce qui nous attend',
   problem_text:
-    "La météo change, des incidents surviennent, de nouvelles caméras apparaissent — et on l'apprend souvent une fois déjà sur la route, quand il est difficile de réagir. Beyond the Wall construit votre itinéraire et montre ce qui s'y trouve avant même de partir, puis continue à surveiller pendant le trajet.",
+    "La météo change, des incidents surviennent, de nouvelles caméras apparaissent — et on l'apprend souvent une fois déjà sur la route, quand il est difficile de réagir. Beyond the Wall construit votre itinéraire et montre ce qui s'y trouve avant même de partir, puis reste à vos côtés comme un assistant pendant le trajet.",
 
   steps_eyebrow: '// comment ça marche',
   steps_title: "Du point A au point B — avec une vue complète du trajet",
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: "Position actuelle, lieu enregistré ou saisie manuelle — puis choisissez un profil : voiture ou vélo.",
   step2_title: "Voyez l'itinéraire à l'avance",
   step2_text: "Caméras, météo, incidents connus et trafic sur le trajet — avant même de partir.",
-  step3_title: 'Roulez sous surveillance',
-  step3_text: "Le suivi en direct signale un écart par rapport à l'itinéraire et le recalcule automatiquement.",
+  step3_title: 'Roulez avec un assistant',
+  step3_text: "L'assistant vous prévient si vous vous écartez de l'itinéraire et le recalcule automatiquement.",
   step4_title: '« Ce qui vous attend »',
   step4_text: "Une liste de ce qui se trouve à quelques centaines de mètres devant vous — un tap pour voir les détails.",
 

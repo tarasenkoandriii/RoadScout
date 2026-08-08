@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Sari la conținut',
 
+  header_slogan: 'Servim și protejăm',
+
   hero_eyebrow: '// planifică din timp',
   hero_title_line1: 'Planifică-ți traseul —',
   hero_title_line2: 'află ce te așteaptă',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// de ce contează',
   problem_title: 'Pe drum, rareori știi din timp ce te așteaptă',
   problem_text:
-    'Vremea se schimbă, apar incidente, apar camere noi — și de obicei afli abia când ești deja pe drum, când e greu să reacționezi. Beyond the Wall îți construiește traseul și arată ce se află pe el înainte să pleci, apoi continuă să supravegheze cât timp conduci sau pedalezi.',
+    'Vremea se schimbă, apar incidente, apar camere noi — și de obicei afli abia când ești deja pe drum, când e greu să reacționezi. Beyond the Wall îți construiește traseul și arată ce se află pe el înainte să pleci, apoi rămâne alături de tine ca un asistent cât timp conduci sau pedalezi.',
 
   steps_eyebrow: '// cum funcționează',
   steps_title: 'De la punctul A la punctul B — cu imaginea completă a drumului',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: 'Locația curentă, un loc salvat sau introducere manuală — apoi alege profilul: mașină sau bicicletă.',
   step2_title: 'Vezi traseul din timp',
   step2_text: 'Camere, vreme, incidente cunoscute și trafic pe traseu — încă înainte de plecare.',
-  step3_title: 'Mergi sub supraveghere',
-  step3_text: 'Urmărirea live te avertizează dacă te abați de la traseu și îl recalculează automat.',
+  step3_title: 'Mergi cu un asistent',
+  step3_text: 'Asistentul te avertizează dacă te abați de la traseu și îl recalculează automat.',
   step4_title: '„Ce urmează"',
   step4_text: 'O listă cu ce se află la câteva sute de metri în față — o atingere pentru detalii.',
 

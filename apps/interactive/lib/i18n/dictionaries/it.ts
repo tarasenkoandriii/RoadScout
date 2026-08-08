@@ -3,6 +3,8 @@ import { Dictionary } from '../dictionary.types';
 const dict: Dictionary = {
   skipLink: 'Vai al contenuto',
 
+  header_slogan: 'Servire e proteggere',
+
   hero_eyebrow: '// pianifica in anticipo',
   hero_title_line1: 'Pianifica il tuo percorso —',
   hero_title_line2: 'sappi cosa ti aspetta',
@@ -15,7 +17,7 @@ const dict: Dictionary = {
   problem_eyebrow: '// perché è importante',
   problem_title: 'Sulla strada raramente sai in anticipo cosa ti aspetta',
   problem_text:
-    "Il meteo cambia, capitano incidenti, compaiono nuove telecamere — e di solito lo scopri solo quando sei già in viaggio, quando è difficile reagire. Beyond the Wall crea il tuo percorso e mostra cosa c'è lungo la strada prima ancora di partire, poi continua a monitorare mentre guidi o pedali.",
+    "Il meteo cambia, capitano incidenti, compaiono nuove telecamere — e di solito lo scopri solo quando sei già in viaggio, quando è difficile reagire. Beyond the Wall crea il tuo percorso e mostra cosa c'è lungo la strada prima ancora di partire, poi resta al tuo fianco come un assistente mentre guidi o pedali.",
 
   steps_eyebrow: '// come funziona',
   steps_title: 'Dal punto A al punto B — con il quadro completo del tragitto',
@@ -23,8 +25,8 @@ const dict: Dictionary = {
   step1_text: "Posizione attuale, un luogo salvato o inserimento manuale — poi scegli un profilo: auto o bicicletta.",
   step2_title: 'Vedi il percorso in anticipo',
   step2_text: "Telecamere, meteo, incidenti noti e traffico lungo il percorso — ancora prima di partire.",
-  step3_title: 'Viaggia con guida dal vivo',
-  step3_text: "Il monitoraggio in tempo reale segnala se ti allontani dal percorso e lo ricalcola automaticamente.",
+  step3_title: 'Viaggia con un assistente',
+  step3_text: "L'assistente ti avvisa se ti allontani dal percorso e lo ricalcola automaticamente.",
   step4_title: '«Cosa hai davanti»',
   step4_text: "Un elenco di ciò che si trova qualche centinaio di metri più avanti — un tocco per vedere i dettagli.",
 
