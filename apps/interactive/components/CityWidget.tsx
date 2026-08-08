@@ -104,9 +104,11 @@ export default function CityWidget() {
 
   return (
     <div className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-surface p-6 sm:p-8">
-      {state === 'loading' && <p className="text-center text-muted">{t('widget_loading')}</p>}
-      {state === 'error' && <p className="text-center text-muted">{t('widget_error')}</p>}
-      {state === 'unavailable' && <p className="text-center text-muted">{t('widget_unavailable')}</p>}
+      {/* ЗМІНЕНО за прямим запитом користувача ("все подобные тексты [...] сделать светлее на
+          лендинге") — mutedLight замість muted. */}
+      {state === 'loading' && <p className="text-center text-mutedLight">{t('widget_loading')}</p>}
+      {state === 'error' && <p className="text-center text-mutedLight">{t('widget_error')}</p>}
+      {state === 'unavailable' && <p className="text-center text-mutedLight">{t('widget_unavailable')}</p>}
 
       {state === 'ready' && snapshot && visitorGeo && (
         <div>

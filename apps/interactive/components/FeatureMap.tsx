@@ -138,7 +138,10 @@ function FeatureCard({ feature }: { feature: Feature }) {
       </div>
       <div>
         <h3 className="font-display text-base font-medium">{t(feature.titleKey)}</h3>
-        <p className="mt-1 text-sm text-muted">{t(feature.textKey)}</p>
+        {/* ЗМІНЕНО за прямим запитом користувача ("все подобные тексты [...] сделать светлее
+            на лендинге") — той самий mutedLight, що вже застосований до тексту-абзацу по
+            всій сторінці (page.tsx), тепер і тут. */}
+        <p className="mt-1 text-sm text-mutedLight">{t(feature.textKey)}</p>
       </div>
     </div>
   );
@@ -153,7 +156,7 @@ export default function FeatureMap() {
         <div className="mb-16 text-center">
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-primary">{t('feature_map_eyebrow')}</p>
           <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('feature_map_title')}</h2>
-          <p className="mx-auto mt-4 max-w-xl text-muted">{t('feature_map_subtitle')}</p>
+          <p className="mx-auto mt-4 max-w-xl text-mutedLight">{t('feature_map_subtitle')}</p>
         </div>
 
         {/* Телефон над списком карток — лише до lg (планшет/мобільний). */}

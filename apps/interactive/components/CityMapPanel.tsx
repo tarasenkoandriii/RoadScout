@@ -153,8 +153,11 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
           <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-mutedLight">{t('widget_incidents_label')}</p>
           {incidents.configured ? (
             <div>
+              {/* ЗМІНЕНО за прямим запитом користувача ("все подобные тексты [...] сделать
+                  светлее на лендинге") — mutedLight замість muted (текстовий колір, а не
+                  колір іконки — WeatherIcon fill вище лишається на muted). */}
               {incidents.items.length === 0 ? (
-                <p className="text-sm text-muted">{t('widget_incidents_empty')}</p>
+                <p className="text-sm text-mutedLight">{t('widget_incidents_empty')}</p>
               ) : (
                 <ul className="space-y-2">
                   {incidents.items.map((item, i) => (
@@ -163,7 +166,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
                         {i + 1}
                       </span>
                       <span>
-                        <span className="text-muted">{item.distanceKm.toFixed(1)} км —</span> {item.title}
+                        <span className="text-mutedLight">{item.distanceKm.toFixed(1)} км —</span> {item.title}
                       </span>
                     </li>
                   ))}
@@ -175,7 +178,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
               </p>
             </div>
           ) : (
-            <p className="text-sm text-muted">{t('widget_incidents_source_none')}</p>
+            <p className="text-sm text-mutedLight">{t('widget_incidents_source_none')}</p>
           )}
         </div>
       </div>

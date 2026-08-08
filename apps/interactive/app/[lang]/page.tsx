@@ -86,7 +86,12 @@ export default function InteractiveLandingPage() {
               <br />
               {t('hero_title_line2')}
             </h1>
-            <p className="mt-6 max-w-lg text-lg text-muted">{t('hero_subtitle')}</p>
+            {/* ЗМІНЕНО за прямим запитом користувача ("все подобные тексты [...hero_subtitle...]
+                сделать светлее на лендинге") — попередній запит освітлив лише "мелкий текст"
+                (text-xs і менше: слоган, футер, підписи); тепер той самий mutedLight
+                застосовано і до звичайного тексту-абзацу під заголовками (text-lg/базовий
+                text-muted) — по всій сторінці, не лише тут. */}
+            <p className="mt-6 max-w-lg text-lg text-mutedLight">{t('hero_subtitle')}</p>
             <div className="mt-10">
               <TelegramCTA>{t('cta_open')}</TelegramCTA>
             </div>
@@ -131,7 +136,7 @@ export default function InteractiveLandingPage() {
         <div className="mx-auto max-w-3xl text-center">
           <Eyebrow>{t('problem_eyebrow')}</Eyebrow>
           <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('problem_title')}</h2>
-          <p className="mt-6 text-lg text-muted">{t('problem_text')}</p>
+          <p className="mt-6 text-lg text-mutedLight">{t('problem_text')}</p>
         </div>
       </section>
 
@@ -212,21 +217,21 @@ export default function InteractiveLandingPage() {
                 <Icon src="/icons/walking.svg" />
               </div>
               <h3 className="font-display text-xl font-medium">{t('audience_pedestrian_title')}</h3>
-              <p className="mt-2 text-muted">{t('audience_pedestrian_text')}</p>
+              <p className="mt-2 text-mutedLight">{t('audience_pedestrian_text')}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-bg p-8">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-primary">
                 <Icon src="/icons/bicycle.svg" />
               </div>
               <h3 className="font-display text-xl font-medium">{t('audience_cyclist_title')}</h3>
-              <p className="mt-2 text-muted">{t('audience_cyclist_text')}</p>
+              <p className="mt-2 text-mutedLight">{t('audience_cyclist_text')}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-bg p-8">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-primary">
                 <Icon src="/icons/car.svg" />
               </div>
               <h3 className="font-display text-xl font-medium">{t('audience_driver_title')}</h3>
-              <p className="mt-2 text-muted">{t('audience_driver_text')}</p>
+              <p className="mt-2 text-mutedLight">{t('audience_driver_text')}</p>
             </div>
           </div>
         </div>
@@ -238,7 +243,7 @@ export default function InteractiveLandingPage() {
           <div className="mb-10 text-center">
             <Eyebrow>{t('widget_eyebrow')}</Eyebrow>
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('widget_title')}</h2>
-            <p className="mx-auto mt-4 max-w-xl text-muted">{t('widget_subtitle')}</p>
+            <p className="mx-auto mt-4 max-w-xl text-mutedLight">{t('widget_subtitle')}</p>
           </div>
           <CityWidget />
         </div>
@@ -252,20 +257,20 @@ export default function InteractiveLandingPage() {
           </div>
           <Eyebrow>{t('privacy_eyebrow')}</Eyebrow>
           <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('privacy_title')}</h2>
-          <p className="mt-6 text-lg text-muted">{t('privacy_text')}</p>
+          <p className="mt-6 text-lg text-mutedLight">{t('privacy_text')}</p>
 
           <ul className="mx-auto mt-10 max-w-xl space-y-4 text-left">
             <li className="flex items-start gap-3">
               <Icon src="/icons/cloud-off.svg" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <span className="text-muted">{t('privacy_point1')}</span>
+              <span className="text-mutedLight">{t('privacy_point1')}</span>
             </li>
             <li className="flex items-start gap-3">
               <Icon src="/icons/gps.svg" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <span className="text-muted">{t('privacy_point2')}</span>
+              <span className="text-mutedLight">{t('privacy_point2')}</span>
             </li>
             <li className="flex items-start gap-3">
               <Icon src="/icons/shield.svg" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <span className="text-muted">{t('privacy_point3')}</span>
+              <span className="text-mutedLight">{t('privacy_point3')}</span>
             </li>
           </ul>
         </div>
@@ -324,7 +329,7 @@ function Step({
       </div>
       <p className="mb-1 font-mono text-xs text-mutedLight">{n}</p>
       <h3 className="font-display text-lg font-medium">{title}</h3>
-      <p className="mt-2 text-muted">{children}</p>
+      <p className="mt-2 text-mutedLight">{children}</p>
     </li>
   );
 }
@@ -340,7 +345,7 @@ function FaqItem({ q, children }: { q: string; children: React.ReactNode }) {
           </span>
         </span>
       </summary>
-      <p className="mt-3 text-muted">{children}</p>
+      <p className="mt-3 text-mutedLight">{children}</p>
     </details>
   );
 }
