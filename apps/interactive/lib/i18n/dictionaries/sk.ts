@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// ako to funguje',
   steps_title: 'Z bodu A do bodu B — s úplným obrazom cesty',
+  steps_photo_mount_alt:
+    'Telefón upevnený na palubnej doske s radarovým AR prekrytím: kamera zistená 380 m vpredu a ďalší objekt 750 m vpredu, dáta sa synchronizujú s cloudom',
+  steps_photo_handheld_alt:
+    'Ruka drží telefón namierený na cestný rýchlostný radar: AR rámček ho zachytáva a nižšie je zoznam ďalších zistených objektov v okolí',
   step1_title: 'Zadaj body A a B',
   step1_text: 'Aktuálna poloha, uložené miesto alebo ručne — a vyber profil: auto alebo bicykel.',
   step2_title: 'Pozri si trasu vopred',

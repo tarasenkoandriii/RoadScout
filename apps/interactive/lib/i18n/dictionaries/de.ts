@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// so funktioniert es',
   steps_title: 'Von Punkt A nach Punkt B — mit dem vollen Bild unterwegs',
+  steps_photo_mount_alt:
+    'Ein auf dem Armaturenbrett befestigtes Smartphone mit radarartiger AR-Einblendung: eine Kamera 380 m voraus und ein weiteres Objekt 750 m voraus erkannt, Daten mit der Cloud synchronisiert',
+  steps_photo_handheld_alt:
+    'Eine Hand hält ein Smartphone, das auf einen Blitzer am Straßenrand gerichtet ist: ein AR-Rahmen rastet darauf ein, darunter eine Liste weiterer erkannter Objekte in der Nähe',
   step1_title: 'Punkte A und B festlegen',
   step1_text: 'Aktueller Standort, ein gespeicherter Ort oder manuelle Eingabe — dann Profil wählen: Auto oder Fahrrad.',
   step2_title: 'Die Route im Voraus sehen',

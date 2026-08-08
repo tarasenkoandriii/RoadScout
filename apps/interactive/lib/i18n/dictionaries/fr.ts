@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// comment ça marche',
   steps_title: "Du point A au point B — avec une vue complète du trajet",
+  steps_photo_mount_alt:
+    "Un téléphone fixé sur le tableau de bord avec une superposition AR façon radar : une caméra détectée à 380 m et un autre objet à 750 m devant, données synchronisées avec le cloud",
+  steps_photo_handheld_alt:
+    "Une main tient un téléphone pointé vers un radar routier : un cadre AR se verrouille dessus, avec en dessous une liste d'autres objets détectés à proximité",
   step1_title: 'Indiquez les points A et B',
   step1_text: "Position actuelle, lieu enregistré ou saisie manuelle — puis choisissez un profil : voiture ou vélo.",
   step2_title: "Voyez l'itinéraire à l'avance",

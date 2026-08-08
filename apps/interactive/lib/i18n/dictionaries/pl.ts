@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// jak to działa',
   steps_title: 'Z punktu A do punktu B — z pełnym obrazem po drodze',
+  steps_photo_mount_alt:
+    'Telefon zamocowany na desce rozdzielczej z nakładką AR w stylu radaru: kamera wykryta 380 m przed pojazdem i kolejny obiekt 750 m dalej, dane synchronizowane z chmurą',
+  steps_photo_handheld_alt:
+    'Dłoń trzyma telefon skierowany na przydrożny fotoradar: ramka AR namierza go, a poniżej lista innych wykrytych w pobliżu obiektów',
   step1_title: 'Wskaż punkty A i B',
   step1_text: 'Bieżąca lokalizacja, zapisane miejsce lub ręcznie — i wybierz profil: samochód czy rower.',
   step2_title: 'Zobacz trasę z wyprzedzeniem',

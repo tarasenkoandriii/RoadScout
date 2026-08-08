@@ -142,6 +142,39 @@ export default function InteractiveLandingPage() {
             <Eyebrow>{t('steps_eyebrow')}</Eyebrow>
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('steps_title')}</h2>
           </div>
+
+          {/* ДОДАНО за прямим запитом користувача ("выбираю Вариант 1 — в блок «Как это
+              работает» - обе иллюстрации внеси в эту секцию") — дві фотореалістичні
+              ілюстрації одразу під заголовком, перед списком з 4 кроків: зліва — телефон
+              закріплений на панелі приладів (пасивний режим, радар "бачить" камеру за 380 м
+              і ще один об'єкт за 750 м — саме те, про що крок 2 нижче), справа — телефон у
+              руці, наведений на камеру (активне AR-сканування, напрямок телефону обирає
+              об'єкт зі списку виявлених поруч — той самий принцип, що й крок 4 "Попереду на
+              шляху"). Той самий стиль картки, що вже в hero-секції вище (rounded-3xl,
+              border, shadow, aspect-[4/3] object-cover). */}
+          <div className="mb-16 grid gap-6 sm:grid-cols-2">
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-xl shadow-black/30">
+              <img
+                src="/images/steps-mount-radar.webp"
+                alt={t('steps_photo_mount_alt')}
+                className="aspect-[4/3] w-full object-cover"
+                width={1280}
+                height={853}
+                loading="lazy"
+              />
+            </div>
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-xl shadow-black/30">
+              <img
+                src="/images/steps-handheld-scan.webp"
+                alt={t('steps_photo_handheld_alt')}
+                className="aspect-[4/3] w-full object-cover"
+                width={1280}
+                height={853}
+                loading="lazy"
+              />
+            </div>
+          </div>
+
           <ol className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <Step icon="/icons/destination.svg" iconColor="text-primary" n="01" title={t('step1_title')}>
               {t('step1_text')}

@@ -28,6 +28,14 @@ export interface Dictionary {
 
   steps_eyebrow: string;
   steps_title: string;
+  // ДОДАНО за прямим запитом користувача ("выбираю Вариант 1 — в блок «Как это работает» -
+  // обе иллюстрации внеси в эту секцию") — alt-текст двох нових фотореалістичних ілюстрацій
+  // (app/[lang]/page.tsx, одразу під заголовком секції, перед списком з 4 кроків): телефон
+  // закріплений на панелі приладів (пасивний радар попереду) та телефон у руці, наведений
+  // на дорожню камеру (активне AR-сканування з вибором об'єкта напрямком телефону) — той
+  // самий принцип іменування, що вже hero_image_alt/feature_map_phone_alt.
+  steps_photo_mount_alt: string;
+  steps_photo_handheld_alt: string;
   step1_title: string;
   step1_text: string;
   step2_title: string;

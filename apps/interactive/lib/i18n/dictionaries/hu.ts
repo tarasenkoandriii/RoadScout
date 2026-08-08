@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// hogyan működik',
   steps_title: 'Az A pontból a B pontba — teljes képpel az útról',
+  steps_photo_mount_alt:
+    'A műszerfalra rögzített telefon radarszerű AR-réteggel: egy kamera 380 méterre, egy másik objektum 750 méterre előre, az adatok a felhővel szinkronizálva',
+  steps_photo_handheld_alt:
+    'Egy kéz a telefont az útmenti sebességmérő kamerára irányítja: az AR-keret rázárul, alatta a közelben észlelt további objektumok listája',
   step1_title: 'Add meg az A és B pontot',
   step1_text: 'Jelenlegi hely, mentett hely vagy kézi megadás — majd válaszd ki a profilt: autó vagy kerékpár.',
   step2_title: 'Nézd meg előre az útvonalat',

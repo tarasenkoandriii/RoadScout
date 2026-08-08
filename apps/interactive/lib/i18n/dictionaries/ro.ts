@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// cum funcționează',
   steps_title: 'De la punctul A la punctul B — cu imaginea completă a drumului',
+  steps_photo_mount_alt:
+    'Un telefon montat pe bord cu o suprapunere AR de tip radar: o cameră detectată la 380 m înainte și un alt obiect la 750 m, date sincronizate cu cloud-ul',
+  steps_photo_handheld_alt:
+    'O mână ține telefonul îndreptat spre o cameră radar de pe marginea drumului: cadrul AR o încadrează, iar mai jos apare lista altor obiecte detectate în apropiere',
   step1_title: 'Stabilește punctele A și B',
   step1_text: 'Locația curentă, un loc salvat sau introducere manuală — apoi alege profilul: mașină sau bicicletă.',
   step2_title: 'Vezi traseul din timp',

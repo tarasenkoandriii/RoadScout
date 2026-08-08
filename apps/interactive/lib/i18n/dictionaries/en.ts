@@ -21,6 +21,10 @@ const dict: Dictionary = {
 
   steps_eyebrow: '// how it works',
   steps_title: 'From point A to point B — with the full picture along the way',
+  steps_photo_mount_alt:
+    'A phone mounted on the dashboard showing a radar-style AR overlay: a camera detected 380 m ahead and another object 750 m ahead, synced with the cloud',
+  steps_photo_handheld_alt:
+    'A hand holding up a phone and aiming it at a roadside speed camera, with an AR frame locking onto it and a list of nearby detected objects below',
   step1_title: 'Set points A and B',
   step1_text: 'Current location, a saved place, or manual entry — then pick a profile: driving or cycling.',
   step2_title: 'See the route ahead',
