@@ -114,6 +114,14 @@ export default function InteractiveLandingPage() {
         </div>
       </section>
 
+      {/* ============ FEATURE MAP ============ */}
+      {/* ДОДАНО за прямим запитом користувача ("добавь на интерактивный лендинг feature map") —
+          підсумковий "оглядовий" блок (components/FeatureMap.tsx, детальний коментар там).
+          ПЕРЕНЕСЕНО за прямим повторним запитом користувача ("перенеси раздел // весь
+          функціонал сразу за разделом с hero (вторым)") — раніше стояв перед фінальним CTA
+          (в самому кінці сторінки, після FAQ), тепер — одразу другою секцією, перед "ПРОБЛЕМА". */}
+      <FeatureMap />
+
       {/* ============ ПРОБЛЕМА ============ */}
       <section className="border-t border-white/5 bg-surface px-6 py-20">
         <div className="mx-auto max-w-3xl text-center">
@@ -228,12 +236,6 @@ export default function InteractiveLandingPage() {
           </div>
         </div>
       </section>
-
-      {/* ============ FEATURE MAP ============ */}
-      {/* ДОДАНО за прямим запитом користувача ("добавь на интерактивный лендинг feature map") —
-          підсумковий "оглядовий" блок перед фінальним CTA (components/FeatureMap.tsx, детальний
-          коментар там). */}
-      <FeatureMap />
 
       {/* ============ ФИНАЛЬНЫЙ CTA + ФУТЕР ============ */}
       <section className="border-t border-white/5 bg-surface px-6 py-24 text-center">
