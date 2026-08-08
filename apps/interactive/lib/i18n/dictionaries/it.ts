@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Un telefono montato sul cruscotto con una sovrapposizione AR simile a un radar: una telecamera rilevata a 380 m e un altro oggetto a 750 m più avanti, dati sincronizzati con il cloud',
   steps_photo_handheld_alt:
     'Una mano tiene un telefono puntato verso un autovelox sul ciglio della strada: un riquadro AR lo blocca, con sotto un elenco di altri oggetti rilevati nelle vicinanze',
+  steps_photo_bike_alt:
+    'Vista dal manubrio di una bicicletta con una sovrapposizione AR: un autovelox a 120 m più avanti e un\'etichetta "percorso sicuro — nessuna telecamera" sulla pista ciclabile',
   step1_title: 'Imposta i punti A e B',
   step1_text: "Posizione attuale, un luogo salvato o inserimento manuale — poi scegli un profilo: auto o bicicletta.",
-  step2_title: 'Vedi il percorso in anticipo',
+  step2_title: 'Analizza il percorso in anticipo',
   step2_text: "Telecamere, meteo, incidenti noti e traffico lungo il percorso — ancora prima di partire.",
   step3_title: 'Viaggia con un assistente',
   step3_text: "L'assistente ti avvisa se ti allontani dal percorso e lo ricalcola automaticamente.",
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: "Un elenco di ciò che si trova qualche centinaio di metri più avanti — un tocco per vedere i dettagli.",
 
   audience_eyebrow: '// per chi è pensato',
-  audience_title: 'Al volante, in bicicletta o a piedi',
+  audience_title: 'A piedi, in bicicletta o al volante',
   audience_pedestrian_title: 'A piedi',
   audience_pedestrian_text: "Un percorso adatto al profilo del pedone, con avvisi su telecamere e condizioni lungo la strada.",
   audience_cyclist_title: 'Bicicletta',

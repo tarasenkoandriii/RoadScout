@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'A műszerfalra rögzített telefon radarszerű AR-réteggel: egy kamera 380 méterre, egy másik objektum 750 méterre előre, az adatok a felhővel szinkronizálva',
   steps_photo_handheld_alt:
     'Egy kéz a telefont az útmenti sebességmérő kamerára irányítja: az AR-keret rázárul, alatta a közelben észlelt további objektumok listája',
+  steps_photo_bike_alt:
+    'Kilátás a kerékpár kormányáról AR-réteggel: sebességmérő kamera 120 méterre előre és "biztonságos útvonal — nincs kamera" jelzés a kerékpársávon',
   step1_title: 'Add meg az A és B pontot',
   step1_text: 'Jelenlegi hely, mentett hely vagy kézi megadás — majd válaszd ki a profilt: autó vagy kerékpár.',
-  step2_title: 'Nézd meg előre az útvonalat',
+  step2_title: 'Elemezd előre az útvonalat',
   step2_text: 'Kamerák, időjárás, ismert események és forgalom az úton — még indulás előtt.',
   step3_title: 'Utazz segítővel',
   step3_text: 'A segítő jelzi, ha letérsz az útvonalról, és automatikusan újratervez.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'Lista arról, mi van néhány száz méterrel előtted — egy koppintás a részletekhez.',
 
   audience_eyebrow: '// kinek szól',
-  audience_title: 'Volán mögött, kerékpáron vagy gyalog',
+  audience_title: 'Gyalog, kerékpáron vagy volán mögött',
   audience_pedestrian_title: 'Gyalog',
   audience_pedestrian_text: 'Gyalogos profilhoz igazított útvonal, figyelmeztetésekkel a kamerákról és az útviszonyokról.',
   audience_cyclist_title: 'Kerékpár',

@@ -54,10 +54,26 @@ interface Feature {
 // в v3 навмисно лишались порожніми ("10 слотів на 8 фіч"). Порядок і склад — рівно 10 пунктів
 // з JSON користувача; не переставляти, не додавати зайвого, не видаляти.
 //
-// ⚠️ ЧЕСНО — для двох нових пунктів немає власної SVG-іконки в design-system (мобільна
-// картка нижче — не растр): "community" узято network.svg (вузли/люди — найближчий наявний
-// концепт), "cameraDetection" узято radar-sweep.svg повторно (той самий, що arScanning) —
-// обидва про "виявлення/сканування", а виділеної іконки камери в наборі немає.
+// ОНОВЛЕНО (v5) за прямим запитом користувача ("зроби аудіт іконок і візьми потрібні з
+// архіву - а для байка і тих що не хватає перегенеруй в тому ж стилі") — архів
+// btwillustrations.zip (05-Icons/, той самий стиль: 24×24, stroke-width 2, currentColor,
+// round caps) звірено проти кожної іконки, що вже використовується на цьому лендингу:
+// destination/route/current-position/incident/gps/shield/cloud-off/bicycle/car виявились
+// БАЙТ-У-БАЙТ ідентичними архіву — нічого міняти не треба. Три іконки замінено на архівні:
+//  - "AR-сканування": radar-sweep.svg (саморобний) → core/detect.svg (офіційний "detect",
+//    теги radar/scan/signal).
+//  - "ШІ on-device": on-device.svg (саморобний, іконка "телефон+щит" — концептуально
+//    ближче до приватності) → privacy/local-processing.svg (офіційний "on-device, chip" —
+//    буквально те, про що feature_on_device_text).
+//  - "пішохід" (аудиторія нижче на сторінці, walking.svg) → detection/pedestrian.svg —
+//    завершує той самий "detection"-набір, що вже дав bicycle.svg/car.svg без змін.
+// Раніше було ⚠️ ЧЕСНО задокументовано, що "cameraDetection" і "arScanning" ділять ОДНУ
+// іконку (radar-sweep.svg) через відсутність власної камерної іконки — тепер вирішено:
+// camera-radar.svg (нова, з архіву camera/camera-radar.svg — камера з радіохвилями,
+// буквально "camera detection") замінює цей дубль. drive-mode/payment-star/kill-switch/
+// confirm-check/network лишились БЕЗ змін — архів не має відповідних понять (drive-mode,
+// оплата, перемикач режимів, верифікація спільнотою, community), тож саморобні іконки в
+// тому самому стилі (перевірено — grid/stroke-width/round caps відповідають) лишаються.
 const ALL_FEATURES: Feature[] = [
   { icon: '/icons/radar-sweep.svg', titleKey: 'feature_ar_scan_title', textKey: 'feature_ar_scan_text' },
   { icon: '/icons/on-device.svg', titleKey: 'feature_on_device_title', textKey: 'feature_on_device_text' },
@@ -68,7 +84,7 @@ const ALL_FEATURES: Feature[] = [
   { icon: '/icons/payment-star.svg', titleKey: 'feature_payment_title', textKey: 'feature_payment_text' },
   { icon: '/icons/kill-switch.svg', titleKey: 'feature_mode_switch_title', textKey: 'feature_mode_switch_text' },
   { icon: '/icons/network.svg', titleKey: 'feature_community_title', textKey: 'feature_community_text' },
-  { icon: '/icons/radar-sweep.svg', titleKey: 'feature_camera_detection_title', textKey: 'feature_camera_detection_text' },
+  { icon: '/icons/camera-radar.svg', titleKey: 'feature_camera_detection_title', textKey: 'feature_camera_detection_text' },
 ];
 
 // Позиції текстових блоків поверх public/images/feature-map-composite.webp (1280×853).

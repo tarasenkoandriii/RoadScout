@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Un telefon montat pe bord cu o suprapunere AR de tip radar: o cameră detectată la 380 m înainte și un alt obiect la 750 m, date sincronizate cu cloud-ul',
   steps_photo_handheld_alt:
     'O mână ține telefonul îndreptat spre o cameră radar de pe marginea drumului: cadrul AR o încadrează, iar mai jos apare lista altor obiecte detectate în apropiere',
+  steps_photo_bike_alt:
+    'Vedere de la ghidonul bicicletei cu suprapunere AR: o cameră radar la 120 m înainte și eticheta "traseu sigur — fără camere" pe pista de biciclete',
   step1_title: 'Stabilește punctele A și B',
   step1_text: 'Locația curentă, un loc salvat sau introducere manuală — apoi alege profilul: mașină sau bicicletă.',
-  step2_title: 'Vezi traseul din timp',
+  step2_title: 'Analizează traseul din timp',
   step2_text: 'Camere, vreme, incidente cunoscute și trafic pe traseu — încă înainte de plecare.',
   step3_title: 'Mergi cu un asistent',
   step3_text: 'Asistentul te avertizează dacă te abați de la traseu și îl recalculează automat.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'O listă cu ce se află la câteva sute de metri în față — o atingere pentru detalii.',
 
   audience_eyebrow: '// pentru cine',
-  audience_title: 'La volan, pe bicicletă sau pe jos',
+  audience_title: 'Pe jos, pe bicicletă sau la volan',
   audience_pedestrian_title: 'Pe jos',
   audience_pedestrian_text: 'Un traseu adaptat profilului de pieton, cu avertismente despre camere și condițiile de pe drum.',
   audience_cyclist_title: 'Bicicletă',

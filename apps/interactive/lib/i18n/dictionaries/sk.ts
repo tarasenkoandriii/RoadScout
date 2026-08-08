@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Telefón upevnený na palubnej doske s radarovým AR prekrytím: kamera zistená 380 m vpredu a ďalší objekt 750 m vpredu, dáta sa synchronizujú s cloudom',
   steps_photo_handheld_alt:
     'Ruka drží telefón namierený na cestný rýchlostný radar: AR rámček ho zachytáva a nižšie je zoznam ďalších zistených objektov v okolí',
+  steps_photo_bike_alt:
+    'Pohľad spoza riadidiel bicykla s AR prekrytím: rýchlostný radar 120 m vpredu a značka "bezpečná trasa — žiadne kamery" na cyklotrase',
   step1_title: 'Zadaj body A a B',
   step1_text: 'Aktuálna poloha, uložené miesto alebo ručne — a vyber profil: auto alebo bicykel.',
-  step2_title: 'Pozri si trasu vopred',
+  step2_title: 'Vopred analyzuj trasu',
   step2_text: 'Kamery, počasie, známe incidenty a doprava na trase — ešte pred štartom.',
   step3_title: 'Cestuj s pomocníkom',
   step3_text: 'Pomocník ťa upozorní, ak zídeš z trasy, a sám ju prepočíta.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'Zoznam toho, čo je pár stoviek metrov pred tebou — jedno ťuknutie na podrobnosti.',
 
   audience_eyebrow: '// pre koho je to určené',
-  audience_title: 'Za volantom, na bicykli alebo pešo',
+  audience_title: 'Peši, na bicykli alebo za volantom',
   audience_pedestrian_title: 'Peši',
   audience_pedestrian_text: 'Trasa prispôsobená profilu chodca, s upozorneniami na kamery a podmienky na ceste.',
   audience_cyclist_title: 'Bicykel',

@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Ein auf dem Armaturenbrett befestigtes Smartphone mit radarartiger AR-Einblendung: eine Kamera 380 m voraus und ein weiteres Objekt 750 m voraus erkannt, Daten mit der Cloud synchronisiert',
   steps_photo_handheld_alt:
     'Eine Hand hält ein Smartphone, das auf einen Blitzer am Straßenrand gerichtet ist: ein AR-Rahmen rastet darauf ein, darunter eine Liste weiterer erkannter Objekte in der Nähe',
+  steps_photo_bike_alt:
+    'Blick vom Fahrradlenker mit AR-Einblendung: ein Blitzer 120 m voraus und die Markierung "sichere Route — keine Kameras" auf dem Radweg',
   step1_title: 'Punkte A und B festlegen',
   step1_text: 'Aktueller Standort, ein gespeicherter Ort oder manuelle Eingabe — dann Profil wählen: Auto oder Fahrrad.',
-  step2_title: 'Die Route im Voraus sehen',
+  step2_title: 'Analysiere die Route im Voraus',
   step2_text: 'Kameras, Wetter, bekannte Vorfälle und Verkehr auf der Strecke — schon vor der Abfahrt.',
   step3_title: 'Fahre mit einem Helfer',
   step3_text: 'Der Helfer meldet sich, wenn du von der Route abweichst, und berechnet sie automatisch neu.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'Eine Liste dessen, was einige hundert Meter voraus liegt — ein Tipp für die Details.',
 
   audience_eyebrow: '// für wen',
-  audience_title: 'Am Steuer, auf dem Rad oder zu Fuß',
+  audience_title: 'Zu Fuß, auf dem Rad oder am Steuer',
   audience_pedestrian_title: 'Zu Fuß',
   audience_pedestrian_text: 'Eine Route, die auf das Fußgänger-Profil abgestimmt ist, mit Warnungen zu Kameras und Bedingungen unterwegs.',
   audience_cyclist_title: 'Fahrrad',

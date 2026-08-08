@@ -25,9 +25,11 @@ const dict: Dictionary = {
     "Un téléphone fixé sur le tableau de bord avec une superposition AR façon radar : une caméra détectée à 380 m et un autre objet à 750 m devant, données synchronisées avec le cloud",
   steps_photo_handheld_alt:
     "Une main tient un téléphone pointé vers un radar routier : un cadre AR se verrouille dessus, avec en dessous une liste d'autres objets détectés à proximité",
+  steps_photo_bike_alt:
+    "Vue depuis le guidon d'un vélo avec une superposition AR : un radar à 120 m devant et une étiquette « itinéraire sûr — aucune caméra » sur la piste cyclable",
   step1_title: 'Indiquez les points A et B',
   step1_text: "Position actuelle, lieu enregistré ou saisie manuelle — puis choisissez un profil : voiture ou vélo.",
-  step2_title: "Voyez l'itinéraire à l'avance",
+  step2_title: "Analysez l'itinéraire à l'avance",
   step2_text: "Caméras, météo, incidents connus et trafic sur le trajet — avant même de partir.",
   step3_title: 'Roulez avec un assistant',
   step3_text: "L'assistant vous prévient si vous vous écartez de l'itinéraire et le recalcule automatiquement.",
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: "Une liste de ce qui se trouve à quelques centaines de mètres devant vous — un tap pour voir les détails.",
 
   audience_eyebrow: '// pour qui',
-  audience_title: 'Au volant, à vélo ou à pied',
+  audience_title: 'À pied, à vélo ou au volant',
   audience_pedestrian_title: 'À pied',
   audience_pedestrian_text: "Un itinéraire adapté au profil piéton, avec des alertes sur les caméras et les conditions en chemin.",
   audience_cyclist_title: 'Vélo',

@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Telefon zamocowany na desce rozdzielczej z nakładką AR w stylu radaru: kamera wykryta 380 m przed pojazdem i kolejny obiekt 750 m dalej, dane synchronizowane z chmurą',
   steps_photo_handheld_alt:
     'Dłoń trzyma telefon skierowany na przydrożny fotoradar: ramka AR namierza go, a poniżej lista innych wykrytych w pobliżu obiektów',
+  steps_photo_bike_alt:
+    'Widok z kierownicy roweru z nakładką AR: fotoradar 120 m przed Tobą i etykieta "bezpieczna trasa — brak kamer" na ścieżce rowerowej',
   step1_title: 'Wskaż punkty A i B',
   step1_text: 'Bieżąca lokalizacja, zapisane miejsce lub ręcznie — i wybierz profil: samochód czy rower.',
-  step2_title: 'Zobacz trasę z wyprzedzeniem',
+  step2_title: 'Przeanalizuj trasę z wyprzedzeniem',
   step2_text: 'Kamery, pogoda, znane zdarzenia i ruch na trasie — jeszcze przed wyjazdem.',
   step3_title: 'Jedź z pomocnikiem',
   step3_text: 'Pomocnik podpowie, jeśli zjedziesz z trasy, i sam ją przeliczy.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'Lista tego, co jest kilkaset metrów przed tobą — jedno dotknięcie, by zobaczyć szczegóły.',
 
   audience_eyebrow: '// dla kogo',
-  audience_title: 'Za kierownicą, na rowerze czy pieszo',
+  audience_title: 'Pieszo, na rowerze czy za kierownicą',
   audience_pedestrian_title: 'Pieszo',
   audience_pedestrian_text: 'Trasa dopasowana do profilu pieszego, z ostrzeżeniami o kamerach i warunkach po drodze.',
   audience_cyclist_title: 'Rower',

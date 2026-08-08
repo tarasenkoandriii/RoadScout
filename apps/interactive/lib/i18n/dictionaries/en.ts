@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'A phone mounted on the dashboard showing a radar-style AR overlay: a camera detected 380 m ahead and another object 750 m ahead, synced with the cloud',
   steps_photo_handheld_alt:
     'A hand holding up a phone and aiming it at a roadside speed camera, with an AR frame locking onto it and a list of nearby detected objects below',
+  steps_photo_bike_alt:
+    'A view from a bike handlebar with an AR overlay: a speed camera 120 m ahead and a "safe route — no cameras ahead" tag on the bike lane',
   step1_title: 'Set points A and B',
   step1_text: 'Current location, a saved place, or manual entry — then pick a profile: driving or cycling.',
-  step2_title: 'See the route ahead',
+  step2_title: 'Analyze your route in advance',
   step2_text: 'Cameras, weather, known incidents, and traffic along the way — before you even start.',
   // ЗМІНЕНО за прямим запитом користувача ("лендингфраза Їдь під наглядом идеология не следить
   // а помогать - едь с помощником или подобное") — прибрано "tracking/watching" тон і тут, і в
@@ -38,7 +40,7 @@ const dict: Dictionary = {
   step4_text: 'A list of what is a few hundred meters ahead — one tap to see the details.',
 
   audience_eyebrow: '// who it is for',
-  audience_title: 'Driving, cycling, or walking',
+  audience_title: 'Walking, cycling, or driving',
   audience_pedestrian_title: 'Walking',
   audience_pedestrian_text: 'A route tailored to a pedestrian profile, with warnings about cameras and conditions along the way.',
   audience_cyclist_title: 'Cycling',

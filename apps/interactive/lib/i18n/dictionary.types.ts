@@ -36,6 +36,11 @@ export interface Dictionary {
   // самий принцип іменування, що вже hero_image_alt/feature_map_phone_alt.
   steps_photo_mount_alt: string;
   steps_photo_handheld_alt: string;
+  // ДОДАНО за прямим запитом користувача (нова ілюстрація "з байком" — велокермо з AR-
+  // накладенням "SPEED CAMERA 120 m" / "SAFE ROUTE No cameras ahead") — та сама трійка
+  // ілюстрацій у секції "Як це працює", тепер по три (свайп/пішки — байк — авто), у тому ж
+  // порядку, що audience_title/картки нижче на сторінці.
+  steps_photo_bike_alt: string;
   step1_title: string;
   step1_text: string;
   step2_title: string;

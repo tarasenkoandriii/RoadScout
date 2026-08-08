@@ -149,19 +149,23 @@ export default function InteractiveLandingPage() {
           </div>
 
           {/* ДОДАНО за прямим запитом користувача ("выбираю Вариант 1 — в блок «Как это
-              работает» - обе иллюстрации внеси в эту секцию") — дві фотореалістичні
-              ілюстрації одразу під заголовком, перед списком з 4 кроків: зліва — телефон
-              закріплений на панелі приладів (пасивний режим, радар "бачить" камеру за 380 м
-              і ще один об'єкт за 750 м — саме те, про що крок 2 нижче), справа — телефон у
-              руці, наведений на камеру (активне AR-сканування, напрямок телефону обирає
-              об'єкт зі списку виявлених поруч — той самий принцип, що й крок 4 "Попереду на
-              шляху"). Той самий стиль картки, що вже в hero-секції вище (rounded-3xl,
-              border, shadow, aspect-[4/3] object-cover). */}
-          <div className="mb-16 grid gap-6 sm:grid-cols-2">
+              работает» - обе иллюстрации внеси в эту секцию"), ПЕРЕВПОРЯДКОВАНО й ДОПОВНЕНО
+              за прямим наступним запитом ("ця ж логіка порядку для ілюстрацій ... зліва
+              свайп ілюстрація - та що вже на лендінгу справа / посередині оця нова з байком /
+              справа авто - та що вже на лендінгу зліва") — тепер три ілюстрації, у ТОМУ Ж
+              ПОРЯДКУ, що audience_title/картки нижче (пішки → велосипед → авто): зліва —
+              "свайп" (телефон у руці, наведений на камеру — активне AR-сканування,
+              найближче до "пішки"/без транспорту), посередині — нова ілюстрація з велокерма
+              (той самий сценарій "SPEED CAMERA 120m" / "SAFE ROUTE No cameras ahead", що вже
+              в hero-секції, але з погляду велосипедиста), справа — телефон закріплений на
+              панелі приладів авто (пасивний радар, саме те, про що крок 2 нижче). Той самий
+              стиль картки, що вже в hero-секції вище (rounded-3xl, border, shadow,
+              aspect-[4/3] object-cover); sm:grid-cols-2 → sm:grid-cols-3. */}
+          <div className="mb-16 grid gap-6 sm:grid-cols-3">
             <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-xl shadow-black/30">
               <img
-                src="/images/steps-mount-radar.webp"
-                alt={t('steps_photo_mount_alt')}
+                src="/images/steps-handheld-scan.webp"
+                alt={t('steps_photo_handheld_alt')}
                 className="aspect-[4/3] w-full object-cover"
                 width={1280}
                 height={853}
@@ -170,8 +174,18 @@ export default function InteractiveLandingPage() {
             </div>
             <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-xl shadow-black/30">
               <img
-                src="/images/steps-handheld-scan.webp"
-                alt={t('steps_photo_handheld_alt')}
+                src="/images/steps-bike-route.webp"
+                alt={t('steps_photo_bike_alt')}
+                className="aspect-[4/3] w-full object-cover"
+                width={1280}
+                height={960}
+                loading="lazy"
+              />
+            </div>
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-xl shadow-black/30">
+              <img
+                src="/images/steps-mount-radar.webp"
+                alt={t('steps_photo_mount_alt')}
                 className="aspect-[4/3] w-full object-cover"
                 width={1280}
                 height={853}

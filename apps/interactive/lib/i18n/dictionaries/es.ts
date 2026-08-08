@@ -25,9 +25,11 @@ const dict: Dictionary = {
     'Un teléfono montado en el salpicadero con una capa AR tipo radar: una cámara detectada a 380 m y otro objeto a 750 m por delante, datos sincronizados con la nube',
   steps_photo_handheld_alt:
     'Una mano sostiene un teléfono apuntando a un radar de velocidad en la carretera: un marco AR lo enfoca, y debajo aparece una lista de otros objetos detectados cerca',
+  steps_photo_bike_alt:
+    'Vista desde el manillar de una bicicleta con una capa AR: un radar de velocidad a 120 m por delante y una etiqueta "ruta segura — sin cámaras" en el carril bici',
   step1_title: 'Indica los puntos A y B',
   step1_text: 'Ubicación actual, un lugar guardado o entrada manual — luego elige un perfil: coche o bicicleta.',
-  step2_title: 'Ve la ruta con antelación',
+  step2_title: 'Analiza la ruta con antelación',
   step2_text: 'Cámaras, clima, incidentes conocidos y tráfico en el camino — incluso antes de salir.',
   step3_title: 'Viaja con un asistente',
   step3_text: 'El asistente te avisa si te desvías de la ruta y la recalcula automáticamente.',
@@ -35,7 +37,7 @@ const dict: Dictionary = {
   step4_text: 'Una lista de lo que hay a unos cientos de metros por delante — un toque para ver los detalles.',
 
   audience_eyebrow: '// para quién es',
-  audience_title: 'Al volante, en bicicleta o a pie',
+  audience_title: 'A pie, en bicicleta o al volante',
   audience_pedestrian_title: 'A pie',
   audience_pedestrian_text: 'Una ruta adaptada al perfil peatonal, con avisos sobre cámaras y condiciones del camino.',
   audience_cyclist_title: 'Bicicleta',
