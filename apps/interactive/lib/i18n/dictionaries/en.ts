@@ -64,7 +64,6 @@ const dict: Dictionary = {
   widget_incidents_source_none: 'No traffic source configured for this region',
   widget_map_radius_note: 'Within {radius} km of your city',
   widget_map_label: 'Region map',
-  widget_layer_incidents: 'Incidents',
   widget_layer_roads: 'Roads',
   widget_layer_rain: 'Rain',
   widget_layer_wind: 'Wind',

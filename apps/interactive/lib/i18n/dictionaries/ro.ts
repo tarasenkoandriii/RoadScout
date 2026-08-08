@@ -61,7 +61,6 @@ const dict: Dictionary = {
   widget_incidents_source_none: 'Nicio sursă de trafic configurată pentru această regiune',
   widget_map_radius_note: 'În raza de {radius} km de orașul tău',
   widget_map_label: 'Harta regiunii',
-  widget_layer_incidents: 'Incidente',
   widget_layer_roads: 'Drumuri',
   widget_layer_rain: 'Ploaie',
   widget_layer_wind: 'Vânt',

@@ -61,7 +61,6 @@ const dict: Dictionary = {
   widget_incidents_source_none: 'Ehhez a régióhoz nincs beállítva forgalmi forrás',
   widget_map_radius_note: '{radius} km-es körzetben a városodtól',
   widget_map_label: 'Régió térkép',
-  widget_layer_incidents: 'Események',
   widget_layer_roads: 'Utak',
   widget_layer_rain: 'Eső',
   widget_layer_wind: 'Szél',

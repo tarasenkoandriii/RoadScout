@@ -67,7 +67,6 @@ const dict: Dictionary = {
   widget_incidents_source_none: 'Джерело трафіку для цього регіону не налаштовано',
   widget_map_radius_note: 'У радіусі {radius} км від вашого міста',
   widget_map_label: 'Карта регіону',
-  widget_layer_incidents: 'Інциденти',
   widget_layer_roads: 'Дороги',
   widget_layer_rain: 'Дощ',
   widget_layer_wind: 'Вітер',

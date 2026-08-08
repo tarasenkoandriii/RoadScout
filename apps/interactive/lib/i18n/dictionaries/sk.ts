@@ -61,7 +61,6 @@ const dict: Dictionary = {
   widget_incidents_source_none: 'Pre tento región nie je nakonfigurovaný žiadny zdroj dopravy',
   widget_map_radius_note: 'V okruhu {radius} km od vášho mesta',
   widget_map_label: 'Mapa regiónu',
-  widget_layer_incidents: 'Incidenty',
   widget_layer_roads: 'Cesty',
   widget_layer_rain: 'Dážď',
   widget_layer_wind: 'Vietor',

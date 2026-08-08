@@ -252,9 +252,16 @@ export default function InteractiveLandingPage() {
       </section>
 
       {/* ============ ЖИВОЙ БЛОК ПО ГОРОДУ (IP-виджет) ============ */}
+      {/* ЗМІНЕНО за прямим запитом користувача ("плашка шире на 50 процентов и карта как можно
+          шире - сейчас она слишком обжата") — раніше ЄДИНИЙ max-w-3xl огортав і заголовок, і
+          саму картку CityWidget, тому власний ширший max-w-5xl картки (див. CityWidget.tsx)
+          все одно обрізався б цим батьківським контейнером. Тепер контейнер секції розширено
+          до max-w-6xl, а заголовок/підзаголовок навмисно лишені у власному вкладеному
+          max-w-3xl (щоб текст не розтягувався на всю ширину і лишався читабельним) — картка
+          CityWidget рендериться ПОЗА цим вузьким блоком, просто всередині ширшого max-w-6xl. */}
       <section className="px-6 py-24">
-        <div className="mx-auto max-w-3xl">
-          <div className="mb-10 text-center">
+        <div className="mx-auto max-w-6xl">
+          <div className="mx-auto mb-10 max-w-3xl text-center">
             <Eyebrow>{t('widget_eyebrow')}</Eyebrow>
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('widget_title')}</h2>
             <p className="mx-auto mt-4 max-w-xl text-mutedLight">{t('widget_subtitle')}</p>

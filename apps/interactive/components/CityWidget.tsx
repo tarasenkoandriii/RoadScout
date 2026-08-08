@@ -103,7 +103,14 @@ export default function CityWidget() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-surface p-6 sm:p-8">
+    // ЗМІНЕНО за прямим запитом користувача ("плашка шире на 50 процентов и карта как можно
+    // шире - сейчас она слишком обжата") — max-w-2xl (42rem) → max-w-5xl (64rem), тобто ~1.5×
+    // (42×1.5=63rem, округлено до найближчого кроку шкали Tailwind). Сайдбар всередині
+    // CityMapPanel.tsx лишається фіксованим 15rem (md:grid-cols-[1fr_15rem]), тож уся додаткова
+    // ширина автоматично йде самій карті (1fr) — саме так вона стає "як можна ширше" без
+    // окремої зміни співвідношення колонок. Батьківський контейнер у app/[lang]/page.tsx теж
+    // розширено (був max-w-3xl і обмежував цю картку зсередини) — див. коментар там.
+    <div className="mx-auto max-w-5xl rounded-2xl border border-white/10 bg-surface p-6 sm:p-8">
       {/* ЗМІНЕНО за прямим запитом користувача ("все подобные тексты [...] сделать светлее на
           лендинге") — mutedLight замість muted. */}
       {state === 'loading' && <p className="text-center text-mutedLight">{t('widget_loading')}</p>}

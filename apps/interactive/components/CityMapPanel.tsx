@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import { useI18n } from './I18nProvider';
 import WeatherIcon from './WeatherIcon';
 import WindyWidget, { WindyOverlay } from './WindyWidget';
-import CityIncidentsMap from './CityIncidentsMap';
 import type { LandingWeatherSummary, LandingIncidentsSummary } from '../lib/landing-snapshot.types';
 
 // За прямим запитом користувача — "виджет погоды уменьшить и сделать отдельно - оформить
@@ -21,13 +20,18 @@ import type { LandingWeatherSummary, LandingIncidentsSummary } from '../lib/land
 // внутрішньою картою, а НЕ растровим tile-шаром, тому інциденти технічно НЕ можна намалювати як
 // прозорий шар ПОВЕРХ карти Windy. Замість цього — той самий компроміс, що вже прийнятий в
 // адмінці: один "слот" карти, що перемикається горизонтальним рядом вкладок (Windy-шари +
-// "Інциденти" + "Дороги"), а не одночасне накладання для ВСІХ шарів. Виняток — новий шар
-// "Дороги" (RoadMapLayer.tsx, react-leaflet + OSM-тайли, СПРАВЖНЯ карта, не iframe): там
-// інциденти дійсно накладені прозорим шаром маркерів ПОВЕРХ карти доріг, бо Leaflet це
-// технічно дозволяє (на відміну від Windy). Шар "Інциденти" (без доріг) лишається власною
-// схематичною SVG-картою (CityIncidentsMap, без нових залежностей) — простіший "радар"-вигляд
-// для тих, кому вистачає напрямку+відстані без реальної вулично-дорожньої мережі.
-type LayerKey = 'incidents' | 'roads' | WindyOverlay;
+// один комбінований шар "Дороги/інциденти").
+//
+// ЗМІНЕНО за прямим запитом користувача ("дороги и инциденты должны быть в одном слое") —
+// РАНІШЕ тут було ДВІ окремі вкладки: "Інциденти" (власна схематична SVG-карта
+// CityIncidentsMap.tsx, без реальної вулично-дорожньої мережі) і "Дороги" (RoadMapLayer.tsx,
+// react-leaflet + OSM-тайли з інцидентами, накладеними прозорим шаром маркерів ПОВЕРХ —
+// технічно можливо саме тут, бо Leaflet це дозволяє, на відміну від Windy-iframe). Тепер
+// лишається лише ОДНА вкладка "Дороги" — вона й раніше показувала і дороги, і інциденти
+// одночасно, тож схематична CityIncidentsMap.tsx стала буквально дублем і прибрана зі списку
+// вкладок. Сам файл CityIncidentsMap.tsx НЕ видалено (див. коментар на початку файлу) — про
+// всяк випадок, раптом знадобиться десь ще, але тут більше не імпортується/не рендериться.
+type LayerKey = 'roads' | WindyOverlay;
 
 // react-leaflet звертається до window/document при імпорті — на сервері (SSR/SSG) це падає,
 // тому карта доріг вантажиться лише на клієнті (ssr:false), той самий паттерн, що вже
@@ -58,10 +62,9 @@ function formatForecastDay(dateIso: string, lang: string): string {
 
 export default function CityMapPanel({ center, weather, incidents }: Props) {
   const { t, lang } = useI18n();
-  const [layer, setLayer] = useState<LayerKey>('incidents');
+  const [layer, setLayer] = useState<LayerKey>('roads');
 
   const tabs: { key: LayerKey; label: string }[] = [
-    { key: 'incidents', label: t('widget_layer_incidents') },
     { key: 'roads', label: t('widget_layer_roads') },
     { key: 'rain', label: t('widget_layer_rain') },
     { key: 'wind', label: t('widget_layer_wind') },
@@ -92,20 +95,15 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-white/10 bg-surface">
-            {layer === 'incidents' && (
-              <div className={`flex items-center justify-center ${MAP_HEIGHT_CLASS}`}>
-                <CityIncidentsMap center={center} incidents={incidents.items} radiusKm={incidents.radiusKm} />
-              </div>
-            )}
             {layer === 'roads' && (
               <RoadMapLayer center={center} incidents={incidents.items} zoom={ROAD_MAP_ZOOM} heightClassName={MAP_HEIGHT_CLASS} />
             )}
-            {layer !== 'incidents' && layer !== 'roads' && (
+            {layer !== 'roads' && (
               <WindyWidget lat={center.lat} lng={center.lng} zoom={8} overlay={layer} heightClassName={`${MAP_HEIGHT_CLASS} border-0`} />
             )}
           </div>
 
-          {(layer === 'incidents' || layer === 'roads') && (
+          {layer === 'roads' && (
             <p className="mt-1 text-center font-mono text-[10px] text-mutedLight">
               {t('widget_map_radius_note', { radius: incidents.radiusKm })}
             </p>
