@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramAuthPayload, verifyTelegramAuth, verifyTelegramWebAppInitData } from './telegram-verify.util';
@@ -30,6 +30,8 @@ interface UpsertableUser {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -131,22 +133,35 @@ export class AuthService {
   // revoking access, or toggling DEV_AUTO_LOGIN off, takes effect immediately without having
   // to invalidate any already-issued tokens).
   private async issueSession(fields: UpsertableUser): Promise<{ token: string; user: SessionUser }> {
-    await this.prisma.telegramUser.upsert({
-      where: { telegramId: fields.telegramId },
-      create: {
-        telegramId: fields.telegramId,
-        firstName: fields.firstName,
-        lastName: fields.lastName,
-        username: fields.username,
-        photoUrl: fields.photoUrl,
-      },
-      update: {
-        firstName: fields.firstName,
-        lastName: fields.lastName,
-        username: fields.username,
-        photoUrl: fields.photoUrl,
-      },
-    });
+    // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем — скріншот "POST /api/session —
+    // 500", 52-байтне тіло відповіді — точний розмір дефолтного JSON Nest для непійманої
+    // помилки): цей upsert раніше не мав жодного try/catch — будь-який збій Prisma/БД (недоступна
+    // БД, вичерпаний пул з'єднань, дрейф схеми тощо) кидав `PrismaClientKnownRequestError`/
+    // `PrismaClientInitializationError`, які НЕ є `HttpException`, і провалювались як сира
+    // помилка. Разом із розширенням `NotFoundRedirectFilter` до `@Catch()` (тепер логує
+    // ПОВНІСТЮ будь-яку таку помилку сервером) це перетворює її на конкретний 503 з людським
+    // повідомленням — той самий принцип, що вже нижче для сценарію "БД справді недоступна".
+    try {
+      await this.prisma.telegramUser.upsert({
+        where: { telegramId: fields.telegramId },
+        create: {
+          telegramId: fields.telegramId,
+          firstName: fields.firstName,
+          lastName: fields.lastName,
+          username: fields.username,
+          photoUrl: fields.photoUrl,
+        },
+        update: {
+          firstName: fields.firstName,
+          lastName: fields.lastName,
+          username: fields.username,
+          photoUrl: fields.photoUrl,
+        },
+      });
+    } catch (err) {
+      this.logger.error(`issueSession: telegramUser.upsert failed for telegramId ${fields.telegramId}: ${(err as any)?.message ?? err}`);
+      throw new ServiceUnavailableException('Не удалось войти — попробуйте ещё раз через несколько секунд');
+    }
 
     const user = this.toSessionUser(fields);
     const token = await this.jwt.signAsync({ telegramId: fields.telegramId });

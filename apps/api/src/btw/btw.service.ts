@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -779,8 +780,24 @@ export class BtwService {
     const fetchOnce = (axiosConfig: object) =>
       axios.get(cacheBustedUrl, { ...axiosConfig, responseType: 'arraybuffer', timeout: 10000, validateStatus: (s) => s >= 200 && s < 300 });
 
-    const viaVpn = this.registryProxy.isConfigured();
-    const res = viaVpn ? (await this.registryProxy.request(fetchOnce)).data : await fetchOnce({});
+    // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем — "любой тап по камере — нет
+    // видео — 500"): запит до ЗОВНІШНЬОГО потоку камери (не наш сервер — реальна вулична
+    // камера/DOT-ендпоінт, який регулярно буває тимчасово недоступний, повертає негеографічну
+    // помилку, чи просто "лежить") раніше не мав жодного try/catch — будь-яка мережева
+    // помилка (timeout, ECONNREFUSED, non-2xx статус — усе це кидає `AxiosError`, не
+    // `HttpException`) провалювалась як сира помилка й перетворювалась на непрозорий
+    // "Internal server error" замість зрозумілого "камера тимчасово недоступна". Тепер —
+    // BadGatewayException (502, семантично коректний код саме для "апстрім не відповів
+    // коректно") з людським повідомленням, той самий принцип, що вже `assertCameraAvailable()`
+    // вище ("Камера недоступна" замість сирого падіння).
+    let res: Awaited<ReturnType<typeof fetchOnce>>;
+    try {
+      const viaVpn = this.registryProxy.isConfigured();
+      res = viaVpn ? (await this.registryProxy.request(fetchOnce)).data : await fetchOnce({});
+    } catch (err) {
+      this.logger.warn(`fetchThumbImage: upstream camera stream failed for camera ${cameraId}: ${(err as any)?.message ?? err}`);
+      throw new BadGatewayException('Камера временно недоступна — попробуйте ещё раз');
+    }
 
     return {
       contentType: typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : 'image/jpeg',
@@ -842,6 +859,23 @@ export class BtwService {
   private async isInForbiddenZone(lat: number, lng: number): Promise<boolean> {
     const zones = await this.prisma.noTargetZone.findMany();
     for (const zone of zones) {
+      // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем — скріншот "любой тап по
+      // камере — нет видео — 500"): `geom` — це Prisma `Json` (§ schema.prisma коментар),
+      // тобто жодної схемної гарантії, що там справді масив `{lat,lng}[]`, а не `null`,
+      // об'єкт іншої форми (напр. справжній GeoJSON `{type,coordinates}`), чи взагалі щось
+      // побите. Ця перевірка запускається на КОЖЕН тап "заблокувати камеру" (assertNotIn
+      // ForbiddenZone -> requestThumb/requestLock), для ВСІХ зон одразу — раніше ОДНА погана
+      // зона в базі кидала некеровану помилку (`polygon.length` на не-масиві) і валила весь
+      // ланцюжок для БУДЬ-ЯКОЇ камери, з якою намагався взаємодіяти БУДЬ-ЯКИЙ користувач —
+      // саме це й пояснює "любой тап — 500", незалежно від конкретної камери. Тепер погана
+      // зона просто пропускається (з логом) — інші, коректні зони й далі перевіряються, а
+      // сам факт "не можу перевірити цю зону" НЕ трактується як "не заборонено" чи навпаки
+      // "заборонено" — вона просто випадає з перевірки, як і мала б, якби її взагалі не
+      // існувало в базі.
+      if (!Array.isArray(zone.geom) || zone.geom.length < 3) {
+        this.logger.warn(`NoTargetZone ${zone.id} has malformed geom (expected {lat,lng}[] with >=3 points) — skipping in forbidden-zone check`);
+        continue;
+      }
       const polygon = zone.geom as unknown as { lat: number; lng: number }[];
       if (this.pointInPolygon(lat, lng, polygon)) return true;
     }
