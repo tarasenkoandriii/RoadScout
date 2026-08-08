@@ -75,6 +75,35 @@ export interface Dictionary {
   widget_layer_radar: string;
   widget_disclaimer: string;
 
+  // ДОДАНО за прямим запитом користувача ("добавь на интерактивный лендинг feature map") —
+  // підсумковий "оглядовий" блок перед FAQ/фінальним CTA: телефон по центру (растрове фото,
+  // public/images/feature-map-phone.webp) + 8 функціональних блоків навколо, з'єднаних SVG-
+  // лініями (components/FeatureMap.tsx). НА ВІДМІНУ від растрового референсу користувача
+  // (BTW_FeatureMap_Desktop_*.png/webp — той самий, що прикладений з поміткою "невнятные
+  // надписи") — весь текст тут ЖИВИЙ HTML/i18n, не запечений у растр: референс мав нечитабельні
+  // "галюциновані" підписи саме тому, що текст був згенерований разом із зображенням AI-
+  // моделлю, без жодного зв'язку зі справжнім багатомовним словником цього лендингу.
+  feature_map_eyebrow: string;
+  feature_map_title: string;
+  feature_map_subtitle: string;
+  feature_map_phone_alt: string;
+  feature_ar_scan_title: string;
+  feature_ar_scan_text: string;
+  feature_on_device_title: string;
+  feature_on_device_text: string;
+  feature_registry_title: string;
+  feature_registry_text: string;
+  feature_drive_mode_title: string;
+  feature_drive_mode_text: string;
+  feature_confirm_title: string;
+  feature_confirm_text: string;
+  feature_marketplace_title: string;
+  feature_marketplace_text: string;
+  feature_payment_title: string;
+  feature_payment_text: string;
+  feature_kill_switch_title: string;
+  feature_kill_switch_text: string;
+
   privacy_eyebrow: string;
   privacy_title: string;
   privacy_text: string;

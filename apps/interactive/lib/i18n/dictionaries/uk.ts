@@ -61,6 +61,29 @@ const dict: Dictionary = {
   widget_layer_radar: 'Радар опадів',
   widget_disclaimer: 'Місто визначається за IP-адресою — приблизно, без запиту доступу до вашої точної геолокації.',
 
+  feature_map_eyebrow: '// весь функціонал',
+  feature_map_title: 'Усе, що вміє застосунок — одним поглядом',
+  feature_map_subtitle:
+    'Від AR-сканування на дорозі до приватності й оплати — короткий огляд ключових можливостей.',
+  feature_map_phone_alt:
+    'Телефон з відкритим застосунком Beyond the Wall: карта та AR-інтерфейс на головному екрані',
+  feature_ar_scan_title: 'AR-сканування',
+  feature_ar_scan_text: 'Камера телефону в реальному часі показує, що попереду на дорозі.',
+  feature_on_device_title: 'Приватність on-device',
+  feature_on_device_text: 'Розрахунки лишаються на телефоні — координати не йдуть на сервер.',
+  feature_registry_title: 'LiveAhead — спільний реєстр',
+  feature_registry_text: 'Спільна база камер і постів, яку поповнюють самі користувачі.',
+  feature_drive_mode_title: 'Режим водія',
+  feature_drive_mode_text: 'Мінімум дій руками — безпечно користуватись просто за кермом.',
+  feature_confirm_title: 'Підтвердження міток',
+  feature_confirm_text: 'Спільнота підтверджує чи спростовує мітки — дані лишаються точними.',
+  feature_marketplace_title: 'Маркетплейс',
+  feature_marketplace_text: 'Пропозиція і попит усередині застосунку — двостороння механіка обміну.',
+  feature_payment_title: 'Оплата й Telegram Stars',
+  feature_payment_text: 'Вбудовані платежі — карткою або Telegram Stars, без переходів убік.',
+  feature_kill_switch_title: 'Спецрежим конфіденційності',
+  feature_kill_switch_text: 'Одна дія миттєво вимикає чутливі функції, коли це потрібно.',
+
   privacy_eyebrow: '// приватність',
   privacy_title: 'Ваш маршрут лишається у вас',
   privacy_text:

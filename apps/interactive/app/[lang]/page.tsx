@@ -4,6 +4,7 @@ import { useI18n } from '../../components/I18nProvider';
 import LanguageSelector from '../../components/LanguageSelector';
 import SkipLink from '../../components/SkipLink';
 import CityWidget from '../../components/CityWidget';
+import FeatureMap from '../../components/FeatureMap';
 
 // За прямим запитом користувача — doc/TZ-btw-landing-v2.md: другий, ОКРЕМИЙ від apps/landing
 // лендинг ("старый лендинг для пешеходов / интерактивный для велосипедистов - авто"). Контент
@@ -227,6 +228,12 @@ export default function InteractiveLandingPage() {
           </div>
         </div>
       </section>
+
+      {/* ============ FEATURE MAP ============ */}
+      {/* ДОДАНО за прямим запитом користувача ("добавь на интерактивный лендинг feature map") —
+          підсумковий "оглядовий" блок перед фінальним CTA (components/FeatureMap.tsx, детальний
+          коментар там). */}
+      <FeatureMap />
 
       {/* ============ ФИНАЛЬНЫЙ CTA + ФУТЕР ============ */}
       <section className="border-t border-white/5 bg-surface px-6 py-24 text-center">
