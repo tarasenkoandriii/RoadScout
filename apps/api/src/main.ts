@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ForbiddenException, ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
 import { NotFoundRedirectFilter } from './common/not-found-redirect.filter';
 // Реальный сбой в проде: `import cookieParser from 'cookie-parser'` + `app.use(cookieParser())`
@@ -52,7 +52,19 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
+      // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем через тепер-уже-логуючий
+      // NotFoundRedirectFilter — "POST /btw/session: Origin https://road-scout-inky.vercel.app
+      // not allowed by CORS"): цей `callback(new Error(...))` кидав ЗВИЧАЙНИЙ `Error`, не
+      // `HttpException` — той самий клас проблеми, що вже виправлено у самому фільтрі (§ його
+      // коментар), але тут навпаки: відхилений origin — це ОЧІКУВАНА, не аварійна, поведінка
+      // (клієнт із недозволеного домену), і мала б повертати 403, а не потрапляти під
+      // "невідома/аварійна помилка сервера" 500. Причина живого багу в скріншоті — ІНША:
+      // production-домен самого BTW mini-app (`road-scout-inky.vercel.app`) просто відсутній у
+      // `CORS_ALLOWED_ORIGINS`/`ADMIN_ORIGIN` — це виправляється ЛИШЕ зміною env-змінної на
+      // деплої (код тут не може знати домен наперед), а не кодом. Ця зміна лише виправляє СЕМАНТИКУ
+      // відповіді (403 замість 500) для будь-якого недозволеного origin — включно з тим самим
+      // випадком, якщо домен ще не додано.
+      callback(new ForbiddenException(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
   });
