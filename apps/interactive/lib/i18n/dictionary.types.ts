@@ -39,6 +39,12 @@ export interface Dictionary {
 
   audience_eyebrow: string;
   audience_title: string;
+  // ДОДАНО за прямим запитом користувача ("добавить еще режим пешком - и соотвествующую
+  // плашку") — третя картка секції "для кого" (app/[lang]/page.tsx), розміщена ПЕРШОЮ, до
+  // велосипеда й авто. Не вигадана функція: узгоджена з уже наявним профілем маршрутизації
+  // 'foot-walking' у PROFILE_OPTIONS міні-додатку (apps/btw/app/page.tsx).
+  audience_pedestrian_title: string;
+  audience_pedestrian_text: string;
   audience_cyclist_title: string;
   audience_cyclist_text: string;
   audience_driver_title: string;

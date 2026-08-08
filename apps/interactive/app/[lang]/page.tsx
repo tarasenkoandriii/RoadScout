@@ -70,7 +70,7 @@ export default function InteractiveLandingPage() {
           защищать") — короткий слоган зліва в фіксованій шапці, видимий на будь-якій секції під
           час скролу (та сама fixed-шапка, що вже мала лише LanguageSelector справа). */}
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-3 px-6 pt-4 sm:pt-6">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted/80">{t('header_slogan')}</p>
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-mutedLight">{t('header_slogan')}</p>
         <div className="pointer-events-auto">
           <LanguageSelector />
         </div>
@@ -159,14 +159,28 @@ export default function InteractiveLandingPage() {
         </div>
       </section>
 
-      {/* ============ ДЛЯ КОГО (ВЕЛОСИПЕД / АВТО) ============ */}
+      {/* ============ ДЛЯ КОГО (ПІШКИ / ВЕЛОСИПЕД / АВТО) ============ */}
+      {/* ОНОВЛЕНО за прямим запитом користувача ("сейчас За кермом чи на велосипеді / добавить
+          еще режим пешком - и соотвествующую плашку") — третя картка "пішки", узгоджена з уже
+          наявним профілем маршрутизації `foot-walking` у мінідодатку (apps/btw/app/page.tsx,
+          PROFILE_OPTIONS: 'driving-car' | 'cycling-regular' | 'foot-walking') — тобто це не
+          новий вигаданий режим, а той, що вже реально підтримується. grid sm:grid-cols-2 →
+          sm:grid-cols-3; заголовок секції (audience_title) теж оновлено на всіх 10 мовах, щоб
+          явно перелічувати всі три режими, а не лише два. */}
       <section className="border-t border-white/5 bg-surface px-6 py-24">
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
             <Eyebrow>{t('audience_eyebrow')}</Eyebrow>
             <h2 className="font-display text-3xl font-medium sm:text-4xl">{t('audience_title')}</h2>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-bg p-8">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-primary">
+                <Icon src="/icons/walking.svg" />
+              </div>
+              <h3 className="font-display text-xl font-medium">{t('audience_pedestrian_title')}</h3>
+              <p className="mt-2 text-muted">{t('audience_pedestrian_text')}</p>
+            </div>
             <div className="rounded-2xl border border-white/10 bg-bg p-8">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-primary">
                 <Icon src="/icons/bicycle.svg" />
@@ -249,7 +263,7 @@ export default function InteractiveLandingPage() {
         </div>
       </section>
 
-      <footer className="px-6 py-10 text-center font-mono text-xs text-muted">
+      <footer className="px-6 py-10 text-center font-mono text-xs text-mutedLight">
         <p>{t('footer_note')}</p>
         <p className="mt-2">{t('footer_copyright', { year: new Date().getFullYear() })}</p>
       </footer>
@@ -275,7 +289,7 @@ function Step({
       <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 ${iconColor}`}>
         <Icon src={icon} />
       </div>
-      <p className="mb-1 font-mono text-xs text-muted">{n}</p>
+      <p className="mb-1 font-mono text-xs text-mutedLight">{n}</p>
       <h3 className="font-display text-lg font-medium">{title}</h3>
       <p className="mt-2 text-muted">{children}</p>
     </li>

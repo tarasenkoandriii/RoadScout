@@ -36,7 +36,9 @@ const dict: Dictionary = {
   step4_text: 'Список того, що за кількасот метрів попереду, — один дотик, щоб подивитись детальніше.',
 
   audience_eyebrow: '// кому це підходить',
-  audience_title: 'За кермом чи на велосипеді',
+  audience_title: 'За кермом, на велосипеді чи пішки',
+  audience_pedestrian_title: 'Пішки',
+  audience_pedestrian_text: 'Маршрут для пішохода, з попередженнями про камери та обставини на шляху.',
   audience_cyclist_title: 'Велосипед',
   audience_cyclist_text: 'Маршрут з урахуванням профілю велосипедиста, попередження про камери та обставини на шляху.',
   audience_driver_title: 'Авто',

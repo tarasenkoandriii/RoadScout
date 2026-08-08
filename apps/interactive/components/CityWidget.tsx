@@ -114,7 +114,7 @@ export default function CityWidget() {
 
           <CityMapPanel center={visitorGeo} weather={snapshot.weather} incidents={snapshot.incidents} />
 
-          <p className="mt-6 text-center text-xs text-muted">{t('widget_disclaimer')}</p>
+          <p className="mt-6 text-center text-xs text-mutedLight">{t('widget_disclaimer')}</p>
         </div>
       )}
     </div>

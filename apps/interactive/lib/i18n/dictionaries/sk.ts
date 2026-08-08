@@ -31,7 +31,9 @@ const dict: Dictionary = {
   step4_text: 'Zoznam toho, čo je pár stoviek metrov pred tebou — jedno ťuknutie na podrobnosti.',
 
   audience_eyebrow: '// pre koho je to určené',
-  audience_title: 'Za volantom alebo na bicykli',
+  audience_title: 'Za volantom, na bicykli alebo pešo',
+  audience_pedestrian_title: 'Peši',
+  audience_pedestrian_text: 'Trasa prispôsobená profilu chodca, s upozorneniami na kamery a podmienky na ceste.',
   audience_cyclist_title: 'Bicykel',
   audience_cyclist_text: 'Trasa prispôsobená profilu cyklistu, s upozorneniami na kamery a podmienky na ceste.',
   audience_driver_title: 'Auto',

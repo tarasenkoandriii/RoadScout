@@ -31,7 +31,9 @@ const dict: Dictionary = {
   step4_text: "Une liste de ce qui se trouve à quelques centaines de mètres devant vous — un tap pour voir les détails.",
 
   audience_eyebrow: '// pour qui',
-  audience_title: 'Au volant ou à vélo',
+  audience_title: 'Au volant, à vélo ou à pied',
+  audience_pedestrian_title: 'À pied',
+  audience_pedestrian_text: "Un itinéraire adapté au profil piéton, avec des alertes sur les caméras et les conditions en chemin.",
   audience_cyclist_title: 'Vélo',
   audience_cyclist_text: "Un itinéraire adapté au profil cycliste, avec des alertes sur les caméras et les conditions en chemin.",
   audience_driver_title: 'Voiture',

@@ -34,7 +34,9 @@ const dict: Dictionary = {
   step4_text: 'A list of what is a few hundred meters ahead — one tap to see the details.',
 
   audience_eyebrow: '// who it is for',
-  audience_title: 'Driving or cycling',
+  audience_title: 'Driving, cycling, or walking',
+  audience_pedestrian_title: 'Walking',
+  audience_pedestrian_text: 'A route tailored to a pedestrian profile, with warnings about cameras and conditions along the way.',
   audience_cyclist_title: 'Cycling',
   audience_cyclist_text: 'A route tailored to a cyclist profile, with warnings about cameras and conditions along the way.',
   audience_driver_title: 'Driving',

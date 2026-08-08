@@ -31,7 +31,9 @@ const dict: Dictionary = {
   step4_text: 'Lista arról, mi van néhány száz méterrel előtted — egy koppintás a részletekhez.',
 
   audience_eyebrow: '// kinek szól',
-  audience_title: 'Volán mögött vagy kerékpáron',
+  audience_title: 'Volán mögött, kerékpáron vagy gyalog',
+  audience_pedestrian_title: 'Gyalog',
+  audience_pedestrian_text: 'Gyalogos profilhoz igazított útvonal, figyelmeztetésekkel a kamerákról és az útviszonyokról.',
   audience_cyclist_title: 'Kerékpár',
   audience_cyclist_text: 'Kerékpáros profilhoz igazított útvonal, figyelmeztetésekkel a kamerákról és az útviszonyokról.',
   audience_driver_title: 'Autó',

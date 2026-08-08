@@ -72,7 +72,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
 
   return (
     <div>
-      <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-muted">{t('widget_map_label')}</p>
+      <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-mutedLight">{t('widget_map_label')}</p>
 
       <div className="grid gap-4 md:grid-cols-[1fr_15rem]">
         <div>
@@ -83,7 +83,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
                 type="button"
                 onClick={() => setLayer(tab.key)}
                 className={`rounded-full px-2.5 py-1 font-mono text-[11px] transition-colors ${
-                  layer === tab.key ? 'bg-primary text-[#0F172A]' : 'bg-white/5 text-muted hover:bg-white/10'
+                  layer === tab.key ? 'bg-primary text-[#0F172A]' : 'bg-white/5 text-mutedLight hover:bg-white/10'
                 }`}
               >
                 {tab.label}
@@ -106,7 +106,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
           </div>
 
           {(layer === 'incidents' || layer === 'roads') && (
-            <p className="mt-1 text-center font-mono text-[10px] text-muted">
+            <p className="mt-1 text-center font-mono text-[10px] text-mutedLight">
               {t('widget_map_radius_note', { radius: incidents.radiusKm })}
             </p>
           )}
@@ -121,14 +121,14 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
               "чесно", що й раніше). */}
           {weather.available && (
             <div className="mb-4 rounded-xl border border-white/10 bg-surface/60 p-3">
-              <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-muted">{t('widget_weather_label')}</p>
+              <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-mutedLight">{t('widget_weather_label')}</p>
               <div className="flex items-center gap-2.5">
                 <WeatherIcon kind={weather.iconKind} className="h-9 w-9 flex-none text-neutral" />
                 <div className="min-w-0">
                   <p className="font-display text-2xl font-semibold leading-tight text-neutral">
                     {Math.round(weather.tempC as number)}°C
                   </p>
-                  <p className="truncate text-xs text-muted">{weather.conditionLabel}</p>
+                  <p className="truncate text-xs text-mutedLight">{weather.conditionLabel}</p>
                 </div>
               </div>
               {weather.isHazard && <p className="mt-1.5 text-xs text-warning">{t('widget_weather_hazard')}</p>}
@@ -138,7 +138,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
                     <div key={day.dateIso} className="flex items-center gap-1.5">
                       <WeatherIcon kind={day.iconKind} className="h-5 w-5 flex-none text-muted" />
                       <div className="leading-tight">
-                        <p className="text-[11px] capitalize text-muted">{formatForecastDay(day.dateIso, lang)}</p>
+                        <p className="text-[11px] capitalize text-mutedLight">{formatForecastDay(day.dateIso, lang)}</p>
                         <p className="text-[11px] font-medium text-neutral">
                           {day.tempMaxC !== null ? Math.round(day.tempMaxC) : '—'}°/{day.tempMinC !== null ? Math.round(day.tempMinC) : '—'}°
                         </p>
@@ -150,7 +150,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
             </div>
           )}
 
-          <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-muted">{t('widget_incidents_label')}</p>
+          <p className="mb-2 font-mono text-xs uppercase tracking-[0.15em] text-mutedLight">{t('widget_incidents_label')}</p>
           {incidents.configured ? (
             <div>
               {incidents.items.length === 0 ? (
@@ -169,7 +169,7 @@ export default function CityMapPanel({ center, weather, incidents }: Props) {
                   ))}
                 </ul>
               )}
-              <p className="mt-3 font-mono text-[11px] text-muted">
+              <p className="mt-3 font-mono text-[11px] text-mutedLight">
                 {incidents.source === '511NY' && t('widget_incidents_source_511ny')}
                 {incidents.source === 'TomTom' && t('widget_incidents_source_tomtom')}
               </p>

@@ -31,7 +31,9 @@ const dict: Dictionary = {
   step4_text: 'O listă cu ce se află la câteva sute de metri în față — o atingere pentru detalii.',
 
   audience_eyebrow: '// pentru cine',
-  audience_title: 'La volan sau pe bicicletă',
+  audience_title: 'La volan, pe bicicletă sau pe jos',
+  audience_pedestrian_title: 'Pe jos',
+  audience_pedestrian_text: 'Un traseu adaptat profilului de pieton, cu avertismente despre camere și condițiile de pe drum.',
   audience_cyclist_title: 'Bicicletă',
   audience_cyclist_text: 'Un traseu adaptat profilului de ciclist, cu avertismente despre camere și condițiile de pe drum.',
   audience_driver_title: 'Mașină',
