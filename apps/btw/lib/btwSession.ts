@@ -14,22 +14,46 @@
 import { loggedFetch } from './networkLog';
 
 let sessionPromise: Promise<void> | null = null;
+// ВИПРАВЛЕНО (аудит після живого CORS-інциденту — "POST /api/session — 500", де причиною
+// виявився недозволений origin): поки CORS був зламаний, КОЖЕН виклик /api/session провалювався
+// — а через модульний сінглтон-проміс НИЖЧЕ це означало, що після ПЕРШОЇ ж невдачі
+// `sessionPromise` назавжди запам'ятовував "успішно завершений, але нічого не зробив" стан:
+// усі наступні виклики `ensureBtwSession()` (з будь-якого екрана, будь-коли) отримували ТОЙ
+// САМИЙ уже-вирішений проміс і НАВІТЬ НЕ НАМАГАЛИСЬ повторити запит — аж до повного
+// перезавантаження сторінки (яке скидає JS-модулі й сам `sessionPromise`). Тобто навіть ПІСЛЯ
+// виправлення CORS на сервері, вкладка/сесія браузера, що вже встигла один раз невдало
+// спробувати, лишалась би "залогінена нізащо" без жодної подальшої спроби. Той самий клас
+// проблеми, що вже виправлено для кешу міста (btwCityCache.ts) — "негативний результат
+// закешовано назавжди, без шляху до самовиправлення". Тепер — при невдачі `sessionPromise`
+// скидається в `null` (не залишається "успішно вирішеним"), тож НАСТУПНИЙ виклик
+// `ensureBtwSession()` (з будь-якого екрана — усі й далі діляться тим самим сінглтоном, поки
+// він в польоті чи успішно завершений) реально спробує ще раз, а не мовчки повторить ту саму
+// заморожену невдачу.
+let sessionAttemptFailed = false;
 
 export function ensureBtwSession(): Promise<void> {
   if (!sessionPromise) {
+    sessionAttemptFailed = false;
     sessionPromise = (async () => {
       const initData = (window as any).Telegram?.WebApp?.initData;
       if (!initData) return; // не всередині Telegram (напр. звичайний браузер для тестів UI) — просто немає сесії
       try {
-        await loggedFetch('/api/session', {
+        const res = await loggedFetch('/api/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ initData }),
         });
+        if (!res.ok) sessionAttemptFailed = true;
       } catch {
         // мовчазно продовжуємо без сесії — далі просто НЕ буде override/телеметрії/скану,
         // як і раніше, а не блокуємо весь UI через збій одного логін-запиту
+        sessionAttemptFailed = true;
+      } finally {
+        // Скидаємо сінглтон ЛИШЕ при невдачі — успішний логін і далі кешується назавжди (як
+        // і раніше, це навмисно: не сенсу перелогінюватись щоразу, initData не змінюється
+        // впродовж сесії мінідодатку).
+        if (sessionAttemptFailed) sessionPromise = null;
       }
     })();
   }

@@ -223,7 +223,7 @@ function BtwScanPageInner() {
   const [usedDevOverride, setUsedDevOverride] = useState(false);
   // ДОДАНО — вже визначена (чи ще визначається) позиція зі спільного провайдера
   // app/layout.tsx, запитана одразу при вході в мінідодаток (див. requestPermissions() нижче).
-  const { location: sharedLocation, usedDevOverride: sharedUsedDevOverride } = useLocation();
+  const { location: sharedLocation, usedDevOverride: sharedUsedDevOverride, locating: sharedLocating } = useLocation();
   // ДОДАНО — §2.2 ТЗ, скан для конкретної точки маршруту (див. коментар біля useSearchParams
   // вище) — окремий від `usedDevOverride` прапорець/підпис, щоб не плутати "адмінська підміна
   // координат" із "навмисно відкрито для ось цієї точки на маршруті".
@@ -589,10 +589,30 @@ function BtwScanPageInner() {
   // нижче й покаже фазу 'error' з кнопкою "Повторить", тап по якій ГАРАНТОВАНО прямий жест і
   // коректно отримає дозволи. На Android (де такого обмеження немає) — повністю безшовно; на
   // iOS у гіршому разі — один додатковий тап "Повторить" замість прибраного екрана.
+  //
+  // ВИПРАВЛЕНО (аудит — знайдена реальна гонка, не лише гіпотетична): раніше цей ефект мав
+  // порожній масив залежностей і запускав `requestPermissions()` з тим `sharedLocation`, яке
+  // встигло резолвитись САМЕ до першого рендеру `/scan` — якщо користувач потрапляв сюди
+  // ШВИДШЕ, ніж `<LocationProvider>` (app/layout.tsx) устигав завершити СВІЙ одноразовий запит
+  // геолокації/dev-override, `sharedLocation` тут був `null`, і `requestPermissions()`
+  // (§ гілка `if (!usedOverride && sharedLocation != null)` нижче) мовчки запускала СВІЙ
+  // ОКРЕМИЙ, повністю дубльований запит до `/api/dev-location-override` і власний
+  // `navigator.geolocation.getCurrentPosition()` — ПАРАЛЕЛЬНО з тим самим запитом, що вже
+  // виконував провайдер. Тепер чекаємо, поки провайдер сам завершить СВІЙ єдиний прохід
+  // (`sharedLocating === false` — незалежно від результату: успіх чи відмова), і лише ТОДІ
+  // запускаємо `requestPermissions()` — вона застає вже готовий `sharedLocation`/
+  // `sharedUsedDevOverride` і бере його напряму, без жодного дублюючого мережевого запиту. У
+  // звичайному випадку (користувач хоч трохи погортав головне меню перед тапом "Сканировать")
+  // `sharedLocating` уже `false` до монтування `/scan` — запуск миттєвий, без затримки; чекати
+  // доводиться лише в рідкісному "клікнув миттєво" сценарії, і не довше, ніж і так зайняв би
+  // весь ланцюжок дозволів раніше.
+  const autoStartedRef = useRef(false);
   useEffect(() => {
+    if (autoStartedRef.current) return;
+    if (sharedLocating) return; // провайдер ще не завершив свій єдиний прохід — чекаємо, не дублюємо
+    autoStartedRef.current = true;
     requestPermissions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sharedLocating, requestPermissions]);
 
   function handleOrientation(e: DeviceOrientationEvent & { webkitCompassHeading?: number }) {
     const raw = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? 360 - e.alpha : null);
@@ -657,26 +677,71 @@ function BtwScanPageInner() {
     // віддати МИТТЄВО, синхронно, без жодного мережевого запиту взагалі (не просто швидше —
     // повністю усуває цей запит із критичного шляху до готовності локального сканера).
     const cachedSlug = lookupCitySlugForCoords(position.lat, position.lng);
+
+    // ВИПРАВЛЕНО (реальний живий баг, знайдений користувачем — "мюнхен снова и снова", після
+    // серверного фіксу nearestCity() з допуском MAX_REASONABLE_DISTANCE_M): раніше на
+    // cache hit ефект робив `setScanCitySlug(cachedSlug); return;` — ПОВНІСТЮ пропускаючи
+    // мережевий запит до /btw/nearest-city НАЗАВЖДИ для цих округлених координат. Це означало,
+    // що будь-яке ОДНОРАЗОВО неправильно закешоване місто (напр. "munich-de", записане ЩЕ ДО
+    // серверного фіксу — коли (0,0) хибно резолвився в Мюнхен) самовідтворювалося на кожному
+    // наступному сеансі З ЦИХ ЖЕ координат НЕСКІНЧЕННО — сам факт кеш-хіта означав, що сервер
+    // (з уже виправленою, коректною перевіркою відстані) НІКОЛИ більше не отримував шансу
+    // виправити цей конкретний запис, бо запит до нього просто не йшов. Мій попередній фікс
+    // (TTL 14 днів у btwCityCache.ts) тут НЕ допомагав — записи, зроблені сьогодні ж під час
+    // цього самого тестування, свіжіші за 14 днів і не підпадали під відсів.
+    //
+    // Тепер — stale-while-revalidate: закешоване значення й далі використовується ОДРАЗУ (та
+    // сама миттєва швидкість, що й раніше — жодної регресії для звичайного "нормального" кейсу,
+    // коли кеш просто правильний), АЛЕ мережевий запит до /btw/nearest-city все одно летить у
+    // фоні. Якщо сервер (з актуальною, а не застарілою логікою) поверне ІНШИЙ слаг — виправляємо
+    // `scanCitySlug` і перезаписуємо кеш свіжим значенням (rememberCitySlug), тобто помилкове
+    // значення самовиправляється вже на НАСТУПНОМУ ж скані, а не залишається замороженим до
+    // ручного очищення сайту чи 14-денного TTL.
     if (cachedSlug != null) {
       setScanCitySlug(cachedSlug);
-      return;
     }
 
     (async () => {
       try {
         const params = new URLSearchParams({ lat: String(position.lat), lng: String(position.lng) });
         const res = await loggedFetch(`/api/nearest-city?${params}`);
+
+        // ВИПРАВЛЕНО — 404 тут не "мережевий збій", а АВТОРИТЕТНА відповідь сервера
+        // (BtwService.nearestCity(), MAX_REASONABLE_DISTANCE_M): "жодного реального міста
+        // немає в розумному радіусі від цих координат". Якщо стара закешована здогадка (напр.
+        // "munich-de", записана ЩЕ ДО того, як сервер отримав цю перевірку) досі лежить у
+        // локальному кеші — саме такий 404 і є моментом, коли її треба явно ОБНУЛИТИ: не лише
+        // виправити поточний стан (`setScanCitySlug('kyiv')`), а й ПЕРЕЗАПИСАТИ сам кеш-запис
+        // (`rememberCitySlug(..., 'kyiv')`) — інакше наступного разу з ЦИХ ЖЕ округлених
+        // координат `lookupCitySlugForCoords` знову миттєво поверне ту саму стару "munich-de" на
+        // першу мить (до того, як ця ж фонова перевірка знову її виправить) — прибираємо це
+        // навіть тимчасове моргання неправильним містом. Будь-який ІНШИЙ неуспішний статус (500,
+        // мережевий збій) — вважаємо тимчасовим, лишаємо стару здогадку як є (не гірше, ніж було
+        // до цього фікса).
+        if (res.status === 404) {
+          setScanCitySlug('kyiv');
+          rememberCitySlug(position.lat, position.lng, 'kyiv');
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const data = (await res.json()) as { slug: string };
-        setScanCitySlug(data.slug);
-        rememberCitySlug(position.lat, position.lng, data.slug); // наступного разу з тими самими координатами — миттєвий cache hit вище, без мережі
+        if (data.slug !== cachedSlug) {
+          setScanCitySlug(data.slug);
+        }
+        rememberCitySlug(position.lat, position.lng, data.slug); // наступного разу з тими самими координатами — миттєвий cache hit вище, і водночас фонова перевірка нижче
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[BtwScanPage] nearest-city failed, falling back to "kyiv":', err);
-        // Чесний фолбек — той самий дефолт, що вже BtwController::getManifest() застосовує
-        // (`@Query('city') city ?? 'kyiv'`) — краще спробувати щось (навіть імовірно неправильне
-        // місто), ніж НАЗАВЖДИ лишити локальний шлях вимкненим через один невдалий HTTP-запит.
-        setScanCitySlug('kyiv');
+        if (cachedSlug == null) {
+          // Чесний фолбек — той самий дефолт, що вже BtwController::getManifest() застосовує
+          // (`@Query('city') city ?? 'kyiv'`) — краще спробувати щось (навіть імовірно
+          // неправильне місто), ніж НАЗАВЖДИ лишити локальний шлях вимкненим через один невдалий
+          // HTTP-запит. Якщо cachedSlug уже був — лишаємо його (не затираємо робочу, хай і
+          // неперевірену цього разу, здогадку "запасним" 'kyiv' через тимчасовий збій мережі —
+          // на відміну від 404 вище, це НЕ авторитетна відповідь, лише збій самого запиту).
+          setScanCitySlug('kyiv');
+        }
       }
     })();
   }, [position]);

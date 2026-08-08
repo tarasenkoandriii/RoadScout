@@ -87,7 +87,7 @@ export default function BtwHomePage() {
   // раз при вході в мінідодаток (`<LocationProvider>`, app/layout.tsx, § lib/locationContext.tsx),
   // спільно з /map і /scan. Тут лишається лише похідна від неї логіка, специфічна саме для цього
   // екрана (дефолт точки А — нижче).
-  const { location: currentLocation, usedDevOverride, locating } = useLocation();
+  const { location: currentLocation, usedDevOverride, locating, permissionDenied } = useLocation();
 
   // §2.1 шаг 2 — точка А за замовчуванням "текущее местоположение", як тільки воно визначене.
   const [pointA, setPointA] = useState<PickedPlace | null>(null);
@@ -229,6 +229,18 @@ export default function BtwHomePage() {
         {usedDevOverride && (
           <p className="mt-2 rounded bg-yellow-900/60 px-3 py-1.5 text-center text-[11px] text-yellow-200">
             ⚠️ используется подмена координат (dev)
+          </p>
+        )}
+
+        {/* ДОДАНО (аудит — знайдена реальна прогалина UX) — за тим самим принципом, що вже
+            §8.2 ТЗ і app/map/page.tsx: якщо в дозволі на геолокацію відмовлено, решта
+            мінідодатку має продовжувати працювати (§ mapCenter вище — фолбек на Київ), але
+            користувач має ЗНАТИ чому мапа показує невірне місто, а не просто мовчки бачити
+            Київ без жодного пояснення — раніше цей екран (на відміну від /map) взагалі не
+            дивився на `permissionDenied`. */}
+        {permissionDenied && !usedDevOverride && (
+          <p className="mt-2 rounded bg-yellow-900/60 px-3 py-1.5 text-center text-[11px] text-yellow-200">
+            ⚠️ Геолокация недоступна — укажите точку «Откуда» вручную
           </p>
         )}
 
