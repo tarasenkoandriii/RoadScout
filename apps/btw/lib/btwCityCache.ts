@@ -47,6 +47,25 @@ interface CityCacheEntry {
 const STORAGE_KEY = 'btw-city-cache-v1';
 const MAX_ENTRIES = 20; // достатньо для кількох "звичних" точок (дім/робота/кілька міст) без необмеженого росту localStorage
 const COORD_ROUND_DECIMALS = 2; // ~1.1км на екваторі — досить для визначення МІСТА (не точної позиції в ньому)
+// ДОДАНО (реальний живий баг, знайдений користувачем — скріншот Log-панелі: спекулятивна
+// здогадка тягнула тайли для "munich-de", хоча реальна позиція — Нью-Йорк) — той самий
+// первопричинний баг, що вже виправлено на сервері (BtwService.nearestCity(), допуск
+// MAX_REASONABLE_DISTANCE_M): раніше GPS (0,0) хибно резолвився в "munich-de" й ЦЕЙ
+// (неправильний) результат так само чесно потрапляв у цей кеш через rememberCitySlug() нижче
+// — сам кеш ніколи не знав, що конкретно ЦЕЙ запис був артефактом бага, не справжнім "звичним
+// містом користувача". Серверний фікс зупиняє НОВІ такі записи, але СТАРІ, вже збережені на
+// пристрої ДО фіксу, нічим не обмежені в часі — getMostRecentCitySlug() бере просто
+// найновіший за `ts` запис, тож стара "munich-de"-здогадка продовжувала б спливати як
+// спекулятивна щоразу, доки якийсь СПРАВЖНІЙ успішний резолв не перезапише її свіжішим `ts`
+// (сам механізм самовиправляється — щойно приходить реальна позиція, rememberCitySlug()
+// записує правильне місто з новим ts, і наступного разу getMostRecentCitySlug() віддасть уже
+// його — але до того моменту стара здогадка встигає "відпрацювати" один зайвий раз). Тепер —
+// проста верхня межа віку запису: якщо `ts` старіший за MAX_ENTRY_AGE_MS, запис вважається
+// протухлим і відкидається (і при спекулятивному getMostRecentCitySlug(), і при точному
+// lookupCitySlugForCoords()) — не стосується конкретно бага з Мюнхеном (жодного способу
+// відрізнити "стара, але правильна" здогадка від "стара і випадково неправильна" немає), а
+// загальний захист від необмежено старих здогадок, що накопичуються на пристрої.
+const MAX_ENTRY_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 днів
 
 function roundKey(lat: number, lng: number): string {
   return `${lat.toFixed(COORD_ROUND_DECIMALS)},${lng.toFixed(COORD_ROUND_DECIMALS)}`;
@@ -58,7 +77,9 @@ function loadEntries(): CityCacheEntry[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as CityCacheEntry[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return (parsed as CityCacheEntry[]).filter((e) => now - e.ts <= MAX_ENTRY_AGE_MS);
   } catch {
     return []; // будь-яка проблема (квота/приватний режим/зіпсований JSON) — просто працюємо без кешу, як і без цієї фічі
   }
